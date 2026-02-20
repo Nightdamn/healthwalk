@@ -9,6 +9,18 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
   const circumference = 2 * Math.PI * 90;
   const strokeDashoffset = circumference - (progressPct / 100) * circumference;
 
+  // Determine if user has started at all (elapsed > 0)
+  const elapsed = totalSec - timerSeconds;
+  const hasStarted = elapsed > 0;
+
+  // Button label
+  const getButtonLabel = () => {
+    if (timerPaused) {
+      return hasStarted ? "Продолжить" : "Начать";
+    }
+    return "Пауза";
+  };
+
   return (
     <Layout>
       <div
@@ -61,7 +73,9 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
           <svg width="200" height="200" style={{ transform: "rotate(-90deg)" }}>
             <circle cx="100" cy="100" r="90" fill="none" stroke="rgba(0,0,0,0.04)" strokeWidth="6" />
             <circle
-              cx="100" cy="100" r="90" fill="none" stroke="#1a1a2e" strokeWidth="6" strokeLinecap="round"
+              cx="100" cy="100" r="90" fill="none"
+              stroke={timerSeconds === 0 ? "#27ae60" : "#1a1a2e"}
+              strokeWidth="6" strokeLinecap="round"
               strokeDasharray={circumference}
               strokeDashoffset={strokeDashoffset}
               style={{ transition: "stroke-dashoffset 1s linear" }}
@@ -69,38 +83,38 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
           </svg>
           <div
             style={{
-              position: "absolute",
-              inset: 0,
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
+              position: "absolute", inset: 0,
+              display: "flex", flexDirection: "column",
+              alignItems: "center", justifyContent: "center",
             }}
           >
             {timerSeconds === 0 ? (
               <>
-                <span style={{ fontSize: 42, fontWeight: 300, color: "#1a1a2e" }}>✓</span>
+                <span style={{ fontSize: 42, fontWeight: 300, color: "#27ae60" }}>✓</span>
                 <span style={{ fontSize: 13, color: "#1a1a2e", fontWeight: 600, marginTop: 4 }}>Завершено</span>
               </>
             ) : (
               <>
                 <span style={{ fontSize: 11, color: "#aaa", fontWeight: 500, textAlign: "center" }}>
-                  {timerPaused ? "На паузе" : "До завершения упражнения:"}
+                  {timerPaused
+                    ? (hasStarted ? "На паузе" : "Готовы?")
+                    : "До завершения:"
+                  }
                 </span>
                 <span
                   style={{
-                    fontSize: 40,
-                    fontWeight: 300,
-                    color: "#1a1a2e",
-                    letterSpacing: "2px",
-                    fontVariantNumeric: "tabular-nums",
-                    margin: "4px 0",
+                    fontSize: 42, fontWeight: 300, color: "#1a1a2e",
+                    letterSpacing: "2px", fontVariantNumeric: "tabular-nums",
+                    margin: "6px 0",
                   }}
                 >
                   {formatTime(timerSeconds)}
                 </span>
                 <span style={{ fontSize: 12, color: "#1a1a2e", fontWeight: 600 }}>
-                  {timerPaused ? "Нажмите ▶ для продолжения" : "Ещё чуть-чуть!"}
+                  {timerPaused
+                    ? (hasStarted ? "Нажмите для продолжения" : "Нажмите для начала")
+                    : "Ещё чуть-чуть!"
+                  }
                 </span>
               </>
             )}
@@ -109,41 +123,42 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
 
         {/* Controls */}
         <div style={{ display: "flex", gap: 16 }}>
-          {timerSeconds > 0 && (
+          {timerSeconds > 0 ? (
             <button
               onClick={onPause}
               style={{
-                width: 64,
-                height: 64,
-                borderRadius: "50%",
-                border: "1.5px solid rgba(0,0,0,0.08)",
-                background: "rgba(255,255,255,0.8)",
-                backdropFilter: "blur(12px)",
+                padding: "16px 44px",
+                background: timerPaused ? "#1a1a2e" : "rgba(255,255,255,0.8)",
+                color: timerPaused ? "#fff" : "#1a1a2e",
+                border: timerPaused ? "none" : "1.5px solid rgba(0,0,0,0.08)",
+                borderRadius: 16,
+                fontSize: 16,
+                fontWeight: 600,
                 cursor: "pointer",
-                fontSize: 22,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                color: "#1a1a2e",
-                boxShadow: "0 4px 16px rgba(0,0,0,0.04)",
+                boxShadow: timerPaused
+                  ? "0 4px 20px rgba(26,26,46,0.2)"
+                  : "0 4px 16px rgba(0,0,0,0.04)",
+                backdropFilter: timerPaused ? "none" : "blur(12px)",
+                transition: "all 0.25s ease",
+                minWidth: 180,
               }}
             >
-              {timerPaused ? "▶" : "⏸"}
+              {getButtonLabel()}
             </button>
-          )}
-          {timerSeconds === 0 && (
+          ) : (
             <button
               onClick={onDone}
               style={{
-                padding: "16px 40px",
+                padding: "16px 44px",
                 background: "#1a1a2e",
                 color: "#fff",
                 border: "none",
                 borderRadius: 16,
-                fontSize: 15,
+                fontSize: 16,
                 fontWeight: 600,
                 cursor: "pointer",
                 boxShadow: "0 4px 20px rgba(26,26,46,0.2)",
+                minWidth: 180,
               }}
             >
               Готово

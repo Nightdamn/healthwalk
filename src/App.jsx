@@ -252,7 +252,7 @@ export default function App() {
     setActiveActivity(activity);
     setTimerSeconds(remaining);
     setTimerRunning(true);
-    setTimerPaused(false);
+    setTimerPaused(true); // start PAUSED — user presses Начать/Продолжить
     setScreen("timer");
   };
 
