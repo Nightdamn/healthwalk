@@ -1,21 +1,91 @@
 import React, { useState } from 'react';
 import Layout from '../components/Layout';
 import { LogoFull } from '../components/Icons';
+import { supabase } from '../lib/supabase';
 
 export default function LoginPage({ onLogin }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [mode, setMode] = useState("login");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
 
-  const handleSubmit = () => {
-    if (email.trim()) {
-      const name = email.split("@")[0];
-      onLogin({ name: name.charAt(0).toUpperCase() + name.slice(1), email });
+  const handleSubmit = async () => {
+    if (!email.trim() || !password.trim()) {
+      setError("Введите email и пароль");
+      return;
+    }
+    setLoading(true);
+    setError("");
+    setMessage("");
+
+    try {
+      if (mode === "register") {
+        const { data, error: signUpError } = await supabase.auth.signUp({
+          email: email.trim(),
+          password,
+          options: {
+            data: {
+              name: email.split("@")[0].charAt(0).toUpperCase() + email.split("@")[0].slice(1),
+            },
+          },
+        });
+        if (signUpError) throw signUpError;
+
+        // Supabase may require email confirmation
+        if (data?.user?.identities?.length === 0) {
+          setError("Пользователь с таким email уже существует");
+        } else if (data?.session) {
+          // Auto-confirmed, session available
+          onLogin(data.session);
+        } else {
+          setMessage("Проверьте почту — мы отправили ссылку для подтверждения");
+        }
+      } else {
+        const { data, error: signInError } = await supabase.auth.signInWithPassword({
+          email: email.trim(),
+          password,
+        });
+        if (signInError) throw signInError;
+        if (data?.session) {
+          onLogin(data.session);
+        }
+      }
+    } catch (err) {
+      const msg = err?.message || "Произошла ошибка";
+      if (msg.includes("Invalid login")) {
+        setError("Неверный email или пароль");
+      } else if (msg.includes("Email not confirmed")) {
+        setError("Подтвердите email — проверьте почту");
+      } else if (msg.includes("already registered")) {
+        setError("Пользователь уже зарегистрирован");
+      } else if (msg.includes("least 6")) {
+        setError("Пароль должен быть не менее 6 символов");
+      } else {
+        setError(msg);
+      }
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleGoogle = () => {
-    onLogin({ name: "Пользователь", email: "user@gmail.com" });
+  const handleGoogle = async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const { error: googleError } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: window.location.origin,
+        },
+      });
+      if (googleError) throw googleError;
+      // Browser will redirect to Google — no need to do anything else
+    } catch (err) {
+      setError(err?.message || "Ошибка входа через Google");
+      setLoading(false);
+    }
   };
 
   const inputStyle = {
@@ -44,16 +114,13 @@ export default function LoginPage({ onLogin }) {
           zIndex: 1,
         }}
       >
-        {/* Logo */}
         <div style={{ marginBottom: 16 }}>
           <LogoFull height={56} />
         </div>
-
         <p style={{ fontSize: 15, color: "#8a8a9a", margin: "0 0 40px", fontWeight: 400 }}>
           Сейчас самое время сделать первый шаг
         </p>
 
-        {/* Card */}
         <div
           style={{
             width: "100%",
@@ -72,15 +139,10 @@ export default function LoginPage({ onLogin }) {
             {["login", "register"].map((m) => (
               <button
                 key={m}
-                onClick={() => setMode(m)}
+                onClick={() => { setMode(m); setError(""); setMessage(""); }}
                 style={{
-                  flex: 1,
-                  padding: "10px 0",
-                  border: "none",
-                  borderRadius: 10,
-                  fontSize: 14,
-                  fontWeight: 600,
-                  cursor: "pointer",
+                  flex: 1, padding: "10px 0", border: "none", borderRadius: 10,
+                  fontSize: 14, fontWeight: 600, cursor: "pointer",
                   transition: "all 0.25s ease",
                   background: mode === m ? "#fff" : "transparent",
                   color: mode === m ? "#1a1a2e" : "#8a8a9a",
@@ -92,44 +154,59 @@ export default function LoginPage({ onLogin }) {
             ))}
           </div>
 
+          {/* Error / Success messages */}
+          {error && (
+            <div style={{
+              padding: "10px 14px", marginBottom: 16, borderRadius: 10,
+              background: "rgba(220,50,50,0.08)", color: "#c0392b",
+              fontSize: 13, fontWeight: 500, lineHeight: 1.4,
+            }}>
+              {error}
+            </div>
+          )}
+          {message && (
+            <div style={{
+              padding: "10px 14px", marginBottom: 16, borderRadius: 10,
+              background: "rgba(39,174,96,0.08)", color: "#27ae60",
+              fontSize: 13, fontWeight: 500, lineHeight: 1.4,
+            }}>
+              {message}
+            </div>
+          )}
+
           <input
-            type="email"
-            placeholder="Email"
-            value={email}
+            type="email" placeholder="Email" value={email}
             onChange={(e) => setEmail(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
-            style={{ ...inputStyle, marginBottom: 12 }}
+            onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
+            disabled={loading}
+            style={{ ...inputStyle, marginBottom: 12, opacity: loading ? 0.6 : 1 }}
             onFocus={(e) => (e.target.style.borderColor = "rgba(0,0,0,0.15)")}
             onBlur={(e) => (e.target.style.borderColor = "rgba(0,0,0,0.06)")}
           />
           <input
-            type="password"
-            placeholder="Пароль"
-            value={password}
+            type="password" placeholder="Пароль" value={password}
             onChange={(e) => setPassword(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
-            style={{ ...inputStyle, marginBottom: 20 }}
+            onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
+            disabled={loading}
+            style={{ ...inputStyle, marginBottom: 20, opacity: loading ? 0.6 : 1 }}
             onFocus={(e) => (e.target.style.borderColor = "rgba(0,0,0,0.15)")}
             onBlur={(e) => (e.target.style.borderColor = "rgba(0,0,0,0.06)")}
           />
 
           <button
             onClick={handleSubmit}
+            disabled={loading}
             style={{
-              width: "100%",
-              padding: "15px",
-              background: "#1a1a2e",
-              color: "#fff",
-              border: "none",
-              borderRadius: 14,
-              fontSize: 15,
-              fontWeight: 600,
-              cursor: "pointer",
-              marginBottom: 12,
-              transition: "transform 0.15s",
+              width: "100%", padding: "15px", background: "#1a1a2e", color: "#fff",
+              border: "none", borderRadius: 14, fontSize: 15, fontWeight: 600,
+              cursor: loading ? "wait" : "pointer", marginBottom: 12,
+              opacity: loading ? 0.7 : 1, transition: "opacity 0.2s",
             }}
           >
-            {mode === "login" ? "Войти" : "Зарегистрироваться"}
+            {loading
+              ? "Загрузка..."
+              : mode === "login" ? "Войти" : "Зарегистрироваться"
+            }
           </button>
 
           {/* Divider */}
@@ -142,20 +219,14 @@ export default function LoginPage({ onLogin }) {
           {/* Google */}
           <button
             onClick={handleGoogle}
+            disabled={loading}
             style={{
-              width: "100%",
-              padding: "14px",
-              background: "rgba(255,255,255,0.8)",
-              color: "#333",
-              border: "1.5px solid rgba(0,0,0,0.08)",
-              borderRadius: 14,
-              fontSize: 14,
-              fontWeight: 500,
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 10,
+              width: "100%", padding: "14px",
+              background: "rgba(255,255,255,0.8)", color: "#333",
+              border: "1.5px solid rgba(0,0,0,0.08)", borderRadius: 14,
+              fontSize: 14, fontWeight: 500, cursor: loading ? "wait" : "pointer",
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
+              opacity: loading ? 0.7 : 1,
             }}
           >
             <svg width="18" height="18" viewBox="0 0 18 18" style={{ flexShrink: 0 }}>

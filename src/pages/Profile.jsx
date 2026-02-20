@@ -1,13 +1,24 @@
-import React from 'react';
+import React, { useState } from 'react';
 import Layout from '../components/Layout';
 import { DAYS_TOTAL } from '../data/constants';
 import { btnBack, glass } from '../styles/shared';
 
-export default function ProfilePage({ user, currentDay, progress, onBack }) {
+export default function ProfilePage({ user, currentDay, progress, onBack, onLogout }) {
+  const [loggingOut, setLoggingOut] = useState(false);
+
   const completedDays = Object.keys(progress).filter((d) => {
     const day = progress[d];
     return day.warmup && day.standing && day.sitting && day.walking;
   }).length;
+
+  const handleLogout = async () => {
+    setLoggingOut(true);
+    try {
+      await onLogout();
+    } catch (e) {
+      setLoggingOut(false);
+    }
+  };
 
   return (
     <Layout>
@@ -19,31 +30,71 @@ export default function ProfilePage({ user, currentDay, progress, onBack }) {
         </div>
 
         <div style={{ ...glass, borderRadius: 20, padding: 28 }}>
-          <div
-            style={{
-              width: 72,
-              height: 72,
-              borderRadius: "50%",
-              background: "linear-gradient(135deg, #e8ecf1, #d0d8e3)",
-              margin: "0 auto 16px",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: 28,
-              fontWeight: 700,
-              color: "#1a1a2e",
-            }}
-          >
-            {user?.name?.charAt(0)}
-          </div>
+          {/* Avatar */}
+          {user?.avatar ? (
+            <img
+              src={user.avatar}
+              alt={user.name}
+              referrerPolicy="no-referrer"
+              style={{
+                width: 72, height: 72, borderRadius: "50%",
+                objectFit: "cover", display: "block",
+                margin: "0 auto 16px",
+                border: "3px solid rgba(255,255,255,0.8)",
+                boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
+              }}
+            />
+          ) : (
+            <div
+              style={{
+                width: 72, height: 72, borderRadius: "50%",
+                background: "linear-gradient(135deg, #e8ecf1, #d0d8e3)",
+                margin: "0 auto 16px",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: 28, fontWeight: 700, color: "#1a1a2e",
+              }}
+            >
+              {user?.name?.charAt(0)}
+            </div>
+          )}
+
           <div style={{ textAlign: "center" }}>
-            <div style={{ fontSize: 20, fontWeight: 700, color: "#1a1a2e", marginBottom: 4 }}>{user?.name}</div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: "#1a1a2e", marginBottom: 4 }}>
+              {user?.name}
+            </div>
             <div style={{ fontSize: 14, color: "#888" }}>{user?.email}</div>
-            <div style={{ marginTop: 20, padding: 14, background: "rgba(0,0,0,0.02)", borderRadius: 12, fontSize: 14, color: "#555" }}>
+            <div style={{
+              marginTop: 20, padding: 14,
+              background: "rgba(0,0,0,0.02)", borderRadius: 12,
+              fontSize: 14, color: "#555",
+            }}>
               День {currentDay} из {DAYS_TOTAL} • Завершено дней: {completedDays}
             </div>
           </div>
         </div>
+
+        {/* Logout */}
+        <button
+          onClick={handleLogout}
+          disabled={loggingOut}
+          style={{
+            width: "100%",
+            marginTop: 20,
+            padding: 16,
+            background: "rgba(255,255,255,0.6)",
+            backdropFilter: "blur(16px)",
+            border: "1.5px solid rgba(200,60,60,0.15)",
+            borderRadius: 16,
+            fontSize: 15,
+            fontWeight: 600,
+            color: "#c0392b",
+            cursor: loggingOut ? "wait" : "pointer",
+            opacity: loggingOut ? 0.6 : 1,
+            transition: "opacity 0.2s",
+          }}
+        >
+          {loggingOut ? "Выход..." : "Выйти из аккаунта"}
+        </button>
       </div>
     </Layout>
   );

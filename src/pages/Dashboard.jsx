@@ -53,22 +53,31 @@ export default function Dashboard({ user, currentDay, setCurrentDay, progress, e
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 36, paddingBottom: 24, borderBottom: "1px solid rgba(0,0,0,0.06)" }}>
-          <div
-            style={{
-              width: 44,
-              height: 44,
-              borderRadius: "50%",
-              background: "linear-gradient(135deg, #e8ecf1, #d0d8e3)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: 18,
-              fontWeight: 700,
-              color: "#1a1a2e",
-            }}
-          >
-            {user?.name?.charAt(0)}
-          </div>
+          {user?.avatar ? (
+            <img
+              src={user.avatar}
+              alt=""
+              referrerPolicy="no-referrer"
+              style={{ width: 44, height: 44, borderRadius: "50%", objectFit: "cover" }}
+            />
+          ) : (
+            <div
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: "50%",
+                background: "linear-gradient(135deg, #e8ecf1, #d0d8e3)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 18,
+                fontWeight: 700,
+                color: "#1a1a2e",
+              }}
+            >
+              {user?.name?.charAt(0)}
+            </div>
+          )}
           <div>
             <div style={{ fontSize: 16, fontWeight: 700, color: "#1a1a2e" }}>{user?.name}</div>
             <div style={{ fontSize: 12, color: "#999" }}>День {currentDay}</div>
