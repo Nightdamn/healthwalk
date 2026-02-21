@@ -316,7 +316,8 @@ export default function App() {
     case "ask": return <AskCoachPage user={user} onBack={goMain} />;
     default: return (
       <Dashboard user={user} currentDay={currentDay} progress={progress}
-        elapsedTime={elapsedTime} onStartTimer={handleStartTimer} onNavigate={setScreen} />
+        elapsedTime={elapsedTime} courseStartDate={courseStartDate} tzOffsetMin={tzOffsetMin}
+        onStartTimer={handleStartTimer} onNavigate={setScreen} />
     );
   }
 }

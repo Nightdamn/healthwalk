@@ -21,7 +21,7 @@ export const LogoFull = ({ height = 48 }) => (
     src="/icons/logo.svg"
     alt="Осознанная Походка"
     height={height}
-    style={{ objectFit: "contain", filter: "invert(1)" }}
+    style={{ objectFit: "contain" }}
   />
 );
 
@@ -30,7 +30,7 @@ export const Logo = ({ size = 40 }) => (
     src="/icons/logo.svg"
     alt="Осознанная Походка"
     height={size}
-    style={{ objectFit: "contain", filter: "invert(1)" }}
+    style={{ objectFit: "contain" }}
   />
 );
 

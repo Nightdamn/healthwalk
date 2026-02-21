@@ -2,14 +2,37 @@ import React, { useState, useRef, useEffect } from 'react';
 import Layout from '../components/Layout';
 import Footer from '../components/Footer';
 import { LogoFull, activityIcons } from '../components/Icons';
-import { DAYS_TOTAL, ACTIVITIES, isDayComplete } from '../data/constants';
+import { DAYS_TOTAL, ACTIVITIES, MOTTOS, DAY_START_HOUR, isDayComplete } from '../data/constants';
 import { glass } from '../styles/shared';
+
+/** Get the calendar date for the current course day (respecting 5AM boundary) */
+function getCurrentDayDate() {
+  const now = new Date();
+  // If before 5AM, the "logical day" is still yesterday
+  if (now.getHours() < DAY_START_HOUR) {
+    now.setDate(now.getDate() - 1);
+  }
+  return now;
+}
+
+/** Format date as "Понедельник, 21 февраля" */
+function formatDayDate(date) {
+  const weekdays = ['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'];
+  const months = [
+    'января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
+    'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'
+  ];
+  const wd = weekdays[date.getDay()];
+  const d = date.getDate();
+  const m = months[date.getMonth()];
+  return `${wd}, ${d} ${m}`;
+}
 
 export default function Dashboard({ user, currentDay, progress, elapsedTime, onStartTimer, onNavigate }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const daysRowRef = useRef(null);
 
-  // Scroll day circles to show current day
+  // Scroll day circles to current
   useEffect(() => {
     if (daysRowRef.current) {
       const el = daysRowRef.current;
@@ -21,20 +44,20 @@ export default function Dashboard({ user, currentDay, progress, elapsedTime, onS
     }
   }, [currentDay]);
 
-  // Today's progress: how many of 4 activities completed
   const todayProgress = progress[currentDay] || {};
   const completedCount = ACTIVITIES.filter((a) => todayProgress[a.id]).length;
-  const todayPct = Math.round((completedCount / ACTIVITIES.length) * 100);
-
-  // Total completed days
   const completedDays = Object.keys(progress).filter((d) => isDayComplete(progress[d])).length;
 
-  // Total minutes progress for today (elapsed seconds across activities)
-  const totalMinutesToday = ACTIVITIES.reduce((sum, a) => sum + a.duration, 0);
-  const elapsedMinutesToday = ACTIVITIES.reduce((sum, a) => {
-    if (todayProgress[a.id]) return sum + a.duration;
-    return sum + Math.floor((elapsedTime[a.id] || 0) / 60);
+  // Precise day progress: sum of elapsed seconds / total seconds
+  const totalSecDay = ACTIVITIES.reduce((s, a) => s + a.duration * 60, 0);
+  const elapsedSecDay = ACTIVITIES.reduce((s, a) => {
+    if (todayProgress[a.id]) return s + a.duration * 60; // completed = full
+    return s + (elapsedTime[a.id] || 0);
   }, 0);
+  const dayPct = totalSecDay > 0 ? (elapsedSecDay / totalSecDay) * 100 : 0;
+
+  const dayDate = getCurrentDayDate();
+  const motto = MOTTOS[(currentDay - 1) % MOTTOS.length] || MOTTOS[0];
 
   return (
     <Layout>
@@ -99,15 +122,27 @@ export default function Dashboard({ user, currentDay, progress, elapsedTime, onS
           </button>
         </div>
 
-        {/* ── Day circles — scrollable row ── */}
+        {/* ── 1. Прогресс курса — day circles + Детали button ── */}
         <div style={{ ...glass, borderRadius: 18, padding: "16px 0", marginBottom: 16 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0 20px", marginBottom: 12 }}>
             <span style={{ fontSize: 13, fontWeight: 600, color: "#888", textTransform: "uppercase", letterSpacing: "0.5px" }}>
               Прогресс курса
             </span>
-            <span style={{ fontSize: 13, color: "#aaa", fontWeight: 500 }}>
-              {completedDays}/{DAYS_TOTAL}
-            </span>
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <span style={{ fontSize: 13, color: "#aaa", fontWeight: 500 }}>
+                {completedDays}/{DAYS_TOTAL}
+              </span>
+              <button
+                onClick={() => onNavigate("details")}
+                style={{
+                  padding: "6px 14px", background: "#1a1a2e", color: "#fff",
+                  border: "none", borderRadius: 8, fontSize: 12, fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                Детали
+              </button>
+            </div>
           </div>
           <div
             ref={daysRowRef}
@@ -117,34 +152,28 @@ export default function Dashboard({ user, currentDay, progress, elapsedTime, onS
               WebkitOverflowScrolling: "touch",
             }}
           >
+            <style>{`div::-webkit-scrollbar { display: none; }`}</style>
             {Array.from({ length: DAYS_TOTAL }, (_, i) => {
               const day = i + 1;
               const complete = isDayComplete(progress[day]);
               const isCurrent = day === currentDay;
               const isFuture = day > currentDay;
               return (
-                <div
-                  key={day}
-                  style={{
-                    width: 32, height: 32, minWidth: 32,
-                    borderRadius: "50%",
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    fontSize: 11, fontWeight: 600,
-                    transition: "all 0.2s",
-                    cursor: "default",
-                    ...(isCurrent ? {
-                      background: "#1a1a2e", color: "#fff",
-                      boxShadow: "0 2px 8px rgba(26,26,46,0.25)",
-                    } : complete ? {
-                      background: "rgba(0,0,0,0.08)", color: "#888",
-                      border: "none",
-                    } : {
-                      background: isFuture ? "rgba(0,0,0,0.02)" : "rgba(255,255,255,0.6)",
-                      color: isFuture ? "#ccc" : "#aaa",
-                      border: "1.5px solid rgba(0,0,0,0.06)",
-                    }),
-                  }}
-                >
+                <div key={day} style={{
+                  width: 32, height: 32, minWidth: 32, borderRadius: "50%",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 11, fontWeight: 600, transition: "all 0.2s", cursor: "default",
+                  ...(isCurrent ? {
+                    background: "#1a1a2e", color: "#fff",
+                    boxShadow: "0 2px 8px rgba(26,26,46,0.25)",
+                  } : complete ? {
+                    background: "rgba(0,0,0,0.08)", color: "#888",
+                  } : {
+                    background: isFuture ? "rgba(0,0,0,0.02)" : "rgba(255,255,255,0.6)",
+                    color: isFuture ? "#ccc" : "#aaa",
+                    border: "1.5px solid rgba(0,0,0,0.06)",
+                  }),
+                }}>
                   {complete ? "✓" : day}
                 </div>
               );
@@ -152,45 +181,64 @@ export default function Dashboard({ user, currentDay, progress, elapsedTime, onS
           </div>
         </div>
 
-        {/* ── День X — current day progress bar ── */}
-        <div style={{ ...glass, borderRadius: 18, padding: "18px 20px", marginBottom: 20 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-            <div style={{ fontSize: 22, fontWeight: 800, color: "#1a1a2e" }}>
-              День {currentDay}
+        {/* ── 2. День X + дата + прогресс бар ── */}
+        <div style={{ ...glass, borderRadius: 18, padding: "18px 20px", marginBottom: 12 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
+            <div>
+              <div style={{ fontSize: 22, fontWeight: 800, color: "#1a1a2e" }}>
+                День {currentDay}
+              </div>
+              <div style={{ fontSize: 13, color: "#999", fontWeight: 500, marginTop: 2 }}>
+                {formatDayDate(dayDate)}
+              </div>
             </div>
-            <div style={{ fontSize: 13, color: "#888", fontWeight: 500 }}>
-              {completedCount} из {ACTIVITIES.length} практик
+            <div style={{ fontSize: 13, color: "#888", fontWeight: 500, paddingTop: 4 }}>
+              {completedCount} из {ACTIVITIES.length}
             </div>
           </div>
-          {/* Progress bar */}
-          <div style={{ height: 8, background: "rgba(0,0,0,0.04)", borderRadius: 4, overflow: "hidden", marginBottom: 8 }}>
+          {/* Precise day progress bar */}
+          <div style={{ height: 8, background: "rgba(0,0,0,0.04)", borderRadius: 4, overflow: "hidden", marginTop: 14, marginBottom: 8 }}>
             <div style={{
               height: "100%",
-              width: `${todayPct}%`,
-              background: todayPct === 100
+              width: `${dayPct}%`,
+              background: dayPct >= 100
                 ? "linear-gradient(90deg, #27ae60, #2ecc71)"
                 : "linear-gradient(90deg, #1a1a2e, #3a3a5e)",
               borderRadius: 4,
-              transition: "width 0.6s cubic-bezier(0.4,0,0.2,1)",
+              transition: "width 0.3s linear",
             }} />
           </div>
           <div style={{ fontSize: 12, color: "#aaa", fontWeight: 500 }}>
-            {todayPct === 100
+            {dayPct >= 100
               ? "Все практики выполнены ✨"
-              : `${elapsedMinutesToday} из ${totalMinutesToday} минут`
+              : `${Math.floor(elapsedSecDay / 60)} из ${Math.floor(totalSecDay / 60)} минут`
             }
           </div>
         </div>
 
-        {/* ── Activity cards ── */}
+        {/* ── 3. Девиз дня ── */}
+        <div style={{
+          ...glass,
+          background: "rgba(255,255,255,0.5)",
+          borderRadius: 14, padding: "14px 20px", marginBottom: 20,
+          textAlign: "center",
+        }}>
+          <span style={{ fontSize: 13, color: "#888", fontWeight: 500, fontStyle: "italic" }}>
+            «{motto}»
+          </span>
+        </div>
+
+        {/* ── 4. Activity cards ── */}
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {ACTIVITIES.map((act) => {
             const done = todayProgress[act.id];
             const IconComp = activityIcons[act.id];
-            const elapsedSec = elapsedTime[act.id] || 0;
+            const elapsedSec = done ? act.duration * 60 : (elapsedTime[act.id] || 0);
+            const totalSec = act.duration * 60;
+            // Precise percentage based on seconds
+            const pct = totalSec > 0 ? (elapsedSec / totalSec) * 100 : 0;
             const elapsedMin = Math.floor(elapsedSec / 60);
-            const totalMin = act.duration;
-            const pct = done ? 100 : Math.round((elapsedSec / (totalMin * 60)) * 100);
+            const elapsedRemSec = elapsedSec % 60;
 
             return (
               <div key={act.id} style={{
@@ -232,20 +280,22 @@ export default function Dashboard({ user, currentDay, progress, elapsedTime, onS
                     </button>
                   )}
                 </div>
-                {/* Activity progress bar */}
+                {/* Precise activity progress bar */}
                 <div style={{ height: 4, background: "rgba(0,0,0,0.04)", borderRadius: 2, overflow: "hidden" }}>
                   <div style={{
                     height: "100%", width: `${pct}%`,
                     background: done
                       ? "linear-gradient(90deg, #27ae60, #2ecc71)"
                       : "linear-gradient(90deg, #1a1a2e, #4a4a6e)",
-                    borderRadius: 2, transition: "width 0.6s ease",
+                    borderRadius: 2, transition: "width 0.3s linear",
                   }} />
                 </div>
                 <div style={{ fontSize: 11, color: "#bbb", marginTop: 6, fontWeight: 500 }}>
                   {done
-                    ? `${totalMin} из ${totalMin} минут • Выполнено`
-                    : `${elapsedMin} из ${totalMin} минут`
+                    ? `${act.duration} из ${act.duration} мин • Выполнено`
+                    : elapsedSec > 0
+                      ? `${elapsedMin}:${String(elapsedRemSec).padStart(2, '0')} из ${act.duration} мин`
+                      : `0 из ${act.duration} мин`
                   }
                 </div>
               </div>
