@@ -31,9 +31,20 @@ const TIMEZONES = [
   { label: "UTC+12 Камчатка", offset: 720 },
 ];
 
-export default function ProfilePage({ user, currentDay, progress, tzOffsetMin, onSetTimezone, onBack, onLogout }) {
-  const [loggingOut, setLoggingOut] = useState(false);
+const HOURS = Array.from({ length: 24 }, (_, i) => i);
+const fmtH = (h) => `${String(h).padStart(2, "0")}:00`;
 
+const selectStyle = {
+  width: "100%", padding: "12px 14px",
+  border: "1.5px solid rgba(0,0,0,0.06)", borderRadius: 12,
+  fontSize: 14, background: "rgba(255,255,255,0.6)",
+  color: "#1a1a2e", cursor: "pointer",
+  appearance: "auto", boxSizing: "border-box",
+  fontFamily: "inherit",
+};
+
+export default function ProfilePage({ user, currentDay, progress, tzOffsetMin, dayStartHour, onSetTimezone, onSetDayStartHour, onBack, onLogout }) {
+  const [loggingOut, setLoggingOut] = useState(false);
   const completedDays = Object.keys(progress).filter((d) => isDayComplete(progress[d])).length;
 
   const handleLogout = async () => {
@@ -43,7 +54,7 @@ export default function ProfilePage({ user, currentDay, progress, tzOffsetMin, o
 
   return (
     <Layout>
-      <div style={{ minHeight: "100vh", padding: "0 24px", position: "relative", zIndex: 1 }}>
+      <div style={{ minHeight: "100vh", padding: "0 24px 40px", position: "relative", zIndex: 1 }}>
         {/* Top bar */}
         <div style={{ display: "flex", alignItems: "center", paddingTop: 52, marginBottom: 28 }}>
           <button onClick={onBack} style={btnBack}>←</button>
@@ -65,30 +76,55 @@ export default function ProfilePage({ user, currentDay, progress, tzOffsetMin, o
             <div style={{ fontSize: 20, fontWeight: 700, color: "#1a1a2e", marginBottom: 4 }}>{user?.name}</div>
             <div style={{ fontSize: 14, color: "#888" }}>{user?.email}</div>
             <div style={{ marginTop: 20, padding: 14, background: "rgba(0,0,0,0.02)", borderRadius: 12, fontSize: 14, color: "#555" }}>
-              День {currentDay} из {DAYS_TOTAL} • Завершено дней: {completedDays}
+              День {currentDay} из {DAYS_TOTAL} • Завершено: {completedDays}
             </div>
           </div>
         </div>
 
-        {/* Timezone */}
-        <div style={{ ...glass, borderRadius: 16, padding: "18px 20px", marginTop: 16 }}>
+        {/* ─── Биоритм ─── */}
+        <div style={{ ...glass, borderRadius: 16, padding: "20px 20px", marginTop: 16 }}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: "#1a1a2e", marginBottom: 4 }}>
+            Биоритм
+          </div>
+          <div style={{ fontSize: 13, color: "#888", marginBottom: 16, lineHeight: 1.5 }}>
+            Настройте границы вашего дня. Прогресс практик считается от начала до конца дня.
+          </div>
+
+          {/* Day start hour */}
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "#555", marginBottom: 6 }}>
+              День начинается в
+            </div>
+            <select
+              value={dayStartHour}
+              onChange={(e) => onSetDayStartHour(Number(e.target.value))}
+              style={selectStyle}
+            >
+              {HOURS.map((h) => (
+                <option key={h} value={h}>{fmtH(h)}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Summary */}
+          <div style={{
+            padding: "12px 16px", borderRadius: 12,
+            background: "rgba(26,26,46,0.03)",
+            fontSize: 13, color: "#666", lineHeight: 1.5,
+          }}>
+            День начинается в <strong>{fmtH(dayStartHour)}</strong> и заканчивается в <strong>{fmtH(dayStartHour)}</strong> следующего дня
+          </div>
+        </div>
+
+        {/* ─── Часовой пояс ─── */}
+        <div style={{ ...glass, borderRadius: 16, padding: "18px 20px", marginTop: 12 }}>
           <div style={{ fontSize: 14, fontWeight: 600, color: "#1a1a2e", marginBottom: 10 }}>
             Часовой пояс
-          </div>
-          <div style={{ fontSize: 12, color: "#888", marginBottom: 12, lineHeight: 1.4 }}>
-            День начинается в 5:00 и заканчивается в 5:00 следующего дня
           </div>
           <select
             value={tzOffsetMin}
             onChange={(e) => onSetTimezone(Number(e.target.value))}
-            style={{
-              width: "100%", padding: "12px 14px",
-              border: "1.5px solid rgba(0,0,0,0.06)", borderRadius: 12,
-              fontSize: 14, background: "rgba(255,255,255,0.6)",
-              color: "#1a1a2e", cursor: "pointer",
-              appearance: "auto", boxSizing: "border-box",
-              fontFamily: "inherit",
-            }}
+            style={selectStyle}
           >
             {TIMEZONES.map((tz) => (
               <option key={tz.offset} value={tz.offset}>{tz.label}</option>

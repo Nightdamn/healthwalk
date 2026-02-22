@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS user_settings (
   user_id UUID REFERENCES auth.users ON DELETE CASCADE PRIMARY KEY,
   course_start_date TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   tz_offset_min INTEGER NOT NULL DEFAULT 180,
+  day_start_hour INTEGER NOT NULL DEFAULT 5 CHECK (day_start_hour BETWEEN 0 AND 23),
   current_day INTEGER NOT NULL DEFAULT 1 CHECK (current_day BETWEEN 1 AND 30),
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()

@@ -32,6 +32,7 @@ export async function loadUserSettings(userId) {
       course_start_date: d.toISOString(),
       tz_offset_min: defaultTz,
       current_day: 1,
+      day_start_hour: 5,
     };
 
     const { data: created, error: insertErr } = await supabase
