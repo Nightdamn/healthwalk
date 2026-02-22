@@ -5,7 +5,10 @@ import { btnBack } from '../styles/shared';
 
 const CX = 100, CY = 100, R = 90;
 const CIRCUMFERENCE = 2 * Math.PI * R;
-const BALL_R = 8;
+const BALL_R = 9;
+
+// Sensitivity: pixels of drag per second of rewind
+const PX_PER_SEC = 1.5;
 
 export default function TimerPage({ activity, timerSeconds, timerPaused, currentDay, onPause, onBack, onDone, onSeek }) {
   const totalSec = activity.duration * 60;
@@ -17,69 +20,56 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
 
   const circleRef = useRef(null);
   const draggingRef = useRef(false);
+  const grabOriginRef = useRef({ x: 0, y: 0, elapsed: 0 });
 
-  // Ball position (in SVG coords, before CSS rotation)
-  // The SVG is rotated -90deg, so we compute the angle in SVG space:
-  // angle = progressPct / 100 * 2π (from 3 o'clock, counterclockwise in screen = clockwise in SVG due to rotation)
+  // Ball position on SVG (rotated -90deg: 0% = top, clockwise)
   const angleRad = (progressPct / 100) * 2 * Math.PI;
   const ballX = CX + R * Math.cos(angleRad);
   const ballY = CY + R * Math.sin(angleRad);
 
-  // Convert screen pointer position to progress percentage
-  const pointerToProgress = useCallback((clientX, clientY) => {
-    if (!circleRef.current) return null;
-    const rect = circleRef.current.getBoundingClientRect();
-    const cx = rect.left + rect.width / 2;
-    const cy = rect.top + rect.height / 2;
-
-    const dx = clientX - cx;
-    const dy = clientY - cy;
-
-    // Angle from 12 o'clock, clockwise (screen coords)
-    // atan2(dx, -dy): positive = clockwise from top
-    let angle = Math.atan2(dx, -dy);
-    if (angle < 0) angle += 2 * Math.PI;
-
-    const pct = (angle / (2 * Math.PI)) * 100;
-    return Math.max(0, Math.min(pct, 100));
-  }, []);
-
-  const handleDragProgress = useCallback((pct) => {
-    if (pct === null || !onSeek) return;
-    const newElapsed = Math.round((pct / 100) * totalSec);
-    const newRemaining = Math.max(0, totalSec - newElapsed);
-    onSeek(newRemaining);
+  // ─── Drag: movement UP or SIDEWAYS from grab point → rewind ───
+  const handleDragDelta = useCallback((clientX, clientY) => {
+    if (!draggingRef.current || !onSeek) return;
+    const origin = grabOriginRef.current;
+    // Distance from grab point (any direction away = rewind)
+    const dx = clientX - origin.x;
+    const dy = origin.y - clientY; // inverted: up = positive
+    // Use the larger of |dx| or |dy| so any direction works
+    const dist = Math.max(Math.abs(dx), Math.abs(dy), 0);
+    const rewindSec = Math.round(dist / PX_PER_SEC);
+    const newElapsed = Math.max(0, origin.elapsed - rewindSec);
+    const newRemaining = totalSec - newElapsed;
+    onSeek(Math.min(totalSec, Math.max(0, newRemaining)));
   }, [totalSec, onSeek]);
 
-  // Mouse handlers
+  // Mouse
   const onMouseDown = (e) => {
     if (isDone) return;
     e.preventDefault();
     draggingRef.current = true;
-    handleDragProgress(pointerToProgress(e.clientX, e.clientY));
+    grabOriginRef.current = { x: e.clientX, y: e.clientY, elapsed };
   };
   const onMouseMove = useCallback((e) => {
     if (!draggingRef.current) return;
-    handleDragProgress(pointerToProgress(e.clientX, e.clientY));
-  }, [pointerToProgress, handleDragProgress]);
+    handleDragDelta(e.clientX, e.clientY);
+  }, [handleDragDelta]);
   const onMouseUp = useCallback(() => { draggingRef.current = false; }, []);
 
-  // Touch handlers
+  // Touch
   const onTouchStart = (e) => {
     if (isDone) return;
     draggingRef.current = true;
     const t = e.touches[0];
-    handleDragProgress(pointerToProgress(t.clientX, t.clientY));
+    grabOriginRef.current = { x: t.clientX, y: t.clientY, elapsed };
   };
   const onTouchMove = useCallback((e) => {
     if (!draggingRef.current) return;
     e.preventDefault();
     const t = e.touches[0];
-    handleDragProgress(pointerToProgress(t.clientX, t.clientY));
-  }, [pointerToProgress, handleDragProgress]);
+    handleDragDelta(t.clientX, t.clientY);
+  }, [handleDragDelta]);
   const onTouchEnd = useCallback(() => { draggingRef.current = false; }, []);
 
-  // Attach global move/up listeners
   React.useEffect(() => {
     window.addEventListener('mousemove', onMouseMove);
     window.addEventListener('mouseup', onMouseUp);
@@ -114,13 +104,11 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
           <span style={{ color: "#aaa", fontSize: 13, fontWeight: 500 }}>Видеоурок дня {currentDay}</span>
         </div>
 
-        {/* Timer circle with draggable scrubber */}
-        <div
-          ref={circleRef}
-          style={{ position: "relative", width: 200, height: 200, marginBottom: 36, touchAction: "none" }}
-        >
+        {/* Timer circle */}
+        <div ref={circleRef}
+          style={{ position: "relative", width: 200, height: 200, marginBottom: 36, touchAction: "none" }}>
           <svg width="200" height="200" style={{ transform: "rotate(-90deg)", overflow: "visible" }}>
-            {/* Track circle */}
+            {/* Track */}
             <circle cx={CX} cy={CY} r={R} fill="none" stroke="rgba(0,0,0,0.04)" strokeWidth="6" />
             {/* Progress arc */}
             <circle cx={CX} cy={CY} r={R} fill="none"
@@ -135,7 +123,7 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
               <circle
                 cx={ballX} cy={ballY} r={BALL_R}
                 fill="#1a1a2e" stroke="#fff" strokeWidth="3"
-                style={{ cursor: "grab", filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.2))" }}
+                style={{ cursor: "grab", filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.25))" }}
                 onMouseDown={onMouseDown}
                 onTouchStart={onTouchStart}
               />
@@ -182,7 +170,6 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
               }}>
               {timerPaused ? (
                 <>
-                  {/* Play triangle */}
                   <svg width="16" height="18" viewBox="0 0 16 18" fill="none">
                     <path d="M2 1.5L14 9L2 16.5V1.5Z" fill="#fff"/>
                   </svg>
@@ -190,7 +177,6 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
                 </>
               ) : (
                 <>
-                  {/* Pause bars */}
                   <svg width="14" height="16" viewBox="0 0 14 16" fill="none">
                     <rect x="1" y="1" width="4" height="14" rx="1" fill="#1a1a2e"/>
                     <rect x="9" y="1" width="4" height="14" rx="1" fill="#1a1a2e"/>

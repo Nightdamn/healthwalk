@@ -20,74 +20,65 @@ function getCurrentDayDate(dayStartHour) {
 
 function getDateForDay(day, currentDay, dayStartHour) {
   const today = getCurrentDayDate(dayStartHour);
-  const diff = day - currentDay;
   const d = new Date(today);
-  d.setDate(d.getDate() + diff);
+  d.setDate(d.getDate() + (day - currentDay));
   return d;
 }
 
-// ─── SVG Day Circle Component ───
+/** Percentage of the current day elapsed (time-based, 0-100) */
+function getDayTimePct(dayStartHour) {
+  const now = new Date();
+  let hoursSinceStart = now.getHours() - dayStartHour + now.getMinutes() / 60;
+  if (hoursSinceStart < 0) hoursSinceStart += 24;
+  return Math.min((hoursSinceStart / 24) * 100, 100);
+}
+
+// ─── Constants ───
 const GREEN = "#27ae60";
-const GREEN_LIGHT = "rgba(39,174,96,0.15)";
-const GRAY = "rgba(0,0,0,0.08)";
-const CIRCLE_SIZE = 34;
-const R = 13; // radius of the stroke circle
-const CIRCUMFERENCE = 2 * Math.PI * R;
+const GREEN_LIGHT = "rgba(39,174,96,0.12)";
+const SZ = 32;
+const R = 12;
+const CIRC = 2 * Math.PI * R;
 
-function DayCircle({ day, isComplete, isCurrent, isActive, isFuture, dayPct }) {
-  // Arc: how much of the circle outline is filled green
+function DayCircle({ day, isComplete, isCurrent, isActive, isFuture, timePct }) {
+  // Green arc: past completed = 100%, current = time-based, future = 0
   let arcPct = 0;
-  if (isComplete) arcPct = 100;
-  else if (isCurrent) arcPct = Math.min(dayPct, 100);
+  if (isComplete || (!isCurrent && !isFuture)) arcPct = 100; // past day (complete or not) = full ring
+  if (isCurrent) arcPct = timePct;
 
-  const strokeDashoffset = CIRCUMFERENCE - (arcPct / 100) * CIRCUMFERENCE;
-  const showCheck = isComplete;
+  const offset = CIRC - (arcPct / 100) * CIRC;
   const isPast = !isCurrent && !isFuture;
+  const showCheck = isComplete;
 
   return (
-    <svg width={CIRCLE_SIZE} height={CIRCLE_SIZE} style={{ display: "block", overflow: "visible" }}>
-      {/* Background circle */}
-      <circle cx={CIRCLE_SIZE / 2} cy={CIRCLE_SIZE / 2} r={R}
-        fill={isActive && !isCurrent ? "rgba(39,174,96,0.08)" : isComplete ? GREEN_LIGHT : "transparent"}
-        stroke={isFuture ? "rgba(0,0,0,0.06)" : isPast && !isComplete ? "rgba(0,0,0,0.1)" : GRAY}
-        strokeWidth={isCurrent ? 0 : 1.5}
+    <svg width={SZ} height={SZ} style={{ display: "block", overflow: "visible", flexShrink: 0 }}>
+      {/* Base ring */}
+      <circle cx={SZ / 2} cy={SZ / 2} r={R}
+        fill={showCheck ? GREEN_LIGHT : "transparent"}
+        stroke={isFuture ? "rgba(0,0,0,0.06)" : "rgba(0,0,0,0.06)"}
+        strokeWidth={2}
       />
-      {/* Green progress arc (for current day or completed) */}
-      {(isCurrent || isComplete || (isPast && arcPct > 0)) && (
-        <circle cx={CIRCLE_SIZE / 2} cy={CIRCLE_SIZE / 2} r={R}
-          fill="none"
-          stroke={GREEN}
-          strokeWidth={2.5}
+      {/* Green time-arc */}
+      {(isPast || isCurrent || isComplete) && arcPct > 0 && (
+        <circle cx={SZ / 2} cy={SZ / 2} r={R}
+          fill="none" stroke={GREEN} strokeWidth={2.5}
           strokeLinecap="round"
-          strokeDasharray={CIRCUMFERENCE}
-          strokeDashoffset={strokeDashoffset}
-          style={{ transform: "rotate(-90deg)", transformOrigin: "center", transition: "stroke-dashoffset 0.5s ease" }}
+          strokeDasharray={CIRC} strokeDashoffset={offset}
+          style={{ transform: "rotate(-90deg)", transformOrigin: "center", transition: "stroke-dashoffset 1s ease" }}
         />
       )}
-      {/* Active ring (viewing this day) */}
+      {/* Selection ring when viewing past day */}
       {isActive && !isCurrent && (
-        <circle cx={CIRCLE_SIZE / 2} cy={CIRCLE_SIZE / 2} r={R + 3}
-          fill="none" stroke={GREEN} strokeWidth={1.5} opacity={0.4}
-        />
+        <circle cx={SZ / 2} cy={SZ / 2} r={R + 3}
+          fill="none" stroke={GREEN} strokeWidth={1.5} opacity={0.4} />
       )}
-      {/* Current day extra ring */}
-      {isCurrent && !isActive && (
-        <circle cx={CIRCLE_SIZE / 2} cy={CIRCLE_SIZE / 2} r={R}
-          fill="none" stroke="rgba(0,0,0,0.06)" strokeWidth={2.5}
-        />
-      )}
-      {isCurrent && (
-        <circle cx={CIRCLE_SIZE / 2} cy={CIRCLE_SIZE / 2} r={R}
-          fill="none" stroke="rgba(0,0,0,0.06)" strokeWidth={2.5}
-        />
-      )}
-      {/* Text or checkmark */}
+      {/* Label */}
       {showCheck ? (
-        <text x={CIRCLE_SIZE / 2} y={CIRCLE_SIZE / 2 + 1} textAnchor="middle" dominantBaseline="middle"
-          fill={GREEN} fontSize={14} fontWeight={600} opacity={0.7}>✓</text>
+        <text x={SZ / 2} y={SZ / 2 + 1} textAnchor="middle" dominantBaseline="middle"
+          fill={GREEN} fontSize={14} fontWeight={600} opacity={0.65}>✓</text>
       ) : (
-        <text x={CIRCLE_SIZE / 2} y={CIRCLE_SIZE / 2 + 1} textAnchor="middle" dominantBaseline="middle"
-          fill={isCurrent ? "#1a1a2e" : isFuture ? "#ccc" : "#888"}
+        <text x={SZ / 2} y={SZ / 2 + 1} textAnchor="middle" dominantBaseline="middle"
+          fill={isCurrent ? "#1a1a2e" : isFuture ? "#ccc" : "#666"}
           fontSize={11} fontWeight={isCurrent ? 700 : 500}>{day}</text>
       )}
     </svg>
@@ -97,22 +88,28 @@ function DayCircle({ day, isComplete, isCurrent, isActive, isFuture, dayPct }) {
 export default function Dashboard({ user, currentDay, progress, elapsedTime, dayStartHour, getElapsedForDay, onStartTimer, onNavigate }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [viewingDay, setViewingDay] = useState(null);
+  const [timePct, setTimePct] = useState(() => getDayTimePct(dayStartHour));
   const daysRowRef = useRef(null);
 
   const activeDay = viewingDay ?? currentDay;
   const isToday = activeDay === currentDay;
   const dayElapsed = isToday ? elapsedTime : getElapsedForDay(activeDay);
 
+  // Update time percentage every 30s
   useEffect(() => {
-    if (daysRowRef.current) {
-      const el = daysRowRef.current;
-      // Each item = circle(34) + gap area. Find the right child.
-      const items = el.querySelectorAll('[data-day]');
-      const target = items[activeDay - 1];
-      if (target) {
-        const scrollLeft = target.offsetLeft - el.clientWidth / 2 + target.clientWidth / 2;
-        el.scrollTo({ left: scrollLeft, behavior: "smooth" });
-      }
+    setTimePct(getDayTimePct(dayStartHour));
+    const iv = setInterval(() => setTimePct(getDayTimePct(dayStartHour)), 30000);
+    return () => clearInterval(iv);
+  }, [dayStartHour]);
+
+  // Scroll to active day
+  useEffect(() => {
+    if (!daysRowRef.current) return;
+    const items = daysRowRef.current.querySelectorAll('[data-day]');
+    const target = items[activeDay - 1];
+    if (target) {
+      const sl = target.offsetLeft - daysRowRef.current.clientWidth / 2 + target.clientWidth / 2;
+      daysRowRef.current.scrollTo({ left: sl, behavior: "smooth" });
     }
   }, [activeDay]);
 
@@ -202,9 +199,9 @@ export default function Dashboard({ user, currentDay, progress, elapsedTime, day
             </div>
           </div>
 
-          {/* Day circles with connecting lines */}
+          {/* Day circles with seamless connecting lines */}
           <div ref={daysRowRef}
-            style={{ display: "flex", alignItems: "center", padding: "4px 20px", overflowX: "auto", scrollbarWidth: "none", WebkitOverflowScrolling: "touch" }}>
+            style={{ display: "flex", alignItems: "center", padding: "4px 16px", overflowX: "auto", scrollbarWidth: "none", WebkitOverflowScrolling: "touch" }}>
             <style>{`div::-webkit-scrollbar { display: none; }`}</style>
             {Array.from({ length: DAYS_TOTAL }, (_, i) => {
               const day = i + 1;
@@ -214,31 +211,27 @@ export default function Dashboard({ user, currentDay, progress, elapsedTime, day
               const isFuture = day > currentDay;
               const isClickable = !isFuture;
 
-              // Connecting line before this circle (between day-1 and day)
+              // Line before this circle
               const showLine = day > 1;
-              const lineGreen = day <= currentDay; // green up to current day
-
-              // For current day circle, compute progress %
-              const curDayPct = isCurrent ? dayPct : (complete ? 100 : 0);
+              const prevDayPassed = day - 1 <= currentDay;
 
               return (
                 <React.Fragment key={day}>
                   {showLine && (
                     <div style={{
-                      width: 12, minWidth: 12, height: 2.5, borderRadius: 2,
-                      background: lineGreen ? GREEN : "rgba(0,0,0,0.06)",
-                      transition: "background 0.3s",
+                      width: 8, minWidth: 8, height: 2.5, borderRadius: 1,
+                      background: prevDayPassed ? GREEN : "rgba(0,0,0,0.06)",
+                      margin: "0 -1px", // overlap into circle edges for seamless look
+                      zIndex: 0,
                     }} />
                   )}
                   <div
                     data-day={day}
                     onClick={() => { if (isClickable) setViewingDay(day === currentDay ? null : day); }}
-                    style={{ cursor: isClickable ? "pointer" : "default", flexShrink: 0 }}
+                    style={{ cursor: isClickable ? "pointer" : "default", flexShrink: 0, zIndex: 1, position: "relative" }}
                   >
-                    <DayCircle
-                      day={day} isComplete={complete} isCurrent={isCurrent}
-                      isActive={isActive} isFuture={isFuture} dayPct={curDayPct}
-                    />
+                    <DayCircle day={day} isComplete={complete} isCurrent={isCurrent}
+                      isActive={isActive} isFuture={isFuture} timePct={timePct} />
                   </div>
                 </React.Fragment>
               );
@@ -246,7 +239,7 @@ export default function Dashboard({ user, currentDay, progress, elapsedTime, day
           </div>
         </div>
 
-        {/* ── 2. День X + дата ── */}
+        {/* ── 2. День X ── */}
         <div style={{ ...glass, borderRadius: 18, padding: "18px 20px", marginBottom: 12 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
             <div>
