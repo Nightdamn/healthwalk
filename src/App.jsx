@@ -180,6 +180,16 @@ export default function App() {
   };
   const handleTimerBack = () => { setTimerRunning(false); setTimerPaused(false); saveCurrentProgress(); setScreen("main"); };
   const handleTimerDone = () => { setTimerRunning(false); setTimerPaused(false); setScreen("main"); };
+
+  const handleTimerSeek = (newRemainingSec) => {
+    // User dragged the scrubber to rewind
+    if (!activeActivity) return;
+    const totalSec = activeActivity.duration * 60;
+    const newElapsed = totalSec - newRemainingSec;
+    setTimerSeconds(newRemainingSec);
+    setElapsedTime((p) => ({ ...p, [activeActivity.id]: newElapsed }));
+  };
+
   const goMain = () => setScreen("main");
 
   const handleSetTimezone = (v) => { setTzOffsetMin(v); if (user?.id) saveUserSettings(user.id, { tz_offset_min: v }); };
@@ -205,7 +215,7 @@ export default function App() {
     case "login": return <LoginPage onLogin={handleLogin} />;
     case "timer": return (
       <TimerPage activity={activeActivity} timerSeconds={timerSeconds} timerPaused={timerPaused}
-        currentDay={currentDay} onPause={handleTimerPause} onBack={handleTimerBack} onDone={handleTimerDone} />
+        currentDay={currentDay} onPause={handleTimerPause} onBack={handleTimerBack} onDone={handleTimerDone} onSeek={handleTimerSeek} />
     );
     case "details": return <DetailsPage progress={progress} currentDay={currentDay} onBack={goMain} />;
     case "profile": return (
