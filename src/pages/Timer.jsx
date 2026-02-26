@@ -1,4 +1,4 @@
-import React, { useRef, useCallback } from 'react';
+import React, { useRef, useCallback, useEffect } from 'react';
 import Layout from '../components/Layout';
 import { formatTime } from '../data/constants';
 import { btnBack } from '../styles/shared';
@@ -7,76 +7,98 @@ const CX = 100, CY = 100, R = 90;
 const CIRCUMFERENCE = 2 * Math.PI * R;
 const BALL_R = 10;
 const GREEN = "#27ae60";
-
-// Drag sensitivity: pixels per second of rewind
-const PX_PER_SEC = 2;
+const GREEN_PALE = "rgba(39,174,96,0.2)";
 
 export default function TimerPage({ activity, timerSeconds, timerPaused, currentDay, onPause, onBack, onDone, onSeek }) {
   const totalSec = activity.duration * 60;
   const elapsed = totalSec - timerSeconds;
-  const progressPct = totalSec > 0 ? (elapsed / totalSec) * 100 : 0;
-  const strokeDashoffset = CIRCUMFERENCE - (progressPct / 100) * CIRCUMFERENCE;
   const hasStarted = elapsed > 0;
   const isDone = timerSeconds === 0;
 
-  const draggingRef = useRef(false);
-  const grabRef = useRef({ x: 0, y: 0, elapsed: 0 });
+  // ─── Max progress: the furthest point the timer has counted to ───
+  const maxElapsedRef = useRef(elapsed);
+  useEffect(() => {
+    if (elapsed > maxElapsedRef.current) {
+      maxElapsedRef.current = elapsed;
+    }
+  }, [elapsed]);
+  const maxElapsed = maxElapsedRef.current;
 
-  // Ball screen position (0% = 12 o'clock, clockwise)
-  const angleRad = (progressPct / 100) * 2 * Math.PI;
+  // ─── Arc calculations ───
+  const currentPct = totalSec > 0 ? (elapsed / totalSec) * 100 : 0;
+  const maxPct = totalSec > 0 ? (maxElapsed / totalSec) * 100 : 0;
+
+  const currentOffset = CIRCUMFERENCE - (currentPct / 100) * CIRCUMFERENCE;
+  const maxOffset = CIRCUMFERENCE - (maxPct / 100) * CIRCUMFERENCE;
+
+  // ─── Ball position (screen coords: 0% = top/12 o'clock, clockwise) ───
+  const angleRad = (currentPct / 100) * 2 * Math.PI;
   const ballScreenX = CX + R * Math.sin(angleRad);
   const ballScreenY = CY - R * Math.cos(angleRad);
 
-  // ─── Drag handler: distance from grab point → rewind seconds ───
-  const applyDrag = useCallback((clientX, clientY) => {
-    if (!draggingRef.current || !onSeek) return;
-    const o = grabRef.current;
-    const dx = Math.abs(clientX - o.x);
-    const dy = Math.max(0, o.y - clientY); // up = positive
-    const dist = Math.max(dx, dy);
-    const rewindSec = Math.round(dist / PX_PER_SEC);
-    const newElapsed = Math.max(0, o.elapsed - rewindSec);
-    onSeek(Math.max(0, Math.min(totalSec, totalSec - newElapsed)));
-  }, [totalSec, onSeek]);
+  // ─── Drag logic: angle-based, clamped to [0, maxElapsed] ───
+  const draggingRef = useRef(false);
 
-  const startDrag = useCallback((x, y) => {
+  const pointerToElapsed = useCallback((clientX, clientY, container) => {
+    const rect = container.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const dx = clientX - cx;
+    const dy = clientY - cy;
+
+    // Angle from 12 o'clock, clockwise (0..2π)
+    let angle = Math.atan2(dx, -dy);
+    if (angle < 0) angle += 2 * Math.PI;
+
+    const pct = angle / (2 * Math.PI);
+    const sec = Math.round(pct * totalSec);
+
+    // Clamp to [0, maxElapsed]
+    return Math.max(0, Math.min(sec, maxElapsedRef.current));
+  }, [totalSec]);
+
+  const containerRef = useRef(null);
+
+  const applyDrag = useCallback((clientX, clientY) => {
+    if (!draggingRef.current || !onSeek || !containerRef.current) return;
+    const newElapsed = pointerToElapsed(clientX, clientY, containerRef.current);
+    const newRemaining = totalSec - newElapsed;
+    onSeek(Math.max(0, newRemaining));
+  }, [totalSec, onSeek, pointerToElapsed]);
+
+  const startDrag = useCallback((e) => {
     if (isDone || elapsed <= 0) return;
+    e.preventDefault();
     draggingRef.current = true;
-    grabRef.current = { x, y, elapsed };
   }, [isDone, elapsed]);
 
-  const onPointerDown = (e) => {
-    e.preventDefault();
-    startDrag(e.clientX, e.clientY);
-  };
-  const onTouchStartBall = (e) => {
-    const t = e.touches[0];
-    startDrag(t.clientX, t.clientY);
-  };
+  const onTouchStartBall = useCallback((e) => {
+    if (isDone || elapsed <= 0) return;
+    draggingRef.current = true;
+  }, [isDone, elapsed]);
 
-  // Global move / up
-  const onMove = useCallback((e) => {
-    if (!draggingRef.current) return;
-    const x = e.touches ? e.touches[0].clientX : e.clientX;
-    const y = e.touches ? e.touches[0].clientY : e.clientY;
-    applyDrag(x, y);
-  }, [applyDrag]);
-  const onEnd = useCallback(() => { draggingRef.current = false; }, []);
-
-  React.useEffect(() => {
-    const opts = { passive: false };
-    const moveHandler = (e) => { if (draggingRef.current) { e.preventDefault(); onMove(e); } };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onEnd);
-    window.addEventListener('touchmove', moveHandler, opts);
-    window.addEventListener('touchend', onEnd);
-    return () => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onEnd);
-      window.removeEventListener('touchmove', moveHandler);
-      window.removeEventListener('touchend', onEnd);
+  // Global listeners
+  useEffect(() => {
+    const moveHandler = (e) => {
+      if (!draggingRef.current) return;
+      if (e.cancelable) e.preventDefault();
+      const x = e.touches ? e.touches[0].clientX : e.clientX;
+      const y = e.touches ? e.touches[0].clientY : e.clientY;
+      applyDrag(x, y);
     };
-  }, [onMove, onEnd]);
+    const endHandler = () => { draggingRef.current = false; };
+
+    window.addEventListener('mousemove', moveHandler);
+    window.addEventListener('mouseup', endHandler);
+    window.addEventListener('touchmove', moveHandler, { passive: false });
+    window.addEventListener('touchend', endHandler);
+    return () => {
+      window.removeEventListener('mousemove', moveHandler);
+      window.removeEventListener('mouseup', endHandler);
+      window.removeEventListener('touchmove', moveHandler);
+      window.removeEventListener('touchend', endHandler);
+    };
+  }, [applyDrag]);
 
   return (
     <Layout>
@@ -100,24 +122,38 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
         </div>
 
         {/* Timer circle */}
-        <div style={{ position: "relative", width: 200, height: 200, marginBottom: 36, touchAction: "none" }}>
+        <div ref={containerRef}
+          style={{ position: "relative", width: 200, height: 200, marginBottom: 36, touchAction: "none" }}>
           <svg width="200" height="200" style={{ transform: "rotate(-90deg)" }}>
-            {/* Track */}
+            {/* Track (background) */}
             <circle cx={CX} cy={CY} r={R} fill="none" stroke="rgba(0,0,0,0.04)" strokeWidth="6" />
-            {/* Green progress arc */}
-            <circle cx={CX} cy={CY} r={R} fill="none"
-              stroke={GREEN}
-              strokeWidth="6" strokeLinecap="round"
-              strokeDasharray={CIRCUMFERENCE}
-              strokeDashoffset={strokeDashoffset}
-              style={{ transition: draggingRef.current ? "none" : "stroke-dashoffset 1s linear" }}
-            />
+
+            {/* Pale green arc: max progress reached */}
+            {maxPct > 0 && (
+              <circle cx={CX} cy={CY} r={R} fill="none"
+                stroke={GREEN_PALE}
+                strokeWidth="6" strokeLinecap="round"
+                strokeDasharray={CIRCUMFERENCE}
+                strokeDashoffset={maxOffset}
+              />
+            )}
+
+            {/* Bright green arc: current position */}
+            {currentPct > 0 && (
+              <circle cx={CX} cy={CY} r={R} fill="none"
+                stroke={GREEN}
+                strokeWidth="6" strokeLinecap="round"
+                strokeDasharray={CIRCUMFERENCE}
+                strokeDashoffset={currentOffset}
+                style={{ transition: draggingRef.current ? "none" : "stroke-dashoffset 1s linear" }}
+              />
+            )}
           </svg>
 
-          {/* Scrubber ball — HTML div overlaid at screen position */}
-          {!isDone && elapsed > 0 && (
+          {/* Scrubber ball (HTML div for reliable touch) */}
+          {!isDone && hasStarted && (
             <div
-              onMouseDown={onPointerDown}
+              onMouseDown={startDrag}
               onTouchStart={onTouchStartBall}
               style={{
                 position: "absolute",
@@ -128,7 +164,7 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
                 borderRadius: "50%",
                 background: GREEN,
                 border: "3px solid #fff",
-                boxShadow: "0 2px 6px rgba(0,0,0,0.25)",
+                boxShadow: "0 2px 8px rgba(0,0,0,0.25)",
                 cursor: "grab",
                 zIndex: 5,
                 touchAction: "none",
