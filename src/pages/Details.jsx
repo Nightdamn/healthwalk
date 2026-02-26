@@ -1,27 +1,68 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import Layout from '../components/Layout';
 import Footer from '../components/Footer';
 import { activityIcons } from '../components/Icons';
 import { DAYS_TOTAL, ACTIVITIES } from '../data/constants';
 import { btnBack, glass } from '../styles/shared';
 
-/** SVG checkmark with straight strokes (no curves on right leg) */
-function CheckIcon({ size = 14, color = "#fff", strokeWidth = 2.5 }) {
+const GREEN = "#27ae60";
+
+/** Single day circle with water-level green fill */
+function DayDot({ day, done, frac, isToday, isFuture, uid, actId }) {
+  const SZ = 30;
+  const CX = SZ / 2;
+  const CY = SZ / 2;
+  const R = SZ / 2 - 2; // leave space for border
+  const IR = R - 0.5;
+
+  const diam = IR * 2;
+  const fillH = Math.min(frac, 1) * diam;
+  const fillY = (CY + IR) - fillH;
+  const clipId = `dc-${uid}-${actId}-${day}`;
+
+  // Border color
+  let stroke;
+  if (done) stroke = GREEN;
+  else if (isToday) stroke = "#1a1a2e";
+  else stroke = "rgba(0,0,0,0.1)";
+
+  const strokeW = (done || isToday) ? 1.5 : 1;
+
   return (
-    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" style={{ display: "block" }}>
-      <polyline
-        points="3,8.5 6.5,12 13,4"
-        stroke={color} strokeWidth={strokeWidth}
-        strokeLinecap="round" strokeLinejoin="miter"
-        fill="none"
-      />
+    <svg width={SZ} height={SZ} viewBox={`0 0 ${SZ} ${SZ}`} style={{ display: "block", width: "100%", height: "auto" }}>
+      <defs>
+        <clipPath id={clipId}>
+          <circle cx={CX} cy={CY} r={IR} />
+        </clipPath>
+      </defs>
+
+      {/* White / transparent background */}
+      <circle cx={CX} cy={CY} r={IR} fill={isFuture ? "rgba(0,0,0,0.02)" : "rgba(255,255,255,0.5)"} />
+
+      {/* Water-level green fill */}
+      {frac > 0 && (
+        <rect
+          x={CX - IR} y={fillY} width={diam} height={fillH}
+          fill={GREEN} opacity={done ? 0.35 : 0.25}
+          clipPath={`url(#${clipId})`}
+        />
+      )}
+
+      {/* Border ring */}
+      <circle cx={CX} cy={CY} r={R} fill="none" stroke={stroke} strokeWidth={strokeW} />
+
+      {/* Day number — always shown */}
+      <text x={CX} y={CY + 1} textAnchor="middle" dominantBaseline="middle"
+        fill={isFuture ? "#ccc" : "#1a1a2e"}
+        fontSize={9} fontWeight={600}
+      >{day}</text>
     </svg>
   );
 }
 
-const GREEN = "#27ae60";
-
 export default function DetailsPage({ progress, currentDay, elapsedTime, getElapsedForDay, onBack }) {
+  const uidRef = useRef(Math.random().toString(36).slice(2, 8));
+
   return (
     <Layout>
       <div style={{ minHeight: "100vh", padding: "0 20px", position: "relative", zIndex: 1 }}>
@@ -56,60 +97,24 @@ export default function DetailsPage({ progress, currentDay, elapsedTime, getElap
                   const isToday = day === currentDay;
                   const isFuture = day > currentDay;
 
-                  // Elapsed seconds for this activity on this day
                   let elapsedSec = 0;
                   if (done) {
                     elapsedSec = totalSec;
                   } else if (day === currentDay && elapsedTime) {
                     elapsedSec = elapsedTime[act.id] || 0;
                   } else if (day < currentDay && getElapsedForDay) {
-                    const dayEl = getElapsedForDay(day);
-                    elapsedSec = dayEl[act.id] || 0;
+                    elapsedSec = (getElapsedForDay(day)[act.id]) || 0;
                   }
 
-                  const frac = totalSec > 0 ? Math.min(elapsedSec / totalSec, 1) : 0;
-
-                  // Background:
-                  // done → solid green
-                  // partial → semi-transparent green proportional to progress
-                  // future → very light
-                  let bg;
-                  if (done) {
-                    bg = GREEN;
-                  } else if (frac > 0) {
-                    bg = `rgba(39,174,96,${(frac * 0.35).toFixed(3)})`;
-                  } else if (isToday) {
-                    bg = "rgba(26,26,46,0.06)";
-                  } else {
-                    bg = "rgba(255,255,255,0.5)";
-                  }
-
-                  // Border
-                  let border;
-                  if (done) {
-                    border = `2px solid ${GREEN}`;
-                  } else if (isToday) {
-                    border = "2px solid #1a1a2e";
-                  } else if (frac > 0) {
-                    border = `1.5px solid rgba(39,174,96,0.3)`;
-                  } else {
-                    border = "1.5px solid rgba(0,0,0,0.1)";
-                  }
+                  const frac = totalSec > 0 ? elapsedSec / totalSec : 0;
 
                   return (
-                    <div
-                      key={day}
-                      style={{
-                        width: "100%", aspectRatio: "1", borderRadius: "50%",
-                        border, background: bg,
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                        fontSize: 9, fontWeight: 600,
-                        color: done ? "#fff" : isFuture ? "#ccc" : "#1a1a2e",
-                        transition: "all 0.2s",
-                        opacity: isFuture ? 0.5 : 1,
-                      }}
-                    >
-                      {day}
+                    <div key={day} style={{ width: "100%", aspectRatio: "1", opacity: isFuture ? 0.5 : 1 }}>
+                      <DayDot
+                        day={day} done={done} frac={frac}
+                        isToday={isToday} isFuture={isFuture}
+                        uid={uidRef.current} actId={act.id}
+                      />
                     </div>
                   );
                 })}
@@ -123,5 +128,3 @@ export default function DetailsPage({ progress, currentDay, elapsedTime, getElap
     </Layout>
   );
 }
-
-export { CheckIcon };
