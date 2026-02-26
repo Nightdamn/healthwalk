@@ -22,8 +22,7 @@ function getDayTimePct(dsh) {
   if (h < 0) h += 24; return Math.min((h / 24) * 100, 100);
 }
 
-// Total practice seconds across all activities
-const TOTAL_PRACTICE_SEC = ACTIVITIES.reduce((s, a) => s + a.duration * 60, 0); // 4200
+const TOTAL_PRACTICE_SEC = ACTIVITIES.reduce((s, a) => s + a.duration * 60, 0);
 
 // ─── SVG Day Circle ───
 const SZ = 32;
@@ -34,39 +33,36 @@ const CIRC = 2 * Math.PI * R;
 const GREEN = "#27ae60";
 
 /**
- * @param timePct     0-100, time elapsed in this day
- * @param allDone     all practices completed → force arc to 100%
- * @param practicePct 0-1, fraction of total practice seconds completed
- * @param isPast/isCurrent/isFuture
+ * Arc starts at 9 o'clock (left, where the line comes in).
+ * Time-based fill, but allDone forces 100%.
+ * Inner fill = practice progress (green, semi-transparent).
+ * NO checkmark ever — always show day number.
  */
-function DayCircle({ day, timePct, allDone, practicePct, isPast, isCurrent, isFuture, isActive }) {
-  // Arc: time-based, but if allDone → 100%
+function DayCircle({ day, timePct, allDone, practicePct, isPast, isCurrent, isFuture }) {
   let arcPct = 0;
   if (isFuture) arcPct = 0;
-  else if (allDone || isPast) arcPct = 100; // past days get full arc too (day ended)
+  else if (allDone || isPast) arcPct = 100;
   else if (isCurrent) arcPct = allDone ? 100 : Math.min(timePct, 100);
 
   const offset = CIRC - (arcPct / 100) * CIRC;
 
-  // Inner fill: proportional to practice completion, max opacity ~0.25
-  const fillOpacity = Math.min(practicePct, 1) * 0.25;
+  // Inner fill: proportional to practice seconds done / 4200
+  const fillOpacity = Math.min(practicePct, 1) * 0.3;
   const innerFill = practicePct > 0 ? `rgba(39,174,96,${fillOpacity.toFixed(3)})` : "transparent";
-
-  const showCheck = allDone;
 
   return (
     <svg width={SZ} height={SZ} style={{ display: "block", overflow: "visible", flexShrink: 0 }}>
-      {/* Inner fill circle (practice progress) */}
-      <circle cx={CX} cy={CY} r={R - 1} fill={innerFill} />
+      {/* Inner fill (practice progress) */}
+      <circle cx={CX} cy={CY} r={R - 1.5} fill={innerFill} />
 
-      {/* Base ring (background track) */}
+      {/* Base ring */}
       <circle cx={CX} cy={CY} r={R}
         fill="none"
         stroke={isFuture ? "rgba(0,0,0,0.05)" : "rgba(0,0,0,0.07)"}
         strokeWidth={2}
       />
 
-      {/* Green arc — starts at 9 o'clock (left), goes clockwise */}
+      {/* Green arc — starts at 9 o'clock (rotate 180deg from default 3 o'clock) */}
       {arcPct > 0 && (
         <circle cx={CX} cy={CY} r={R}
           fill="none" stroke={GREEN} strokeWidth={2.5}
@@ -80,21 +76,12 @@ function DayCircle({ day, timePct, allDone, practicePct, isPast, isCurrent, isFu
         />
       )}
 
-      {/* Active selection indicator */}
-      {isActive && !isCurrent && (
-        <circle cx={CX} cy={CY} r={R + 3}
-          fill="none" stroke={GREEN} strokeWidth={1.5} opacity={0.35} />
-      )}
-
-      {/* Text / checkmark */}
-      {showCheck ? (
-        <text x={CX} y={CY + 1} textAnchor="middle" dominantBaseline="middle"
-          fill={GREEN} fontSize={13} fontWeight={700} opacity={0.7}>✓</text>
-      ) : (
-        <text x={CX} y={CY + 1} textAnchor="middle" dominantBaseline="middle"
-          fill={isCurrent ? "#1a1a2e" : isFuture ? "#ccc" : "#555"}
-          fontSize={11} fontWeight={isCurrent ? 700 : 500}>{day}</text>
-      )}
+      {/* Day number — always shown, no checkmark */}
+      <text x={CX} y={CY + 1} textAnchor="middle" dominantBaseline="middle"
+        fill={isCurrent ? "#1a1a2e" : isFuture ? "#ccc" : allDone ? GREEN : "#555"}
+        fontSize={11} fontWeight={isCurrent || allDone ? 700 : 500}
+        opacity={allDone && !isCurrent ? 0.8 : 1}
+      >{day}</text>
     </svg>
   );
 }
@@ -130,6 +117,7 @@ export default function Dashboard({ user, currentDay, progress, elapsedTime, day
   const todayProgress = progress[activeDay] || {};
   const completedCount = ACTIVITIES.filter((a) => todayProgress[a.id]).length;
   const completedDays = Object.keys(progress).filter((d) => isDayComplete(progress[d])).length;
+  const currentDayAllDone = isDayComplete(progress[currentDay]);
 
   const totalSecDay = ACTIVITIES.reduce((s, a) => s + a.duration * 60, 0);
   const elapsedSecDay = ACTIVITIES.reduce((s, a) => {
@@ -141,7 +129,6 @@ export default function Dashboard({ user, currentDay, progress, elapsedTime, day
   const dayDate = getDateForDay(activeDay, currentDay, dayStartHour);
   const motto = MOTTOS[(activeDay - 1) % MOTTOS.length] || MOTTOS[0];
 
-  /** Compute practice fraction for any day (0-1) */
   const getPracticeFraction = (day) => {
     const dp = progress[day] || {};
     const el = day === currentDay ? elapsedTime : getElapsedForDay(day);
@@ -223,7 +210,7 @@ export default function Dashboard({ user, currentDay, progress, elapsedTime, day
             </div>
           </div>
 
-          {/* Day circles with solid connecting lines */}
+          {/* Day circles with CONTINUOUS connecting lines */}
           <div ref={daysRowRef}
             style={{ display: "flex", alignItems: "center", padding: "4px 16px", overflowX: "auto", scrollbarWidth: "none", WebkitOverflowScrolling: "touch" }}>
             <style>{`div::-webkit-scrollbar { display: none; }`}</style>
@@ -233,21 +220,24 @@ export default function Dashboard({ user, currentDay, progress, elapsedTime, day
               const isCurrent = day === currentDay;
               const isFuture = day > currentDay;
               const isPast = !isCurrent && !isFuture;
-              const isActive = day === activeDay;
               const isClickable = !isFuture;
               const practiceFrac = getPracticeFraction(day);
 
-              // Line connects previous day to this one
+              // Line BEFORE this circle: green if the previous day is past OR (previous day is current AND allDone)
               const showLine = day > 1;
-              const lineGreen = day <= currentDay;
+              const prevDay = day - 1;
+              const prevIsPast = prevDay < currentDay;
+              const prevAllDone = isDayComplete(progress[prevDay]);
+              const lineGreen = prevIsPast || (prevDay === currentDay && prevAllDone);
 
               return (
                 <React.Fragment key={day}>
                   {showLine && (
                     <div style={{
-                      width: 10, minWidth: 10, height: 2.5,
+                      width: 12, minWidth: 12, height: 2.5,
                       background: lineGreen ? GREEN : "rgba(0,0,0,0.06)",
-                      marginLeft: -1, marginRight: -1,
+                      /* overlap INTO the circles so the line touches the inner stroke edge */
+                      marginLeft: -3, marginRight: -3,
                       zIndex: 0, flexShrink: 0,
                     }} />
                   )}
@@ -262,7 +252,6 @@ export default function Dashboard({ user, currentDay, progress, elapsedTime, day
                       allDone={allDone}
                       practicePct={practiceFrac}
                       isPast={isPast} isCurrent={isCurrent} isFuture={isFuture}
-                      isActive={isActive}
                     />
                   </div>
                 </React.Fragment>
