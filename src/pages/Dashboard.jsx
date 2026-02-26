@@ -312,7 +312,9 @@ export default function Dashboard({ user, currentDay, progress, elapsedTime, day
                     </div>
                   </div>
                   {done ? (
-                    <div style={{ width: 38, height: 38, borderRadius: "50%", background: "#27ae60", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>✓</div>
+                    <div style={{ width: 38, height: 38, borderRadius: "50%", background: "#27ae60", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <svg width="18" height="18" viewBox="0 0 16 16" fill="none"><polyline points="3,8.5 6.5,12 13,4" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="miter" fill="none"/></svg>
+                    </div>
                   ) : isToday ? (
                     <button onClick={() => onStartTimer(act)}
                       style={{ padding: "10px 22px", background: "#1a1a2e", color: "#fff", border: "none", borderRadius: 12, fontSize: 13, fontWeight: 600, cursor: "pointer", boxShadow: "0 3px 10px rgba(26,26,46,0.15)" }}>

@@ -217,7 +217,7 @@ export default function App() {
       <TimerPage activity={activeActivity} timerSeconds={timerSeconds} timerPaused={timerPaused}
         currentDay={currentDay} onPause={handleTimerPause} onBack={handleTimerBack} onDone={handleTimerDone} onSeek={handleTimerSeek} />
     );
-    case "details": return <DetailsPage progress={progress} currentDay={currentDay} onBack={goMain} />;
+    case "details": return <DetailsPage progress={progress} currentDay={currentDay} elapsedTime={elapsedTime} getElapsedForDay={getElapsedForDay} onBack={goMain} />;
     case "profile": return (
       <ProfilePage user={user} currentDay={currentDay} progress={progress}
         tzOffsetMin={tzOffsetMin} dayStartHour={dayStartHour}

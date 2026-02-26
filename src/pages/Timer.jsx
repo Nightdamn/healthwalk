@@ -176,7 +176,7 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
           <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", pointerEvents: "none" }}>
             {isDone ? (
               <>
-                <span style={{ fontSize: 42, fontWeight: 300, color: GREEN }}>✓</span>
+                <svg width="42" height="42" viewBox="0 0 16 16" fill="none"><polyline points="3,8.5 6.5,12 13,4" stroke="#27ae60" strokeWidth="2" strokeLinecap="round" strokeLinejoin="miter" fill="none"/></svg>
                 <span style={{ fontSize: 13, color: "#1a1a2e", fontWeight: 600, marginTop: 4 }}>Завершено</span>
               </>
             ) : (
