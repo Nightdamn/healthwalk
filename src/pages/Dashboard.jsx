@@ -8,18 +8,12 @@ import { glass } from '../styles/shared';
 const WEEKDAYS = ['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'];
 const MONTHS_G = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
 
-function formatDayDate(date) {
-  return `${WEEKDAYS[date.getDay()]}, ${date.getDate()} ${MONTHS_G[date.getMonth()]}`;
-}
-function getCurrentDayDate(dsh) {
-  const n = new Date(); if (n.getHours() < dsh) n.setDate(n.getDate() - 1); return n;
-}
-function getDateForDay(day, cur, dsh) {
-  const t = getCurrentDayDate(dsh); t.setDate(t.getDate() + (day - cur)); return t;
-}
-function getDayTimePct(dsh) {
-  const n = new Date(); let h = n.getHours() - dsh + n.getMinutes() / 60 + n.getSeconds() / 3600;
-  if (h < 0) h += 24; return Math.min((h / 24) * 100, 100);
+function formatDayDate(d) { return `${WEEKDAYS[d.getDay()]}, ${d.getDate()} ${MONTHS_G[d.getMonth()]}`; }
+function getCurrentDayDate(h) { const n = new Date(); if (n.getHours() < h) n.setDate(n.getDate() - 1); return n; }
+function getDateForDay(day, cur, h) { const t = getCurrentDayDate(h); t.setDate(t.getDate() + (day - cur)); return t; }
+function getDayTimePct(h) {
+  const n = new Date(); let hr = n.getHours() - h + n.getMinutes() / 60 + n.getSeconds() / 3600;
+  if (hr < 0) hr += 24; return Math.min((hr / 24) * 100, 100);
 }
 
 const TOTAL_PRACTICE_SEC = ACTIVITIES.reduce((s, a) => s + a.duration * 60, 0);
@@ -31,29 +25,47 @@ const CY = SZ / 2;
 const R = 12;
 const CIRC = 2 * Math.PI * R;
 const GREEN = "#27ae60";
+const IR = R - 1.5; // inner fill radius
 
 /**
- * Arc starts at 9 o'clock (left, where the line comes in).
- * Time-based fill, but allDone forces 100%.
- * Inner fill = practice progress (green, semi-transparent).
- * NO checkmark ever — always show day number.
+ * Water-level fill: green from bottom to top, height = practicePct * diameter.
+ * Uses clipPath to mask a rect to the circle.
+ * Arc starts at 9 o'clock (left side), time-based; allDone forces 100%.
+ * Day number always black.
  */
-function DayCircle({ day, timePct, allDone, practicePct, isPast, isCurrent, isFuture }) {
+function DayCircle({ day, timePct, allDone, practicePct, isPast, isCurrent, isFuture, uid }) {
   let arcPct = 0;
   if (isFuture) arcPct = 0;
   else if (allDone || isPast) arcPct = 100;
-  else if (isCurrent) arcPct = allDone ? 100 : Math.min(timePct, 100);
+  else if (isCurrent) arcPct = Math.min(timePct, 100);
 
   const offset = CIRC - (arcPct / 100) * CIRC;
+  const frac = Math.min(Math.max(practicePct, 0), 1);
 
-  // Inner fill: proportional to practice seconds done / 4200
-  const fillOpacity = Math.min(practicePct, 1) * 0.3;
-  const innerFill = practicePct > 0 ? `rgba(39,174,96,${fillOpacity.toFixed(3)})` : "transparent";
+  // Water level: rect from bottom of circle, height proportional to frac
+  const diam = IR * 2;
+  const fillH = frac * diam;
+  const fillY = (CY + IR) - fillH; // top edge of the water
+
+  const clipId = `clip-${uid}-${day}`;
 
   return (
     <svg width={SZ} height={SZ} style={{ display: "block", overflow: "visible", flexShrink: 0 }}>
-      {/* Inner fill (practice progress) */}
-      <circle cx={CX} cy={CY} r={R - 1.5} fill={innerFill} />
+      <defs>
+        <clipPath id={clipId}>
+          <circle cx={CX} cy={CY} r={IR} />
+        </clipPath>
+      </defs>
+
+      {/* Water-level green fill (clipped to circle) */}
+      {frac > 0 && (
+        <rect
+          x={CX - IR} y={fillY} width={diam} height={fillH}
+          fill={GREEN} opacity={0.25}
+          clipPath={`url(#${clipId})`}
+          style={{ transition: "y 0.5s ease, height 0.5s ease" }}
+        />
+      )}
 
       {/* Base ring */}
       <circle cx={CX} cy={CY} r={R}
@@ -62,7 +74,7 @@ function DayCircle({ day, timePct, allDone, practicePct, isPast, isCurrent, isFu
         strokeWidth={2}
       />
 
-      {/* Green arc — starts at 9 o'clock (rotate 180deg from default 3 o'clock) */}
+      {/* Green arc — starts at 9 o'clock (rotate 180deg) */}
       {arcPct > 0 && (
         <circle cx={CX} cy={CY} r={R}
           fill="none" stroke={GREEN} strokeWidth={2.5}
@@ -76,11 +88,10 @@ function DayCircle({ day, timePct, allDone, practicePct, isPast, isCurrent, isFu
         />
       )}
 
-      {/* Day number — always shown, no checkmark */}
+      {/* Day number — ALWAYS black */}
       <text x={CX} y={CY + 1} textAnchor="middle" dominantBaseline="middle"
-        fill={isCurrent ? "#1a1a2e" : isFuture ? "#ccc" : allDone ? GREEN : "#555"}
-        fontSize={11} fontWeight={isCurrent || allDone ? 700 : 500}
-        opacity={allDone && !isCurrent ? 0.8 : 1}
+        fill={isFuture ? "#ccc" : "#1a1a2e"}
+        fontSize={11} fontWeight={isCurrent ? 700 : 500}
       >{day}</text>
     </svg>
   );
@@ -92,6 +103,7 @@ export default function Dashboard({ user, currentDay, progress, elapsedTime, day
   const [viewingDay, setViewingDay] = useState(null);
   const [timePct, setTimePct] = useState(() => getDayTimePct(dayStartHour));
   const daysRowRef = useRef(null);
+  const uidRef = useRef(Math.random().toString(36).slice(2, 8));
 
   const activeDay = viewingDay ?? currentDay;
   const isToday = activeDay === currentDay;
@@ -107,9 +119,7 @@ export default function Dashboard({ user, currentDay, progress, elapsedTime, day
     if (!daysRowRef.current) return;
     const items = daysRowRef.current.querySelectorAll('[data-day]');
     const t = items[activeDay - 1];
-    if (t) {
-      daysRowRef.current.scrollTo({ left: t.offsetLeft - daysRowRef.current.clientWidth / 2 + t.clientWidth / 2, behavior: "smooth" });
-    }
+    if (t) daysRowRef.current.scrollTo({ left: t.offsetLeft - daysRowRef.current.clientWidth / 2 + t.clientWidth / 2, behavior: "smooth" });
   }, [activeDay]);
 
   useEffect(() => { setViewingDay(null); }, [currentDay]);
@@ -117,7 +127,6 @@ export default function Dashboard({ user, currentDay, progress, elapsedTime, day
   const todayProgress = progress[activeDay] || {};
   const completedCount = ACTIVITIES.filter((a) => todayProgress[a.id]).length;
   const completedDays = Object.keys(progress).filter((d) => isDayComplete(progress[d])).length;
-  const currentDayAllDone = isDayComplete(progress[currentDay]);
 
   const totalSecDay = ACTIVITIES.reduce((s, a) => s + a.duration * 60, 0);
   const elapsedSecDay = ACTIVITIES.reduce((s, a) => {
@@ -133,10 +142,7 @@ export default function Dashboard({ user, currentDay, progress, elapsedTime, day
     const dp = progress[day] || {};
     const el = day === currentDay ? elapsedTime : getElapsedForDay(day);
     let sec = 0;
-    ACTIVITIES.forEach((a) => {
-      if (dp[a.id]) sec += a.duration * 60;
-      else sec += (el[a.id] || 0);
-    });
+    ACTIVITIES.forEach((a) => { sec += dp[a.id] ? a.duration * 60 : (el[a.id] || 0); });
     return TOTAL_PRACTICE_SEC > 0 ? sec / TOTAL_PRACTICE_SEC : 0;
   };
 
@@ -159,9 +165,7 @@ export default function Dashboard({ user, currentDay, progress, elapsedTime, day
           {user?.avatar ? (
             <img src={user.avatar} alt="" referrerPolicy="no-referrer" style={{ width: 44, height: 44, borderRadius: "50%", objectFit: "cover" }} />
           ) : (
-            <div style={{ width: 44, height: 44, borderRadius: "50%", background: "linear-gradient(135deg, #e8ecf1, #d0d8e3)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, fontWeight: 700, color: "#1a1a2e" }}>
-              {user?.name?.charAt(0)}
-            </div>
+            <div style={{ width: 44, height: 44, borderRadius: "50%", background: "linear-gradient(135deg, #e8ecf1, #d0d8e3)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, fontWeight: 700, color: "#1a1a2e" }}>{user?.name?.charAt(0)}</div>
           )}
           <div>
             <div style={{ fontSize: 16, fontWeight: 700, color: "#1a1a2e" }}>{user?.name}</div>
@@ -210,7 +214,6 @@ export default function Dashboard({ user, currentDay, progress, elapsedTime, day
             </div>
           </div>
 
-          {/* Day circles with CONTINUOUS connecting lines */}
           <div ref={daysRowRef}
             style={{ display: "flex", alignItems: "center", padding: "4px 16px", overflowX: "auto", scrollbarWidth: "none", WebkitOverflowScrolling: "touch" }}>
             <style>{`div::-webkit-scrollbar { display: none; }`}</style>
@@ -223,12 +226,9 @@ export default function Dashboard({ user, currentDay, progress, elapsedTime, day
               const isClickable = !isFuture;
               const practiceFrac = getPracticeFraction(day);
 
-              // Line BEFORE this circle: green if the previous day is past OR (previous day is current AND allDone)
               const showLine = day > 1;
               const prevDay = day - 1;
-              const prevIsPast = prevDay < currentDay;
-              const prevAllDone = isDayComplete(progress[prevDay]);
-              const lineGreen = prevIsPast || (prevDay === currentDay && prevAllDone);
+              const lineGreen = prevDay < currentDay || (prevDay === currentDay && isDayComplete(progress[prevDay]));
 
               return (
                 <React.Fragment key={day}>
@@ -236,7 +236,6 @@ export default function Dashboard({ user, currentDay, progress, elapsedTime, day
                     <div style={{
                       width: 12, minWidth: 12, height: 2.5,
                       background: lineGreen ? GREEN : "rgba(0,0,0,0.06)",
-                      /* overlap INTO the circles so the line touches the inner stroke edge */
                       marginLeft: -3, marginRight: -3,
                       zIndex: 0, flexShrink: 0,
                     }} />
@@ -247,10 +246,9 @@ export default function Dashboard({ user, currentDay, progress, elapsedTime, day
                     style={{ cursor: isClickable ? "pointer" : "default", flexShrink: 0, zIndex: 1, position: "relative" }}
                   >
                     <DayCircle
-                      day={day}
+                      day={day} uid={uidRef.current}
                       timePct={isCurrent ? timePct : (isPast ? 100 : 0)}
-                      allDone={allDone}
-                      practicePct={practiceFrac}
+                      allDone={allDone} practicePct={practiceFrac}
                       isPast={isPast} isCurrent={isCurrent} isFuture={isFuture}
                     />
                   </div>
@@ -302,11 +300,10 @@ export default function Dashboard({ user, currentDay, progress, elapsedTime, day
                 ...glass, background: done ? "rgba(26,26,46,0.04)" : "rgba(255,255,255,0.65)",
                 borderRadius: 18, padding: "18px 20px",
                 border: done ? "1px solid rgba(26,26,46,0.08)" : "1px solid rgba(255,255,255,0.7)",
-                transition: "all 0.3s",
               }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                    <div style={{ width: 48, height: 48, borderRadius: 14, background: done ? "rgba(26,26,46,0.08)" : "rgba(0,0,0,0.03)", display: "flex", alignItems: "center", justifyContent: "center", color: "#1a1a2e" }}>
+                    <div style={{ width: 48, height: 48, borderRadius: 14, background: done ? "rgba(26,26,46,0.08)" : "rgba(0,0,0,0.03)", display: "flex", alignItems: "center", justifyContent: "center" }}>
                       <IconComp size={32} />
                     </div>
                     <div>

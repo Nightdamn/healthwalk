@@ -5,10 +5,11 @@ import { btnBack } from '../styles/shared';
 
 const CX = 100, CY = 100, R = 90;
 const CIRCUMFERENCE = 2 * Math.PI * R;
-const BALL_R = 9;
+const BALL_R = 10;
+const GREEN = "#27ae60";
 
-// Sensitivity: pixels of drag per second of rewind
-const PX_PER_SEC = 1.5;
+// Drag sensitivity: pixels per second of rewind
+const PX_PER_SEC = 2;
 
 export default function TimerPage({ activity, timerSeconds, timerPaused, currentDay, onPause, onBack, onDone, onSeek }) {
   const totalSec = activity.duration * 60;
@@ -18,70 +19,64 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
   const hasStarted = elapsed > 0;
   const isDone = timerSeconds === 0;
 
-  const circleRef = useRef(null);
   const draggingRef = useRef(false);
-  const grabOriginRef = useRef({ x: 0, y: 0, elapsed: 0 });
+  const grabRef = useRef({ x: 0, y: 0, elapsed: 0 });
 
-  // Ball position on SVG (rotated -90deg: 0% = top, clockwise)
+  // Ball screen position (0% = 12 o'clock, clockwise)
   const angleRad = (progressPct / 100) * 2 * Math.PI;
-  const ballX = CX + R * Math.cos(angleRad);
-  const ballY = CY + R * Math.sin(angleRad);
+  const ballScreenX = CX + R * Math.sin(angleRad);
+  const ballScreenY = CY - R * Math.cos(angleRad);
 
-  // ─── Drag: movement UP or SIDEWAYS from grab point → rewind ───
-  const handleDragDelta = useCallback((clientX, clientY) => {
+  // ─── Drag handler: distance from grab point → rewind seconds ───
+  const applyDrag = useCallback((clientX, clientY) => {
     if (!draggingRef.current || !onSeek) return;
-    const origin = grabOriginRef.current;
-    // Distance from grab point (any direction away = rewind)
-    const dx = clientX - origin.x;
-    const dy = origin.y - clientY; // inverted: up = positive
-    // Use the larger of |dx| or |dy| so any direction works
-    const dist = Math.max(Math.abs(dx), Math.abs(dy), 0);
+    const o = grabRef.current;
+    const dx = Math.abs(clientX - o.x);
+    const dy = Math.max(0, o.y - clientY); // up = positive
+    const dist = Math.max(dx, dy);
     const rewindSec = Math.round(dist / PX_PER_SEC);
-    const newElapsed = Math.max(0, origin.elapsed - rewindSec);
-    const newRemaining = totalSec - newElapsed;
-    onSeek(Math.min(totalSec, Math.max(0, newRemaining)));
+    const newElapsed = Math.max(0, o.elapsed - rewindSec);
+    onSeek(Math.max(0, Math.min(totalSec, totalSec - newElapsed)));
   }, [totalSec, onSeek]);
 
-  // Mouse
-  const onMouseDown = (e) => {
-    if (isDone) return;
-    e.preventDefault();
+  const startDrag = useCallback((x, y) => {
+    if (isDone || elapsed <= 0) return;
     draggingRef.current = true;
-    grabOriginRef.current = { x: e.clientX, y: e.clientY, elapsed };
-  };
-  const onMouseMove = useCallback((e) => {
-    if (!draggingRef.current) return;
-    handleDragDelta(e.clientX, e.clientY);
-  }, [handleDragDelta]);
-  const onMouseUp = useCallback(() => { draggingRef.current = false; }, []);
+    grabRef.current = { x, y, elapsed };
+  }, [isDone, elapsed]);
 
-  // Touch
-  const onTouchStart = (e) => {
-    if (isDone) return;
-    draggingRef.current = true;
-    const t = e.touches[0];
-    grabOriginRef.current = { x: t.clientX, y: t.clientY, elapsed };
-  };
-  const onTouchMove = useCallback((e) => {
-    if (!draggingRef.current) return;
+  const onPointerDown = (e) => {
     e.preventDefault();
+    startDrag(e.clientX, e.clientY);
+  };
+  const onTouchStartBall = (e) => {
     const t = e.touches[0];
-    handleDragDelta(t.clientX, t.clientY);
-  }, [handleDragDelta]);
-  const onTouchEnd = useCallback(() => { draggingRef.current = false; }, []);
+    startDrag(t.clientX, t.clientY);
+  };
+
+  // Global move / up
+  const onMove = useCallback((e) => {
+    if (!draggingRef.current) return;
+    const x = e.touches ? e.touches[0].clientX : e.clientX;
+    const y = e.touches ? e.touches[0].clientY : e.clientY;
+    applyDrag(x, y);
+  }, [applyDrag]);
+  const onEnd = useCallback(() => { draggingRef.current = false; }, []);
 
   React.useEffect(() => {
-    window.addEventListener('mousemove', onMouseMove);
-    window.addEventListener('mouseup', onMouseUp);
-    window.addEventListener('touchmove', onTouchMove, { passive: false });
-    window.addEventListener('touchend', onTouchEnd);
+    const opts = { passive: false };
+    const moveHandler = (e) => { if (draggingRef.current) { e.preventDefault(); onMove(e); } };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onEnd);
+    window.addEventListener('touchmove', moveHandler, opts);
+    window.addEventListener('touchend', onEnd);
     return () => {
-      window.removeEventListener('mousemove', onMouseMove);
-      window.removeEventListener('mouseup', onMouseUp);
-      window.removeEventListener('touchmove', onTouchMove);
-      window.removeEventListener('touchend', onTouchEnd);
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onEnd);
+      window.removeEventListener('touchmove', moveHandler);
+      window.removeEventListener('touchend', onEnd);
     };
-  }, [onMouseMove, onMouseUp, onTouchMove, onTouchEnd]);
+  }, [onMove, onEnd]);
 
   return (
     <Layout>
@@ -105,36 +100,47 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
         </div>
 
         {/* Timer circle */}
-        <div ref={circleRef}
-          style={{ position: "relative", width: 200, height: 200, marginBottom: 36, touchAction: "none" }}>
-          <svg width="200" height="200" style={{ transform: "rotate(-90deg)", overflow: "visible" }}>
+        <div style={{ position: "relative", width: 200, height: 200, marginBottom: 36, touchAction: "none" }}>
+          <svg width="200" height="200" style={{ transform: "rotate(-90deg)" }}>
             {/* Track */}
             <circle cx={CX} cy={CY} r={R} fill="none" stroke="rgba(0,0,0,0.04)" strokeWidth="6" />
-            {/* Progress arc */}
+            {/* Green progress arc */}
             <circle cx={CX} cy={CY} r={R} fill="none"
-              stroke={isDone ? "#27ae60" : "#1a1a2e"}
+              stroke={GREEN}
               strokeWidth="6" strokeLinecap="round"
               strokeDasharray={CIRCUMFERENCE}
               strokeDashoffset={strokeDashoffset}
               style={{ transition: draggingRef.current ? "none" : "stroke-dashoffset 1s linear" }}
             />
-            {/* Scrubber ball */}
-            {!isDone && elapsed > 0 && (
-              <circle
-                cx={ballX} cy={ballY} r={BALL_R}
-                fill="#1a1a2e" stroke="#fff" strokeWidth="3"
-                style={{ cursor: "grab", filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.25))" }}
-                onMouseDown={onMouseDown}
-                onTouchStart={onTouchStart}
-              />
-            )}
           </svg>
 
+          {/* Scrubber ball — HTML div overlaid at screen position */}
+          {!isDone && elapsed > 0 && (
+            <div
+              onMouseDown={onPointerDown}
+              onTouchStart={onTouchStartBall}
+              style={{
+                position: "absolute",
+                left: ballScreenX - BALL_R,
+                top: ballScreenY - BALL_R,
+                width: BALL_R * 2,
+                height: BALL_R * 2,
+                borderRadius: "50%",
+                background: GREEN,
+                border: "3px solid #fff",
+                boxShadow: "0 2px 6px rgba(0,0,0,0.25)",
+                cursor: "grab",
+                zIndex: 5,
+                touchAction: "none",
+              }}
+            />
+          )}
+
           {/* Center text */}
-          <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", pointerEvents: "none" }}>
             {isDone ? (
               <>
-                <span style={{ fontSize: 42, fontWeight: 300, color: "#27ae60" }}>✓</span>
+                <span style={{ fontSize: 42, fontWeight: 300, color: GREEN }}>✓</span>
                 <span style={{ fontSize: 13, color: "#1a1a2e", fontWeight: 600, marginTop: 4 }}>Завершено</span>
               </>
             ) : (
@@ -148,6 +154,11 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
                 }}>
                   {formatTime(timerSeconds)}
                 </span>
+                {!timerPaused && (
+                  <span style={{ fontSize: 12, color: "#1a1a2e", fontWeight: 600 }}>
+                    Ещё чуть-чуть!
+                  </span>
+                )}
               </>
             )}
           </div>
