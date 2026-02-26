@@ -22,11 +22,11 @@ function DayDot({ day, done, frac, isToday, isFuture, uid, actId }) {
 
   // Border color
   let stroke;
-  if (done) stroke = GREEN;
-  else if (isToday) stroke = "#1a1a2e";
-  else stroke = "rgba(0,0,0,0.1)";
+  if (isFuture) stroke = "rgba(0,0,0,0.1)";
+  else stroke = GREEN;
 
-  const strokeW = (done || isToday) ? 1.5 : 1;
+  const strokeW = isFuture ? 1 : 1.5;
+  const strokeOp = isFuture ? 1 : 0.7;
 
   return (
     <svg width={SZ} height={SZ} viewBox={`0 0 ${SZ} ${SZ}`} style={{ display: "block", width: "100%", height: "auto" }}>
@@ -49,7 +49,7 @@ function DayDot({ day, done, frac, isToday, isFuture, uid, actId }) {
       )}
 
       {/* Border ring */}
-      <circle cx={CX} cy={CY} r={R} fill="none" stroke={stroke} strokeWidth={strokeW} />
+      <circle cx={CX} cy={CY} r={R} fill="none" stroke={stroke} strokeWidth={strokeW} opacity={strokeOp} />
 
       {/* Day number — always shown */}
       <text x={CX} y={CY + 1} textAnchor="middle" dominantBaseline="middle"

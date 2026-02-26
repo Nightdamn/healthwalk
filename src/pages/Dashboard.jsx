@@ -67,11 +67,12 @@ function DayCircle({ day, timePct, allDone, practicePct, isPast, isCurrent, isFu
         />
       )}
 
-      {/* Base ring */}
+      {/* Base ring — green for past & current, gray for future */}
       <circle cx={CX} cy={CY} r={R}
         fill="none"
-        stroke={isFuture ? "rgba(0,0,0,0.05)" : "rgba(0,0,0,0.07)"}
+        stroke={isFuture ? "rgba(0,0,0,0.05)" : GREEN}
         strokeWidth={2}
+        opacity={isFuture ? 1 : 0.35}
       />
 
       {/* Green arc — starts at 9 o'clock (rotate 180deg) */}
