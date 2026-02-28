@@ -209,11 +209,11 @@ export default function Dashboard({ user, userRole, currentDay, progress, elapse
           if (userRole === 'student') {
             items.push(
               { label: "Мои курсы", icon: "📚", target: "my_courses" },
-              { label: "Персональный трекер", icon: "🎯", target: "personal_tracker" },
             );
           }
           // Common for all
           items.push(
+            { label: "Персональный трекер", icon: "🎯", target: "my_trackers" },
             { label: "Детали прогресса", icon: "📊", target: "details" },
             { label: "Рекомендации", icon: "💡", target: "recommendations" },
             { label: "Вопрос тренеру", icon: "💬", target: "ask" },

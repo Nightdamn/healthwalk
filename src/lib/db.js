@@ -287,3 +287,66 @@ export async function getMessages(userId, courseId) {
   if (error) { console.error('[DB] Load messages failed:', error); return []; }
   return data || [];
 }
+
+// ═══════════════════════════════════════════════════════════
+// PERSONAL TRACKERS
+// ═══════════════════════════════════════════════════════════
+
+export async function createTracker(userId, { title, avatarIcon, avatarCustom, daysCount, practices }) {
+  // 1. Create the tracker
+  const { data: tracker, error: tErr } = await supabase
+    .from('personal_trackers')
+    .insert({
+      user_id: userId,
+      title,
+      avatar_icon: avatarIcon || null,
+      avatar_custom: avatarCustom || null,
+      days_count: daysCount,
+    })
+    .select()
+    .single();
+
+  if (tErr) { console.error('[DB] Create tracker failed:', tErr); return null; }
+
+  // 2. Create practices
+  if (practices && practices.length > 0) {
+    const rows = practices.map((p, i) => ({
+      tracker_id: tracker.id,
+      title: p.title,
+      icon_num: p.iconNum || 1,
+      first_day: p.firstDay || 1,
+      last_day: p.lastDay || daysCount,
+      duration_min: p.durationMin || 10,
+      sort_order: i,
+    }));
+
+    const { error: pErr } = await supabase
+      .from('tracker_practices')
+      .insert(rows);
+
+    if (pErr) console.error('[DB] Create practices failed:', pErr);
+  }
+
+  return tracker;
+}
+
+export async function getMyTrackers(userId) {
+  const { data, error } = await supabase
+    .from('personal_trackers')
+    .select('*, tracker_practices(*)')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false });
+
+  if (error) { console.error('[DB] Load trackers failed:', error); return []; }
+  return data || [];
+}
+
+export async function deleteTracker(trackerId) {
+  const { error } = await supabase
+    .from('personal_trackers')
+    .delete()
+    .eq('id', trackerId);
+
+  if (error) { console.error('[DB] Delete tracker failed:', error); return false; }
+  return true;
+}

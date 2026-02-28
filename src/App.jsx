@@ -10,6 +10,8 @@ import AssignRolePage from './pages/AssignRole';
 import MyCoursesPage from './pages/MyCourses';
 import CreateCoursePage from './pages/CreateCourse';
 import InvitePage from './pages/InviteToCourse';
+import MyTrackersPage from './pages/MyTrackers';
+import CreateTrackerPage from './pages/CreateTracker';
 import Layout from './components/Layout';
 import { ACTIVITIES, DAYS_TOTAL, DAY_START_HOUR, getCourseDay } from './data/constants';
 import { supabase } from './lib/supabase';
@@ -214,6 +216,10 @@ export default function App() {
     setScreen("my_courses");
   };
 
+  const handleTrackerCreated = () => {
+    setScreen("my_trackers");
+  };
+
   /** Get elapsed for a specific day (for viewing past days) */
   const getElapsedForDay = (day) => dbToElapsed(dbRawProgress, day);
 
@@ -249,6 +255,8 @@ export default function App() {
     case "my_courses": return <MyCoursesPage user={user} userRole={userRole} onBack={goMain} onNavigate={setScreen} />;
     case "create_course": return <CreateCoursePage user={user} onBack={goMain} onCreated={handleCourseCreated} />;
     case "invite": return <InvitePage user={user} onBack={goMain} />;
+    case "my_trackers": return <MyTrackersPage user={user} onBack={goMain} onNavigate={setScreen} />;
+    case "create_tracker": return <CreateTrackerPage user={user} onBack={() => setScreen("my_trackers")} onCreated={handleTrackerCreated} />;
     default: return (
       <Dashboard user={user} userRole={userRole} currentDay={currentDay} progress={progress}
         elapsedTime={elapsedTime} dayStartHour={dayStartHour}
