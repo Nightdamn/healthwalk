@@ -6,10 +6,14 @@ import DetailsPage from './pages/Details';
 import ProfilePage from './pages/Profile';
 import RecommendationsPage from './pages/Recommendations';
 import AskCoachPage from './pages/AskCoach';
+import AssignRolePage from './pages/AssignRole';
+import MyCoursesPage from './pages/MyCourses';
+import CreateCoursePage from './pages/CreateCourse';
+import InvitePage from './pages/InviteToCourse';
 import Layout from './components/Layout';
 import { ACTIVITIES, DAYS_TOTAL, DAY_START_HOUR, getCourseDay } from './data/constants';
 import { supabase } from './lib/supabase';
-import { loadUserSettings, saveUserSettings, loadAllProgress, saveActivityProgress } from './lib/db';
+import { loadUserSettings, saveUserSettings, loadAllProgress, saveActivityProgress, checkAndApplyPendingRole, assignRole as dbAssignRole } from './lib/db';
 
 function extractUser(session) {
   if (!session?.user) return null;
@@ -42,6 +46,7 @@ export default function App() {
   const [screen, setScreen] = useState("loading");
   const [session, setSession] = useState(null);
   const [user, setUser] = useState(null);
+  const [userRole, setUserRole] = useState('student');
 
   // Course state
   const [courseStartDate, setCourseStartDate] = useState(null);
@@ -92,7 +97,7 @@ export default function App() {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, s) => {
       if (event === "SIGNED_IN" && s) { setSession(s); setUser(extractUser(s)); dataLoadedRef.current = false; }
       if (event === "SIGNED_OUT") {
-        setSession(null); setUser(null); setProgress({}); setDbRawProgress({});
+        setSession(null); setUser(null); setUserRole('student'); setProgress({}); setDbRawProgress({});
         setCourseStartDate(null); dataLoadedRef.current = false; setScreen("login");
       }
       if (event === "TOKEN_REFRESHED" && s) setSession(s);
@@ -109,6 +114,11 @@ export default function App() {
         const [settings, rawProgress] = await Promise.all([
           loadUserSettings(user.id), loadAllProgress(user.id),
         ]);
+
+        // Load and apply role
+        const role = await checkAndApplyPendingRole(user.id, user.email);
+        setUserRole(role);
+
         if (settings) {
           setCourseStartDate(settings.course_start_date);
           setTzOffsetMin(settings.tz_offset_min);
@@ -195,6 +205,15 @@ export default function App() {
   const handleSetTimezone = (v) => { setTzOffsetMin(v); if (user?.id) saveUserSettings(user.id, { tz_offset_min: v }); };
   const handleSetDayStartHour = (h) => { setDayStartHour(h); if (user?.id) saveUserSettings(user.id, { day_start_hour: h }); };
 
+  const handleAssignRole = async (email, role) => {
+    if (!user?.id) return { success: false, error: 'Не авторизован' };
+    return await dbAssignRole(user.id, email, role);
+  };
+
+  const handleCourseCreated = (course) => {
+    setScreen("my_courses");
+  };
+
   /** Get elapsed for a specific day (for viewing past days) */
   const getElapsedForDay = (day) => dbToElapsed(dbRawProgress, day);
 
@@ -226,8 +245,12 @@ export default function App() {
     );
     case "recommendations": return <RecommendationsPage onBack={goMain} />;
     case "ask": return <AskCoachPage user={user} onBack={goMain} />;
+    case "assign_role": return <AssignRolePage onBack={goMain} onAssign={handleAssignRole} />;
+    case "my_courses": return <MyCoursesPage user={user} userRole={userRole} onBack={goMain} onNavigate={setScreen} />;
+    case "create_course": return <CreateCoursePage user={user} onBack={goMain} onCreated={handleCourseCreated} />;
+    case "invite": return <InvitePage user={user} onBack={goMain} />;
     default: return (
-      <Dashboard user={user} currentDay={currentDay} progress={progress}
+      <Dashboard user={user} userRole={userRole} currentDay={currentDay} progress={progress}
         elapsedTime={elapsedTime} dayStartHour={dayStartHour}
         getElapsedForDay={getElapsedForDay}
         onStartTimer={handleStartTimer} onNavigate={setScreen} />

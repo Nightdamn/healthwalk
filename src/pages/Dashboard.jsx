@@ -99,7 +99,7 @@ function DayCircle({ day, timePct, allDone, practicePct, isPast, isCurrent, isFu
 }
 
 // ─── Main Dashboard ───
-export default function Dashboard({ user, currentDay, progress, elapsedTime, dayStartHour, getElapsedForDay, onStartTimer, onNavigate }) {
+export default function Dashboard({ user, userRole, currentDay, progress, elapsedTime, dayStartHour, getElapsedForDay, onStartTimer, onNavigate }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [viewingDay, setViewingDay] = useState(null);
   const [timePct, setTimePct] = useState(() => getDayTimePct(dayStartHour));
@@ -170,15 +170,56 @@ export default function Dashboard({ user, currentDay, progress, elapsedTime, day
           )}
           <div>
             <div style={{ fontSize: 16, fontWeight: 700, color: "#1a1a2e" }}>{user?.name}</div>
-            <div style={{ fontSize: 12, color: "#999" }}>День {currentDay} из {DAYS_TOTAL}</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ fontSize: 12, color: "#999" }}>День {currentDay} из {DAYS_TOTAL}</span>
+              {userRole && userRole !== 'student' && (
+                <span style={{
+                  fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 6,
+                  background: userRole === 'admin' ? "rgba(231,76,60,0.12)" : userRole === 'trainer' ? "rgba(52,152,219,0.12)" : "rgba(39,174,96,0.12)",
+                  color: userRole === 'admin' ? "#e74c3c" : userRole === 'trainer' ? "#3498db" : "#27ae60",
+                  textTransform: "uppercase",
+                }}>
+                  {userRole === 'admin' ? 'Админ' : userRole === 'trainer' ? 'Тренер' : 'Куратор'}
+                </span>
+              )}
+            </div>
           </div>
         </div>
-        {[
-          { label: "Профиль", icon: "👤", target: "profile" },
-          { label: "Детали прогресса", icon: "📊", target: "details" },
-          { label: "Рекомендации", icon: "💡", target: "recommendations" },
-          { label: "Вопрос тренеру", icon: "💬", target: "ask" },
-        ].map((item) => (
+        {(() => {
+          const items = [
+            { label: "Профиль", icon: "👤", target: "profile" },
+          ];
+          // Admin: assign role + all trainer items
+          if (userRole === 'admin') {
+            items.push({ label: "Назначить роль", icon: "🔑", target: "assign_role" });
+          }
+          // Trainer & Admin
+          if (userRole === 'trainer' || userRole === 'admin') {
+            items.push(
+              { label: "Создать курс", icon: "🛠️", target: "create_course" },
+              { label: "Пригласить", icon: "📨", target: "invite" },
+              { label: "Мои курсы", icon: "📚", target: "my_courses" },
+            );
+          }
+          // Curator
+          if (userRole === 'curator') {
+            items.push({ label: "Мои курсы", icon: "📚", target: "my_courses" });
+          }
+          // Student (and all roles)
+          if (userRole === 'student') {
+            items.push(
+              { label: "Мои курсы", icon: "📚", target: "my_courses" },
+              { label: "Персональный трекер", icon: "🎯", target: "personal_tracker" },
+            );
+          }
+          // Common for all
+          items.push(
+            { label: "Детали прогресса", icon: "📊", target: "details" },
+            { label: "Рекомендации", icon: "💡", target: "recommendations" },
+            { label: "Вопрос тренеру", icon: "💬", target: "ask" },
+          );
+          return items;
+        })().map((item) => (
           <button key={item.target} onClick={() => { setMenuOpen(false); onNavigate(item.target); }}
             style={{ display: "flex", alignItems: "center", gap: 14, width: "100%", padding: "14px 16px", border: "none", background: "transparent", borderRadius: 12, fontSize: 15, fontWeight: 500, color: "#1a1a2e", cursor: "pointer", textAlign: "left", marginBottom: 4 }}>
             <span style={{ fontSize: 20 }}>{item.icon}</span>{item.label}
