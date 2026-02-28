@@ -277,8 +277,61 @@ export async function createCourse(ownerId, title, description, daysCount) {
   return createCourseWithActivities(ownerId, { title, description, daysCount, activities: [] });
 }
 
+export async function loadCourseForEdit(courseId) {
+  const { data, error } = await supabase
+    .from('courses')
+    .select('*, course_activities(*)')
+    .eq('id', courseId)
+    .single();
+  if (error) { console.error('[DB] Load course for edit:', error); return null; }
+  return data;
+}
+
+export async function updateCourseWithActivities(courseId, { title, description, avatarIcon, avatarCustom, daysCount, activities, deletedActivityIds }) {
+  // 1. Update course metadata
+  const { error: cErr } = await supabase
+    .from('courses')
+    .update({ title, description: description || '', days_count: daysCount, avatar_icon: avatarIcon || null, avatar_custom: avatarCustom || null })
+    .eq('id', courseId);
+  if (cErr) { console.error('[DB] Update course:', cErr); return { error: cErr.message }; }
+
+  // 2. Delete removed activities
+  if (deletedActivityIds?.length) {
+    const { error: dErr } = await supabase
+      .from('course_activities')
+      .delete()
+      .in('id', deletedActivityIds);
+    if (dErr) console.error('[DB] Delete activities:', dErr);
+  }
+
+  // 3. Upsert activities (update existing + insert new)
+  for (let i = 0; i < activities.length; i++) {
+    const a = activities[i];
+    if (a.dbId) {
+      // Update existing
+      await supabase.from('course_activities').update({
+        label: a.label, duration_min: a.durationMin, icon_num: a.iconNum,
+        first_day: a.firstDay, last_day: a.lastDay, sort_order: i,
+      }).eq('id', a.dbId);
+    } else {
+      // Insert new
+      await supabase.from('course_activities').insert({
+        course_id: courseId, activity_id: `act_${Date.now()}_${i}`,
+        label: a.label, duration_min: a.durationMin, icon_num: a.iconNum,
+        first_day: a.firstDay, last_day: a.lastDay, sort_order: i,
+      });
+    }
+  }
+
+  return { id: courseId };
+}
+
 export async function getOwnCourses(ownerId) {
-  const { data, error } = await supabase.from('courses').select('*').eq('owner_id', ownerId).order('created_at', { ascending: false });
+  const { data, error } = await supabase
+    .from('courses')
+    .select('*, course_activities(id)')
+    .eq('owner_id', ownerId)
+    .order('created_at', { ascending: false });
   if (error) return [];
   return data || [];
 }

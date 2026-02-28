@@ -12,6 +12,7 @@ import CreateCoursePage from './pages/CreateCourse';
 import InvitePage from './pages/InviteToCourse';
 import MyTrackersPage from './pages/MyTrackers';
 import CreateTrackerPage from './pages/CreateTracker';
+import EditCoursePage from './pages/EditCourse';
 import Layout from './components/Layout';
 import { DAY_START_HOUR, getCourseDay } from './data/constants';
 import { supabase } from './lib/supabase';
@@ -49,7 +50,8 @@ export default function App() {
 
   // Dynamic context
   const [availableItems, setAvailableItems] = useState([]);
-  const [activeItem, setActiveItem] = useState(null); // {type, id, title, activities, daysCount, ...}
+  const [activeItem, setActiveItem] = useState(null);
+  const [editCourseId, setEditCourseId] = useState(null);
 
   // Progress for active context (keyed by activity UUID)
   const [progress, setProgress] = useState({});       // { day: { actId: true/false } }
@@ -311,6 +313,24 @@ export default function App() {
     setScreen('my_courses');
   };
 
+  const handleEditCourse = (courseId) => {
+    setEditCourseId(courseId);
+    setScreen('edit_course');
+  };
+
+  const handleCourseSaved = async () => {
+    await refreshItems();
+    // Reload active item if it's the edited course
+    if (activeItem?.type === 'course' && activeItem?.id === editCourseId) {
+      const items = await getAvailableItems(user.id);
+      setAvailableItems(items);
+      const updated = items.find(i => i.type === 'course' && i.id === editCourseId);
+      if (updated) setActiveItem(updated);
+    }
+    setEditCourseId(null);
+    setScreen('my_courses');
+  };
+
   const handleTrackerCreated = async (tracker) => {
     const items = await refreshItems();
     const newItem = items?.find(i => i.type === 'tracker' && i.id === tracker.id);
@@ -354,8 +374,9 @@ export default function App() {
     case 'recommendations': return <RecommendationsPage onBack={goMain} />;
     case 'ask': return <AskCoachPage user={user} onBack={goMain} />;
     case 'assign_role': return <AssignRolePage onBack={goMain} onAssign={handleAssignRole} />;
-    case 'my_courses': return <MyCoursesPage user={user} userRole={userRole} onBack={goMain} onNavigate={setScreen} />;
+    case 'my_courses': return <MyCoursesPage user={user} userRole={userRole} onBack={goMain} onNavigate={setScreen} onEditCourse={handleEditCourse} />;
     case 'create_course': return <CreateCoursePage user={user} onBack={goMain} onCreated={handleCourseCreated} />;
+    case 'edit_course': return <EditCoursePage courseId={editCourseId} onBack={() => setScreen('my_courses')} onSaved={handleCourseSaved} />;
     case 'invite': return <InvitePage user={user} onBack={goMain} />;
     case 'my_trackers': return <MyTrackersPage user={user} onBack={goMain} onNavigate={setScreen} />;
     case 'create_tracker': return <CreateTrackerPage user={user} onBack={() => setScreen('my_trackers')} onCreated={handleTrackerCreated} />;

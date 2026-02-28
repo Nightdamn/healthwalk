@@ -5,7 +5,7 @@ import { getOwnCourses, getEnrolledCourses } from '../lib/db';
 
 const ROLE_LABELS = { student: 'Ученик', curator: 'Куратор' };
 
-export default function MyCoursesPage({ user, userRole, onBack, onNavigate }) {
+export default function MyCoursesPage({ user, userRole, onBack, onNavigate, onEditCourse }) {
   const [ownCourses, setOwnCourses] = useState([]);
   const [enrolledCourses, setEnrolledCourses] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -59,17 +59,28 @@ export default function MyCoursesPage({ user, userRole, onBack, onNavigate }) {
                   <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 24 }}>
                     {ownCourses.map((c) => (
                       <div key={c.id}
-                        onClick={() => onNavigate('course_detail', c.id)}
+                        onClick={() => onEditCourse(c.id)}
                         style={{ ...glass, borderRadius: 16, padding: "16px 20px", cursor: "pointer" }}>
-                        <div style={{ fontSize: 16, fontWeight: 600, color: "#1a1a2e" }}>{c.title}</div>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <div style={{ fontSize: 16, fontWeight: 600, color: "#1a1a2e" }}>{c.title}</div>
+                          <span style={{ fontSize: 14, color: "#bbb" }}>✏️</span>
+                        </div>
                         <div style={{ fontSize: 12, color: "#999", marginTop: 4 }}>
-                          {c.days_count} дней • {c.is_active ? "Активен" : "Неактивен"}
+                          {c.days_count} дней • {(c.course_activities || []).length} активн. • {c.is_active ? "Активен" : "Неактивен"}
                         </div>
                         {c.description && (
                           <div style={{ fontSize: 13, color: "#888", marginTop: 6 }}>{c.description}</div>
                         )}
                       </div>
                     ))}
+                    <button onClick={() => onNavigate('create_course')}
+                      style={{
+                        width: "100%", padding: 14, borderRadius: 14,
+                        border: "2px dashed rgba(39,174,96,0.3)", background: "rgba(39,174,96,0.04)",
+                        color: "#27ae60", fontSize: 15, fontWeight: 600, cursor: "pointer",
+                      }}>
+                      + Создать курс
+                    </button>
                   </div>
                 )}
               </>
