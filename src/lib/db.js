@@ -109,6 +109,7 @@ export async function getAvailableItems(userId) {
     type: 'tracker', id: t.id, title: t.title,
     daysCount: t.days_count, avatarIcon: t.avatar_icon,
     avatarCustom: t.avatar_custom, ownerId: userId,
+    startDate: t.start_date || null,
     activities: (t.tracker_practices || [])
       .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
       .map(p => ({
@@ -242,13 +243,18 @@ export async function checkAndApplyPendingRole(userId, email) {
 // ═══════════════════════════════════════════════════════════
 
 export async function createCourseWithActivities(ownerId, { title, description, avatarIcon, avatarCustom, daysCount, activities }) {
+  // 1. Create course
   const { data: course, error: cErr } = await supabase
     .from('courses')
     .insert({ owner_id: ownerId, title, description: description || '', days_count: daysCount, avatar_icon: avatarIcon || null, avatar_custom: avatarCustom || null })
     .select().single();
 
-  if (cErr) { console.error('[DB] Create course:', cErr); return null; }
+  if (cErr) {
+    console.error('[DB] Create course:', cErr);
+    return { error: cErr.message || 'Ошибка создания курса' };
+  }
 
+  // 2. Create activities
   if (activities?.length) {
     const rows = activities.map((a, i) => ({
       course_id: course.id, activity_id: a.activityId || `act_${Date.now()}_${i}`,
@@ -259,8 +265,10 @@ export async function createCourseWithActivities(ownerId, { title, description, 
     if (aErr) console.error('[DB] Create activities:', aErr);
   }
 
-  // Auto-enroll owner
-  await supabase.from('course_enrollments').insert({ course_id: course.id, user_id: ownerId, role: 'trainer', invited_by: ownerId });
+  // 3. Auto-enroll owner as trainer
+  const { error: eErr } = await supabase.from('course_enrollments')
+    .insert({ course_id: course.id, user_id: ownerId, role: 'trainer', invited_by: ownerId });
+  if (eErr) console.error('[DB] Auto-enroll owner:', eErr);
 
   return course;
 }
@@ -320,7 +328,13 @@ export async function getMessages(userId, courseId) {
 export async function createTracker(userId, { title, avatarIcon, avatarCustom, daysCount, practices }) {
   const { data: tracker, error: tErr } = await supabase
     .from('personal_trackers')
-    .insert({ user_id: userId, title, avatar_icon: avatarIcon || null, avatar_custom: avatarCustom || null, days_count: daysCount })
+    .insert({
+      user_id: userId, title,
+      avatar_icon: avatarIcon || null,
+      avatar_custom: avatarCustom || null,
+      days_count: daysCount,
+      start_date: new Date().toISOString().slice(0, 10),
+    })
     .select().single();
   if (tErr) { console.error('[DB] Create tracker:', tErr); return null; }
 

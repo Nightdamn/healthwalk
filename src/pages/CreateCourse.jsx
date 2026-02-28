@@ -75,7 +75,8 @@ export default function CreateCoursePage({ user, onBack, onCreated }) {
     });
     setLoading(false);
 
-    if (course) onCreated(course);
+    if (course?.error) setError(course.error);
+    else if (course?.id) onCreated(course);
     else setError('Не удалось создать курс');
   };
 

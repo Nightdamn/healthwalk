@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS course_enrollments (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   course_id UUID REFERENCES courses ON DELETE CASCADE NOT NULL,
   user_id UUID REFERENCES auth.users ON DELETE CASCADE NOT NULL,
-  role TEXT NOT NULL DEFAULT 'student' CHECK (role IN ('student', 'curator')),
+  role TEXT NOT NULL DEFAULT 'student' CHECK (role IN ('student', 'curator', 'trainer')),
   invited_by UUID REFERENCES auth.users ON DELETE SET NULL,
   joined_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(course_id, user_id)
@@ -64,7 +64,7 @@ CREATE TABLE IF NOT EXISTS pending_invitations (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   course_id UUID REFERENCES courses ON DELETE CASCADE NOT NULL,
   email TEXT NOT NULL,
-  role TEXT NOT NULL DEFAULT 'student' CHECK (role IN ('student', 'curator')),
+  role TEXT NOT NULL DEFAULT 'student' CHECK (role IN ('student', 'curator', 'trainer')),
   invited_by UUID REFERENCES auth.users ON DELETE SET NULL,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(course_id, email)

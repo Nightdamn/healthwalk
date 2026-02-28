@@ -118,6 +118,9 @@ function TrackerCard({ tracker, onDelete }) {
           </div>
           <div style={{ fontSize: 13, color: '#888', marginTop: 4 }}>
             {tracker.days_count} дней · {practices.length} {practiceWord(practices.length)}
+            {tracker.start_date && (
+              <span> · с {new Date(tracker.start_date + 'T00:00:00').toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}</span>
+            )}
           </div>
         </div>
         {/* Delete button */}

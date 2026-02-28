@@ -80,15 +80,15 @@ export default function App() {
 
   // ─── Recalculate current day ───
   const recalcDay = useCallback(() => {
-    if (courseStartDate && activeItem) {
-      const day = getCourseDay(courseStartDate, tzOffsetMin, dayStartHour);
-      const clamped = Math.min(day, activeItem.daysCount);
-      setCurrentDay(prev => {
-        if (prev !== clamped && user?.id) saveUserSettings(user.id, { current_day: clamped });
-        return clamped;
-      });
-    }
-  }, [courseStartDate, tzOffsetMin, dayStartHour, user?.id, activeItem?.daysCount]);
+    if (!activeItem) return;
+    const startDate = activeItem.startDate || courseStartDate;
+    if (!startDate) return;
+    const day = getCourseDay(startDate, tzOffsetMin, dayStartHour, activeItem.daysCount);
+    setCurrentDay(prev => {
+      if (prev !== day && user?.id) saveUserSettings(user.id, { current_day: day });
+      return day;
+    });
+  }, [courseStartDate, tzOffsetMin, dayStartHour, user?.id, activeItem]);
 
   useEffect(() => {
     recalcDay();
@@ -157,8 +157,14 @@ export default function App() {
             ? await loadCourseProgress(user.id, active.id)
             : await loadTrackerProgress(user.id, active.id);
           setRawProgress(raw);
-          const day = settings?.current_day || 1;
-          setCurrentDay(Math.min(day, active.daysCount));
+
+          // Calculate current day from start date
+          const startDate = active.startDate || settings?.course_start_date;
+          const dsh = settings?.day_start_hour ?? DAY_START_HOUR;
+          const tz = settings?.tz_offset_min ?? -(new Date().getTimezoneOffset());
+          let day = startDate ? getCourseDay(startDate, tz, dsh, active.daysCount) : (settings?.current_day || 1);
+          day = Math.max(1, day);
+          setCurrentDay(day);
           const { progress: p, elapsed: el } = buildFromRaw(raw, active.activities, day);
           setProgress(p);
           setElapsedTime(el);
@@ -179,7 +185,11 @@ export default function App() {
       : await loadTrackerProgress(user.id, item.id);
     setRawProgress(raw);
 
-    const day = Math.min(currentDay, item.daysCount);
+    // Calculate day based on item's own start date
+    const startDate = item.startDate || courseStartDate;
+    const day = startDate
+      ? getCourseDay(startDate, tzOffsetMin, dayStartHour, item.daysCount)
+      : 1;
     setCurrentDay(day);
     const p = {};
     for (let d = 1; d <= item.daysCount; d++) {

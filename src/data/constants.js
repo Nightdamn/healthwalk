@@ -59,7 +59,7 @@ export const formatTime = (s) => {
  * Вычисляет текущий день курса (1-30).
  * День начинается в dayStartHour и заканчивается в dayStartHour следующего дня.
  */
-export function getCourseDay(startDateISO, tzOffsetMin = null, dayStartHour = DAY_START_HOUR) {
+export function getCourseDay(startDateISO, tzOffsetMin = null, dayStartHour = DAY_START_HOUR, maxDays = DAYS_TOTAL) {
   if (!startDateISO) return 1;
 
   const now = new Date();
@@ -72,7 +72,7 @@ export function getCourseDay(startDateISO, tzOffsetMin = null, dayStartHour = DA
   const nowShifted = Math.floor((nowLocalMs - shiftMs) / (24 * 60 * 60 * 1000));
   const startShifted = Math.floor((startLocalMs - shiftMs) / (24 * 60 * 60 * 1000));
 
-  return Math.max(1, Math.min(nowShifted - startShifted + 1, DAYS_TOTAL));
+  return Math.max(1, Math.min(nowShifted - startShifted + 1, maxDays));
 }
 
 /**
