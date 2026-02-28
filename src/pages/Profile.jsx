@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import Layout from '../components/Layout';
-import { DAYS_TOTAL, isDayComplete } from '../data/constants';
 import { btnBack, glass } from '../styles/shared';
 
 const TIMEZONES = [
@@ -43,9 +42,16 @@ const selectStyle = {
   fontFamily: "inherit",
 };
 
-export default function ProfilePage({ user, currentDay, progress, tzOffsetMin, dayStartHour, onSetTimezone, onSetDayStartHour, onBack, onLogout }) {
+export default function ProfilePage({ user, currentDay, progress, tzOffsetMin, dayStartHour, onSetTimezone, onSetDayStartHour, onBack, onLogout, activeItem }) {
   const [loggingOut, setLoggingOut] = useState(false);
-  const completedDays = Object.keys(progress).filter((d) => isDayComplete(progress[d])).length;
+  const daysTotal = activeItem?.daysCount || 30;
+  const activities = activeItem?.activities || [];
+  const isDayDone = (day) => {
+    const dp = progress[day] || {};
+    const acts = activities.filter(a => day >= a.firstDay && day <= a.lastDay);
+    return acts.length > 0 && acts.every(a => dp[a.id]);
+  };
+  const completedDays = Array.from({ length: daysTotal }, (_, i) => i + 1).filter(d => isDayDone(d)).length;
 
   const handleLogout = async () => {
     setLoggingOut(true);
@@ -76,7 +82,7 @@ export default function ProfilePage({ user, currentDay, progress, tzOffsetMin, d
             <div style={{ fontSize: 20, fontWeight: 700, color: "#1a1a2e", marginBottom: 4 }}>{user?.name}</div>
             <div style={{ fontSize: 14, color: "#888" }}>{user?.email}</div>
             <div style={{ marginTop: 20, padding: 14, background: "rgba(0,0,0,0.02)", borderRadius: 12, fontSize: 14, color: "#555" }}>
-              День {currentDay} из {DAYS_TOTAL} • Завершено: {completedDays}
+              День {currentDay} из {daysTotal} • Завершено: {completedDays}
             </div>
           </div>
         </div>
