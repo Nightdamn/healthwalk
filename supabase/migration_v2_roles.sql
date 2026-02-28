@@ -109,27 +109,35 @@ CREATE POLICY "Admins manage pending_roles" ON pending_roles FOR ALL
 CREATE POLICY "Users read own pending" ON pending_roles FOR SELECT
   USING (email = (SELECT email FROM auth.users WHERE id = auth.uid()));
 
+-- Helper function: bypasses RLS to check course ownership (prevents recursion)
+CREATE OR REPLACE FUNCTION public.is_course_owner(p_course_id UUID)
+RETURNS BOOLEAN
+LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public
+AS $$
+  SELECT EXISTS (SELECT 1 FROM courses WHERE id = p_course_id AND owner_id = auth.uid());
+$$;
+
 -- courses
 CREATE POLICY "Owner can manage courses" ON courses FOR ALL
   USING (owner_id = auth.uid());
 CREATE POLICY "Enrolled users can view courses" ON courses FOR SELECT
   USING (EXISTS (SELECT 1 FROM course_enrollments WHERE course_id = id AND user_id = auth.uid()));
 
--- course_activities
+-- course_activities (use helper to avoid recursion)
 CREATE POLICY "Owner can manage activities" ON course_activities FOR ALL
-  USING (EXISTS (SELECT 1 FROM courses WHERE id = course_id AND owner_id = auth.uid()));
+  USING (is_course_owner(course_id));
 CREATE POLICY "Enrolled can view activities" ON course_activities FOR SELECT
   USING (EXISTS (SELECT 1 FROM course_enrollments ce WHERE ce.course_id = course_activities.course_id AND ce.user_id = auth.uid()));
 
--- course_enrollments
+-- course_enrollments (use helper to avoid recursion)
 CREATE POLICY "Course owner can manage enrollments" ON course_enrollments FOR ALL
-  USING (EXISTS (SELECT 1 FROM courses WHERE id = course_id AND owner_id = auth.uid()));
+  USING (is_course_owner(course_id));
 CREATE POLICY "Users can view own enrollments" ON course_enrollments FOR SELECT
   USING (user_id = auth.uid());
 
--- pending_invitations
+-- pending_invitations (use helper to avoid recursion)
 CREATE POLICY "Course owners manage invitations" ON pending_invitations FOR ALL
-  USING (EXISTS (SELECT 1 FROM courses WHERE id = course_id AND owner_id = auth.uid()));
+  USING (is_course_owner(course_id));
 CREATE POLICY "Users read own invitations" ON pending_invitations FOR SELECT
   USING (email = (SELECT email FROM auth.users WHERE id = auth.uid()));
 CREATE POLICY "Admins manage all invitations" ON pending_invitations FOR ALL

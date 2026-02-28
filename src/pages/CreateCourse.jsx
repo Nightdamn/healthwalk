@@ -48,12 +48,15 @@ export default function CreateCoursePage({ user, onBack, onCreated }) {
 
   const handleCreate = async () => {
     if (!title.trim()) { setError('Введите название курса'); return; }
+    const days = parseInt(daysCount) || 30;
     const valid = activities.filter(a => a.label.trim());
     if (valid.length === 0) { setError('Добавьте хотя бы одну активность'); return; }
 
     for (const a of valid) {
-      if (a.firstDay < 1 || a.lastDay > daysCount || a.firstDay > a.lastDay) {
-        setError(`Активность "${a.label}": проверьте диапазон дней (1–${daysCount})`);
+      const fd = parseInt(a.firstDay) || 1;
+      const ld = Math.min(parseInt(a.lastDay) || days, days);
+      if (fd < 1 || ld > days || fd > ld) {
+        setError(`Активность "${a.label}": проверьте диапазон дней (1–${days})`);
         return;
       }
     }
@@ -64,13 +67,13 @@ export default function CreateCoursePage({ user, onBack, onCreated }) {
       description: description.trim(),
       avatarIcon: avatarCustom ? null : avatarIcon,
       avatarCustom,
-      daysCount,
+      daysCount: days,
       activities: valid.map(a => ({
         label: a.label.trim(),
         iconNum: a.iconNum,
-        firstDay: a.firstDay,
-        lastDay: a.lastDay,
-        durationMin: a.durationMin,
+        firstDay: parseInt(a.firstDay) || 1,
+        lastDay: Math.min(parseInt(a.lastDay) || days, days),
+        durationMin: Math.min(parseInt(a.durationMin) || 10, 1200),
       })),
     });
     setLoading(false);
@@ -124,7 +127,16 @@ export default function CreateCoursePage({ user, onBack, onCreated }) {
 
           <label style={labelStyle}>Длительность (дней)</label>
           <input type="number" value={daysCount} min={1} max={365}
-            onChange={e => setDaysCount(Math.max(1, Math.min(365, parseInt(e.target.value) || 1)))}
+            onChange={e => {
+              const raw = e.target.value;
+              if (raw === '') { setDaysCount(''); return; }
+              const n = parseInt(raw);
+              if (!isNaN(n) && n >= 0) setDaysCount(n);
+            }}
+            onBlur={() => {
+              const v = parseInt(daysCount);
+              setDaysCount(isNaN(v) || v < 1 ? 1 : Math.min(v, 365));
+            }}
             style={{ ...inputStyle, width: 100 }} />
         </div>
 
@@ -173,6 +185,18 @@ export default function CreateCoursePage({ user, onBack, onCreated }) {
 }
 
 function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon }) {
+  const numChange = (field) => (e) => {
+    const raw = e.target.value;
+    if (raw === '') { onUpdate(field, ''); return; }
+    const n = parseInt(raw);
+    if (!isNaN(n) && n >= 0) onUpdate(field, n);
+  };
+
+  const clamp = (field, min, max) => () => {
+    const v = parseInt(activity[field]);
+    onUpdate(field, isNaN(v) || v < min ? min : Math.min(v, max));
+  };
+
   return (
     <div style={{ ...glass, borderRadius: 16, padding: '14px 14px', marginBottom: 10 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
@@ -195,20 +219,23 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon 
       <div style={{ display: 'flex', gap: 8 }}>
         <div style={{ flex: 1 }}>
           <label style={{ ...labelStyle, fontSize: 11 }}>С дня</label>
-          <input type="number" value={activity.firstDay} min={1} max={maxDay}
-            onChange={e => onUpdate('firstDay', Math.max(1, Math.min(maxDay, parseInt(e.target.value) || 1)))}
+          <input type="number" value={activity.firstDay}
+            onChange={numChange('firstDay')}
+            onBlur={clamp('firstDay', 1, maxDay)}
             style={{ ...inputStyle, padding: '8px 10px', fontSize: 14 }} />
         </div>
         <div style={{ flex: 1 }}>
           <label style={{ ...labelStyle, fontSize: 11 }}>По день</label>
-          <input type="number" value={activity.lastDay} min={1} max={maxDay}
-            onChange={e => onUpdate('lastDay', Math.max(1, Math.min(maxDay, parseInt(e.target.value) || 1)))}
+          <input type="number" value={activity.lastDay}
+            onChange={numChange('lastDay')}
+            onBlur={clamp('lastDay', 1, maxDay)}
             style={{ ...inputStyle, padding: '8px 10px', fontSize: 14 }} />
         </div>
         <div style={{ flex: 1 }}>
           <label style={{ ...labelStyle, fontSize: 11 }}>Минут</label>
-          <input type="number" value={activity.durationMin} min={1} max={120}
-            onChange={e => onUpdate('durationMin', Math.max(1, Math.min(120, parseInt(e.target.value) || 1)))}
+          <input type="number" value={activity.durationMin}
+            onChange={numChange('durationMin')}
+            onBlur={clamp('durationMin', 1, 1200)}
             style={{ ...inputStyle, padding: '8px 10px', fontSize: 14 }} />
         </div>
       </div>

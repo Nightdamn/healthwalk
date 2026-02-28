@@ -59,13 +59,15 @@ export default function CreateTrackerPage({ user, onBack, onCreated }) {
 
   const handleCreate = async () => {
     if (!title.trim()) { setError('Введите название трекера'); return; }
+    const days = parseInt(daysCount) || 30;
     const validPractices = practices.filter((p) => p.title.trim());
     if (validPractices.length === 0) { setError('Добавьте хотя бы одну практику'); return; }
 
-    // Validate practice day ranges
     for (const p of validPractices) {
-      if (p.firstDay < 1 || p.lastDay > daysCount || p.firstDay > p.lastDay) {
-        setError(`Практика "${p.title}": проверьте диапазон дней (1–${daysCount})`);
+      const fd = parseInt(p.firstDay) || 1;
+      const ld = Math.min(parseInt(p.lastDay) || days, days);
+      if (fd < 1 || ld > days || fd > ld) {
+        setError(`Практика "${p.title}": проверьте диапазон дней (1–${days})`);
         return;
       }
     }
@@ -75,13 +77,13 @@ export default function CreateTrackerPage({ user, onBack, onCreated }) {
       title: title.trim(),
       avatarIcon: avatarCustom ? null : avatarIcon,
       avatarCustom,
-      daysCount,
+      daysCount: days,
       practices: validPractices.map((p) => ({
         title: p.title.trim(),
         iconNum: p.iconNum,
-        firstDay: p.firstDay,
-        lastDay: p.lastDay,
-        durationMin: p.durationMin,
+        firstDay: parseInt(p.firstDay) || 1,
+        lastDay: Math.min(parseInt(p.lastDay) || days, days),
+        durationMin: Math.min(parseInt(p.durationMin) || 10, 1200),
       })),
     });
     setLoading(false);
@@ -148,8 +150,14 @@ export default function CreateTrackerPage({ user, onBack, onCreated }) {
           <input
             type="number" value={daysCount} min={1} max={365}
             onChange={(e) => {
-              const v = Math.max(1, Math.min(365, parseInt(e.target.value) || 1));
-              setDaysCount(v);
+              const raw = e.target.value;
+              if (raw === '') { setDaysCount(''); return; }
+              const n = parseInt(raw);
+              if (!isNaN(n) && n >= 0) setDaysCount(n);
+            }}
+            onBlur={() => {
+              const v = parseInt(daysCount);
+              setDaysCount(isNaN(v) || v < 1 ? 1 : Math.min(v, 365));
             }}
             style={{ ...inputStyle, width: 100 }}
           />
@@ -226,6 +234,18 @@ export default function CreateTrackerPage({ user, onBack, onCreated }) {
 }
 
 function PracticeCard({ practice, index, maxDay, onUpdate, onRemove, onPickIcon }) {
+  const numChange = (field) => (e) => {
+    const raw = e.target.value;
+    if (raw === '') { onUpdate(field, ''); return; }
+    const n = parseInt(raw);
+    if (!isNaN(n) && n >= 0) onUpdate(field, n);
+  };
+
+  const clamp = (field, min, max) => () => {
+    const v = parseInt(practice[field]);
+    onUpdate(field, isNaN(v) || v < min ? min : Math.min(v, max));
+  };
+
   return (
     <div style={{ ...glass, borderRadius: 16, padding: '14px 14px', marginBottom: 10 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
@@ -259,27 +279,24 @@ function PracticeCard({ practice, index, maxDay, onUpdate, onRemove, onPickIcon 
       <div style={{ display: 'flex', gap: 8 }}>
         <div style={{ flex: 1 }}>
           <label style={{ ...labelStyle, fontSize: 11 }}>С дня</label>
-          <input
-            type="number" value={practice.firstDay} min={1} max={maxDay}
-            onChange={(e) => onUpdate('firstDay', Math.max(1, Math.min(maxDay, parseInt(e.target.value) || 1)))}
-            style={{ ...inputStyle, padding: '8px 10px', fontSize: 14 }}
-          />
+          <input type="number" value={practice.firstDay}
+            onChange={numChange('firstDay')}
+            onBlur={clamp('firstDay', 1, maxDay)}
+            style={{ ...inputStyle, padding: '8px 10px', fontSize: 14 }} />
         </div>
         <div style={{ flex: 1 }}>
           <label style={{ ...labelStyle, fontSize: 11 }}>По день</label>
-          <input
-            type="number" value={practice.lastDay} min={1} max={maxDay}
-            onChange={(e) => onUpdate('lastDay', Math.max(1, Math.min(maxDay, parseInt(e.target.value) || 1)))}
-            style={{ ...inputStyle, padding: '8px 10px', fontSize: 14 }}
-          />
+          <input type="number" value={practice.lastDay}
+            onChange={numChange('lastDay')}
+            onBlur={clamp('lastDay', 1, maxDay)}
+            style={{ ...inputStyle, padding: '8px 10px', fontSize: 14 }} />
         </div>
         <div style={{ flex: 1 }}>
           <label style={{ ...labelStyle, fontSize: 11 }}>Минут</label>
-          <input
-            type="number" value={practice.durationMin} min={1} max={120}
-            onChange={(e) => onUpdate('durationMin', Math.max(1, Math.min(120, parseInt(e.target.value) || 1)))}
-            style={{ ...inputStyle, padding: '8px 10px', fontSize: 14 }}
-          />
+          <input type="number" value={practice.durationMin}
+            onChange={numChange('durationMin')}
+            onBlur={clamp('durationMin', 1, 1200)}
+            style={{ ...inputStyle, padding: '8px 10px', fontSize: 14 }} />
         </div>
       </div>
     </div>
