@@ -1,52 +1,54 @@
 /**
  * Каталог иконок для трекера.
- * Иконки из /tracker-icons/icon_N.svg
- * Категории можно перенастроить по необходимости.
+ * 148 иконок разложены по папкам /tracker-icons/{category}/{N}.svg
+ * ID иконки = "category/N", например "body/1", "nature/3"
  */
 
 const ICON_CATEGORIES = [
-  {
-    name: 'Тело',
-    icons: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
-  },
-  {
-    name: 'Движение',
-    icons: [14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26],
-  },
-  {
-    name: 'Медитация',
-    icons: [27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39],
-  },
-  {
-    name: 'Дыхание',
-    icons: [40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52],
-  },
-  {
-    name: 'Природа',
-    icons: [53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65],
-  },
-  {
-    name: 'Внимание',
-    icons: [66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76],
-  },
-  {
-    name: 'Энергия',
-    icons: [77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88],
-  },
-  {
-    name: 'Разное',
-    icons: [89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101],
-  },
+  { name: 'Тело',      folder: 'body',       count: 15 },
+  { name: 'Движение',  folder: 'movement',   count: 12 },
+  { name: 'Медитация', folder: 'meditation',  count: 12 },
+  { name: 'Природа',   folder: 'nature',     count: 15 },
+  { name: 'Вода',      folder: 'water',      count: 12 },
+  { name: 'Ум',        folder: 'mind',       count: 13 },
+  { name: 'Предметы',  folder: 'objects',    count: 15 },
+  { name: 'Дыхание',   folder: 'breath',     count: 13 },
+  { name: 'Геометрия', folder: 'geometry',   count: 13 },
+  { name: 'Разное',    folder: 'misc',       count: 28 },
 ];
 
-export function getIconPath(num) {
-  return `/tracker-icons/icon_${num}.svg`;
+// Плоский массив всех ID для legacy-маппинга (число → строка)
+const _allIds = [];
+ICON_CATEGORIES.forEach(cat => {
+  for (let i = 1; i <= cat.count; i++) _allIds.push(`${cat.folder}/${i}`);
+});
+
+/**
+ * Получить путь к SVG по ID иконки.
+ * @param {string|number} id — "body/1" или legacy число
+ */
+export function getIconPath(id) {
+  if (!id) return null;
+  // Новый формат: "folder/N"
+  if (typeof id === 'string' && id.includes('/')) {
+    return `/tracker-icons/${id}.svg`;
+  }
+  // Legacy: число → маппинг через плоский массив
+  const num = typeof id === 'number' ? id : parseInt(id, 10);
+  if (isNaN(num) || num < 1) return `/tracker-icons/body/1.svg`;
+  const idx = Math.min(num - 1, _allIds.length - 1);
+  return `/tracker-icons/${_allIds[idx]}.svg`;
+}
+
+/** Список icon ID для категории: ["body/1", "body/2", ...] */
+export function getCategoryIcons(cat) {
+  const ids = [];
+  for (let i = 1; i <= cat.count; i++) ids.push(`${cat.folder}/${i}`);
+  return ids;
 }
 
 export function getAllIcons() {
-  const all = [];
-  ICON_CATEGORIES.forEach((cat) => cat.icons.forEach((n) => all.push(n)));
-  return all;
+  return [..._allIds];
 }
 
 export default ICON_CATEGORIES;

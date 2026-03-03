@@ -16,13 +16,13 @@ const inputStyle = {
 const labelStyle = { fontSize: 13, fontWeight: 600, color: '#888', marginBottom: 6, display: 'block' };
 
 function emptyPractice(daysCount) {
-  return { title: '', iconNum: 1, firstDay: 1, lastDay: daysCount, durationMin: 10, _key: Date.now() + Math.random() };
+  return { title: '', iconNum: 'body/1', firstDay: 1, lastDay: daysCount, durationMin: 10, _key: Date.now() + Math.random() };
 }
 
 export default function CreateTrackerPage({ user, onBack, onCreated }) {
   const [title, setTitle] = useState('');
   const [daysCount, setDaysCount] = useState(30);
-  const [avatarIcon, setAvatarIcon] = useState(1);
+  const [avatarIcon, setAvatarIcon] = useState('body/1');
   const [avatarCustom, setAvatarCustom] = useState(null);
   const [practices, setPractices] = useState([emptyPractice(30)]);
   const [loading, setLoading] = useState(false);

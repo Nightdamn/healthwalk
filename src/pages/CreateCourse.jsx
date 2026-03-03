@@ -16,14 +16,14 @@ const inputStyle = {
 const labelStyle = { fontSize: 13, fontWeight: 600, color: '#888', marginBottom: 6, display: 'block' };
 
 function emptyActivity(daysCount) {
-  return { label: '', iconNum: 1, firstDay: 1, lastDay: daysCount, durationMin: 10, _key: Date.now() + Math.random() };
+  return { label: '', iconNum: 'body/1', firstDay: 1, lastDay: daysCount, durationMin: 10, _key: Date.now() + Math.random() };
 }
 
 export default function CreateCoursePage({ user, onBack, onCreated }) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [daysCount, setDaysCount] = useState(30);
-  const [avatarIcon, setAvatarIcon] = useState(1);
+  const [avatarIcon, setAvatarIcon] = useState('body/1');
   const [avatarCustom, setAvatarCustom] = useState(null);
   const [activities, setActivities] = useState([emptyActivity(30)]);
   const [loading, setLoading] = useState(false);

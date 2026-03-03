@@ -16,14 +16,14 @@ const inputStyle = {
 const labelStyle = { fontSize: 13, fontWeight: 600, color: '#888', marginBottom: 6, display: 'block' };
 
 function emptyActivity(daysCount) {
-  return { dbId: null, label: '', iconNum: 1, firstDay: 1, lastDay: daysCount, durationMin: 10, _key: Date.now() + Math.random() };
+  return { dbId: null, label: '', iconNum: 'body/1', firstDay: 1, lastDay: daysCount, durationMin: 10, _key: Date.now() + Math.random() };
 }
 
 export default function EditCoursePage({ courseId, onBack, onSaved }) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [daysCount, setDaysCount] = useState(30);
-  const [avatarIcon, setAvatarIcon] = useState(1);
+  const [avatarIcon, setAvatarIcon] = useState('body/1');
   const [avatarCustom, setAvatarCustom] = useState(null);
   const [activities, setActivities] = useState([]);
   const [deletedIds, setDeletedIds] = useState([]);
@@ -44,7 +44,7 @@ export default function EditCoursePage({ courseId, onBack, onSaved }) {
       setTitle(course.title || '');
       setDescription(course.description || '');
       setDaysCount(course.days_count || 30);
-      setAvatarIcon(course.avatar_icon || 1);
+      setAvatarIcon(course.avatar_icon || 'body/1');
       setAvatarCustom(course.avatar_custom || null);
 
       const acts = (course.course_activities || [])
@@ -52,7 +52,7 @@ export default function EditCoursePage({ courseId, onBack, onSaved }) {
         .map(a => ({
           dbId: a.id,
           label: a.label,
-          iconNum: a.icon_num || 1,
+          iconNum: a.icon_num || 'body/1',
           firstDay: a.first_day || 1,
           lastDay: a.last_day || course.days_count,
           durationMin: a.duration_min || 10,

@@ -56,7 +56,7 @@ function mapActivities(acts, fallbackDays) {
       activityId: a.activity_id || a.id,
       label: a.label || a.title,
       durationMin: a.duration_min,
-      iconNum: a.icon_num || 1,
+      iconNum: a.icon_num || 'body/1',
       firstDay: a.first_day || 1,
       lastDay: a.last_day || fallbackDays,
     }));
@@ -114,7 +114,7 @@ export async function getAvailableItems(userId) {
       .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
       .map(p => ({
         id: p.id, activityId: p.id, label: p.title,
-        durationMin: p.duration_min, iconNum: p.icon_num || 1,
+        durationMin: p.duration_min, iconNum: p.icon_num || 'body/1',
         firstDay: p.first_day || 1, lastDay: p.last_day || t.days_count,
       })),
   }));
@@ -258,7 +258,7 @@ export async function createCourseWithActivities(ownerId, { title, description, 
   if (activities?.length) {
     const rows = activities.map((a, i) => ({
       course_id: course.id, activity_id: a.activityId || `act_${Date.now()}_${i}`,
-      label: a.label, duration_min: a.durationMin || 10, icon_num: a.iconNum || 1,
+      label: a.label, duration_min: a.durationMin || 10, icon_num: a.iconNum || 'body/1',
       first_day: a.firstDay || 1, last_day: a.lastDay || daysCount, sort_order: i,
     }));
     const { error: aErr } = await supabase.from('course_activities').insert(rows);
@@ -393,7 +393,7 @@ export async function createTracker(userId, { title, avatarIcon, avatarCustom, d
 
   if (practices?.length) {
     const rows = practices.map((p, i) => ({
-      tracker_id: tracker.id, title: p.title, icon_num: p.iconNum || 1,
+      tracker_id: tracker.id, title: p.title, icon_num: p.iconNum || 'body/1',
       first_day: p.firstDay || 1, last_day: p.lastDay || daysCount,
       duration_min: p.durationMin || 10, sort_order: i,
     }));
