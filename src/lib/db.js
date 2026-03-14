@@ -378,6 +378,28 @@ export async function inviteToCourse(courseId, email, role, invitedBy) {
   return { success: true };
 }
 
+export async function getMyInvitations(email) {
+  const { data, error } = await supabase
+    .from('pending_invitations')
+    .select('*, courses(id, title, description, days_count, avatar_icon, avatar_custom)')
+    .eq('email', email.toLowerCase().trim())
+    .order('created_at', { ascending: false });
+  if (error) { console.error('[DB] Load invitations:', error); return []; }
+  return data || [];
+}
+
+export async function acceptInvitation(invitationId) {
+  const { data, error } = await supabase.rpc('accept_course_invitation', { p_invitation_id: invitationId });
+  if (error) { console.error('[DB] Accept invitation:', error); return { success: false, error: error.message }; }
+  return data || { success: false, error: 'No response' };
+}
+
+export async function declineInvitation(invitationId) {
+  const { data, error } = await supabase.rpc('decline_course_invitation', { p_invitation_id: invitationId });
+  if (error) { console.error('[DB] Decline invitation:', error); return { success: false, error: error.message }; }
+  return data || { success: false, error: 'No response' };
+}
+
 // ═══════════════════════════════════════════════════════════
 // MESSAGES
 // ═══════════════════════════════════════════════════════════
