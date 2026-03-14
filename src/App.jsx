@@ -374,7 +374,7 @@ export default function App() {
     case 'recommendations': return <RecommendationsPage onBack={goMain} />;
     case 'ask': return <AskCoachPage user={user} onBack={goMain} />;
     case 'assign_role': return <AssignRolePage onBack={goMain} onAssign={handleAssignRole} />;
-    case 'my_courses': return <MyCoursesPage user={user} userRole={userRole} onBack={goMain} onNavigate={setScreen} onEditCourse={handleEditCourse} onRefresh={refreshItems} />;
+    case 'my_courses': return <MyCoursesPage user={user} userRole={userRole} onBack={goMain} onNavigate={setScreen} onEditCourse={handleEditCourse} onRefresh={refreshItems} availableItems={availableItems} activeItem={activeItem} onStartCourse={(item) => { handleSwitchContext(item); setScreen('main'); }} />;
     case 'create_course': return <CreateCoursePage user={user} onBack={goMain} onCreated={handleCourseCreated} />;
     case 'edit_course': return <EditCoursePage courseId={editCourseId} onBack={() => setScreen('my_courses')} onSaved={handleCourseSaved} />;
     case 'invite': return <InvitePage user={user} onBack={goMain} />;
