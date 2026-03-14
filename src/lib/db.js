@@ -289,11 +289,19 @@ export async function loadCourseForEdit(courseId) {
 
 export async function updateCourseWithActivities(courseId, { title, description, avatarIcon, avatarCustom, daysCount, activities, deletedActivityIds }) {
   // 1. Update course metadata
-  const { error: cErr } = await supabase
-    .from('courses')
-    .update({ title, description: description || '', days_count: daysCount, avatar_icon: avatarIcon || null, avatar_custom: avatarCustom || null })
-    .eq('id', courseId);
-  if (cErr) { console.error('[DB] Update course:', cErr); return { error: cErr.message }; }
+  const meta = { title, description: description || '', days_count: daysCount, avatar_icon: avatarIcon || null, avatar_custom: avatarCustom || null };
+  const { error: cErr } = await supabase.from('courses').update(meta).eq('id', courseId);
+  if (cErr) {
+    console.error('[DB] Update course:', cErr);
+    // If avatar_icon type mismatch, retry without it
+    if (cErr.message?.includes('avatar_icon') || cErr.code === '22P02') {
+      const { avatar_icon, ...metaNoIcon } = meta;
+      const { error: e2 } = await supabase.from('courses').update(metaNoIcon).eq('id', courseId);
+      if (e2) return { error: e2.message };
+    } else {
+      return { error: cErr.message };
+    }
+  }
 
   // 2. Delete removed activities
   if (deletedActivityIds?.length) {
@@ -305,24 +313,38 @@ export async function updateCourseWithActivities(courseId, { title, description,
   }
 
   // 3. Upsert activities (update existing + insert new)
+  const errors = [];
   for (let i = 0; i < activities.length; i++) {
     const a = activities[i];
+    const row = {
+      label: a.label, duration_min: a.durationMin, icon_num: a.iconNum,
+      first_day: a.firstDay, last_day: a.lastDay, sort_order: i,
+    };
     if (a.dbId) {
-      // Update existing
-      await supabase.from('course_activities').update({
-        label: a.label, duration_min: a.durationMin, icon_num: a.iconNum,
-        first_day: a.firstDay, last_day: a.lastDay, sort_order: i,
-      }).eq('id', a.dbId);
+      const { error } = await supabase.from('course_activities').update(row).eq('id', a.dbId);
+      if (error) {
+        console.error('[DB] Update activity:', a.dbId, error);
+        // If icon_num type mismatch (TEXT vs INTEGER), retry without icon_num
+        if (error.message?.includes('icon_num') || error.code === '22P02') {
+          const { icon_num, ...rowNoIcon } = row;
+          const { error: e2 } = await supabase.from('course_activities').update(rowNoIcon).eq('id', a.dbId);
+          if (e2) { console.error('[DB] Retry update activity:', e2); errors.push(e2.message); }
+        } else {
+          errors.push(error.message);
+        }
+      }
     } else {
-      // Insert new
-      await supabase.from('course_activities').insert({
-        course_id: courseId, activity_id: `act_${Date.now()}_${i}`,
-        label: a.label, duration_min: a.durationMin, icon_num: a.iconNum,
-        first_day: a.firstDay, last_day: a.lastDay, sort_order: i,
+      const { error } = await supabase.from('course_activities').insert({
+        ...row, course_id: courseId, activity_id: `act_${Date.now()}_${i}`,
       });
+      if (error) {
+        console.error('[DB] Insert activity:', error);
+        errors.push(error.message);
+      }
     }
   }
 
+  if (errors.length) return { id: courseId, error: errors.join('; ') };
   return { id: courseId };
 }
 
