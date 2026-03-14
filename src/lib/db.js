@@ -372,10 +372,14 @@ export async function getCourseStudents(courseId) {
 }
 
 export async function inviteToCourse(courseId, email, role, invitedBy) {
-  const { error } = await supabase.from('pending_invitations')
-    .upsert({ course_id: courseId, email: email.toLowerCase().trim(), role, invited_by: invitedBy }, { onConflict: 'course_id,email' });
+  const { data, error } = await supabase.rpc('invite_to_course', {
+    p_course_id: courseId,
+    p_email: email.toLowerCase().trim(),
+    p_role: role,
+    p_invited_by: invitedBy,
+  });
   if (error) return { success: false, error: error.message };
-  return { success: true };
+  return data || { success: false, error: 'No response' };
 }
 
 export async function getMyInvitations(email) {

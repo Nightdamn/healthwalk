@@ -88,6 +88,7 @@ export default function InvitePage({ user, onBack }) {
                 style={{ ...inputStyle, appearance: "auto" }}>
                 <option value="student">Ученик</option>
                 <option value="curator">Куратор</option>
+                <option value="trainer">Тренер</option>
               </select>
 
               <button onClick={handleInvite} disabled={loading}
