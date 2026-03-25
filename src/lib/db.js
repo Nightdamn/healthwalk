@@ -462,3 +462,84 @@ export async function deleteTracker(trackerId) {
   const { error } = await supabase.from('personal_trackers').delete().eq('id', trackerId);
   return !error;
 }
+
+export async function loadTrackerForEdit(trackerId) {
+  const { data, error } = await supabase
+    .from('personal_trackers')
+    .select('*, tracker_practices(*)')
+    .eq('id', trackerId)
+    .single();
+  if (error) { console.error('[DB] Load tracker for edit:', error); return null; }
+  return data;
+}
+
+export async function updateTrackerWithPractices(trackerId, { title, avatarIcon, avatarCustom, daysCount, practices, deletedPracticeIds }) {
+  // 1. Update tracker metadata
+  const meta = { title, avatar_icon: avatarIcon || null, avatar_custom: avatarCustom || null, days_count: daysCount };
+  const { error: tErr } = await supabase.from('personal_trackers').update(meta).eq('id', trackerId);
+  if (tErr) { console.error('[DB] Update tracker:', tErr); return { error: tErr.message }; }
+
+  // 2. Delete removed practices
+  if (deletedPracticeIds?.length) {
+    const { error: dErr } = await supabase.from('tracker_practices').delete().in('id', deletedPracticeIds);
+    if (dErr) console.error('[DB] Delete practices:', dErr);
+  }
+
+  // 3. Upsert practices
+  const errors = [];
+  for (let i = 0; i < practices.length; i++) {
+    const p = practices[i];
+    const row = {
+      title: p.title, icon_num: p.iconNum || 'health/1',
+      first_day: p.firstDay, last_day: p.lastDay,
+      duration_min: p.durationMin, sort_order: i,
+    };
+    if (p.dbId) {
+      const { error } = await supabase.from('tracker_practices').update(row).eq('id', p.dbId);
+      if (error) { console.error('[DB] Update practice:', error); errors.push(error.message); }
+    } else {
+      const { error } = await supabase.from('tracker_practices').insert({ ...row, tracker_id: trackerId });
+      if (error) { console.error('[DB] Insert practice:', error); errors.push(error.message); }
+    }
+  }
+
+  if (errors.length) return { id: trackerId, error: errors.join('; ') };
+  return { id: trackerId };
+}
+
+// ═══════════════════════════════════════════════════════════
+// COURSE DELETE
+// ═══════════════════════════════════════════════════════════
+
+export async function canDeleteCourse(courseId, ownerId) {
+  // Check if there are any enrollments from users other than the owner
+  const { data, error } = await supabase
+    .from('course_enrollments')
+    .select('id, user_id')
+    .eq('course_id', courseId)
+    .neq('user_id', ownerId);
+
+  if (error) { console.error('[DB] Check course enrollments:', error); return { canDelete: false, reason: 'Ошибка проверки' }; }
+
+  if (data && data.length > 0) {
+    return { canDelete: false, reason: `Курс нельзя удалить: есть ${data.length} ${data.length === 1 ? 'ученик' : 'учеников'}` };
+  }
+
+  return { canDelete: true };
+}
+
+export async function deleteCourse(courseId, ownerId) {
+  const check = await canDeleteCourse(courseId, ownerId);
+  if (!check.canDelete) return check;
+
+  // Delete in order: enrollments → activities → course
+  await supabase.from('course_enrollments').delete().eq('course_id', courseId);
+  await supabase.from('course_activities').delete().eq('course_id', courseId);
+  // Also clean up any pending invitations
+  await supabase.from('pending_invitations').delete().eq('course_id', courseId);
+
+  const { error } = await supabase.from('courses').delete().eq('id', courseId);
+  if (error) { console.error('[DB] Delete course:', error); return { canDelete: false, reason: error.message }; }
+
+  return { deleted: true };
+}

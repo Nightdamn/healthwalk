@@ -3,7 +3,7 @@ import Layout from '../components/Layout';
 import IconPicker from '../components/IconPicker';
 import { getIconPath } from '../data/iconCatalog';
 import { btnBack, glass, pageWrapper, topBar, topBarTitle } from '../styles/shared';
-import { loadCourseForEdit, updateCourseWithActivities, canDeleteCourse, deleteCourse } from '../lib/db';
+import { loadTrackerForEdit, updateTrackerWithPractices } from '../lib/db';
 
 const GREEN = '#27ae60';
 
@@ -15,66 +15,63 @@ const inputStyle = {
 
 const labelStyle = { fontSize: 13, fontWeight: 600, color: '#888', marginBottom: 6, display: 'block' };
 
-function emptyActivity(daysCount) {
-  return { dbId: null, label: '', iconNum: 'health/1', firstDay: 1, lastDay: daysCount, durationMin: 10, _key: Date.now() + Math.random() };
+function emptyPractice(daysCount) {
+  return { dbId: null, title: '', iconNum: 'health/1', firstDay: 1, lastDay: daysCount, durationMin: 10, _key: Date.now() + Math.random() };
 }
 
-export default function EditCoursePage({ courseId, user, onBack, onSaved, onDeleted }) {
+export default function EditTrackerPage({ trackerId, onBack, onSaved }) {
   const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
   const [daysCount, setDaysCount] = useState(30);
   const [avatarIcon, setAvatarIcon] = useState('health/1');
   const [avatarCustom, setAvatarCustom] = useState(null);
-  const [activities, setActivities] = useState([]);
+  const [practices, setPractices] = useState([]);
   const [deletedIds, setDeletedIds] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState('');
   const [pickerTarget, setPickerTarget] = useState(null);
   const fileRef = useRef();
 
-  // Load course data
+  // Load tracker data
   useEffect(() => {
-    if (!courseId) return;
+    if (!trackerId) return;
     (async () => {
       setLoading(true);
-      const course = await loadCourseForEdit(courseId);
-      if (!course) { setError('Не удалось загрузить курс'); setLoading(false); return; }
+      const tracker = await loadTrackerForEdit(trackerId);
+      if (!tracker) { setError('Не удалось загрузить трекер'); setLoading(false); return; }
 
-      setTitle(course.title || '');
-      setDescription(course.description || '');
-      setDaysCount(course.days_count || 30);
-      setAvatarIcon(course.avatar_icon || 'health/1');
-      setAvatarCustom(course.avatar_custom || null);
+      setTitle(tracker.title || '');
+      setDaysCount(tracker.days_count || 30);
+      setAvatarIcon(tracker.avatar_icon || 'health/1');
+      setAvatarCustom(tracker.avatar_custom || null);
 
-      const acts = (course.course_activities || [])
+      const pracs = (tracker.tracker_practices || [])
         .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
-        .map(a => ({
-          dbId: a.id,
-          label: a.label,
-          iconNum: a.icon_num || 'health/1',
-          firstDay: a.first_day || 1,
-          lastDay: a.last_day || course.days_count,
-          durationMin: a.duration_min || 10,
-          _key: a.id,
+        .map(p => ({
+          dbId: p.id,
+          title: p.title,
+          iconNum: p.icon_num || 'health/1',
+          firstDay: p.first_day || 1,
+          lastDay: p.last_day || tracker.days_count,
+          durationMin: p.duration_min || 10,
+          _key: p.id,
         }));
-      setActivities(acts.length > 0 ? acts : [emptyActivity(course.days_count)]);
+      setPractices(pracs.length > 0 ? pracs : [emptyPractice(tracker.days_count)]);
       setLoading(false);
     })();
-  }, [courseId]);
+  }, [trackerId]);
 
-  const updateActivity = (idx, field, val) => {
-    setActivities(prev => prev.map((a, i) => i === idx ? { ...a, [field]: val } : a));
+  const updatePractice = (idx, field, val) => {
+    setPractices(prev => prev.map((p, i) => i === idx ? { ...p, [field]: val } : p));
   };
 
-  const removeActivity = (idx) => {
-    const act = activities[idx];
-    if (act.dbId) setDeletedIds(prev => [...prev, act.dbId]);
-    setActivities(prev => prev.filter((_, i) => i !== idx));
+  const removePractice = (idx) => {
+    const p = practices[idx];
+    if (p.dbId) setDeletedIds(prev => [...prev, p.dbId]);
+    setPractices(prev => prev.filter((_, i) => i !== idx));
   };
 
-  const addActivity = () => setActivities(prev => [...prev, emptyActivity(daysCount)]);
+  const addPractice = () => setPractices(prev => [...prev, emptyPractice(daysCount)]);
 
   const handleAvatarUpload = (e) => {
     const file = e.target.files?.[0];
@@ -86,69 +83,41 @@ export default function EditCoursePage({ courseId, user, onBack, onSaved, onDele
   };
 
   const handleSave = async () => {
-    if (!title.trim()) { setError('Введите название курса'); return; }
+    if (!title.trim()) { setError('Введите название трекера'); return; }
     const days = parseInt(daysCount) || 30;
-    const valid = activities.filter(a => a.label.trim());
-    if (valid.length === 0) { setError('Добавьте хотя бы одну активность'); return; }
+    const valid = practices.filter(p => p.title.trim());
+    if (valid.length === 0) { setError('Добавьте хотя бы одну практику'); return; }
 
-    for (const a of valid) {
-      const fd = parseInt(a.firstDay) || 1;
-      const ld = Math.min(parseInt(a.lastDay) || days, days);
+    for (const p of valid) {
+      const fd = parseInt(p.firstDay) || 1;
+      const ld = Math.min(parseInt(p.lastDay) || days, days);
       if (fd < 1 || ld > days || fd > ld) {
-        setError(`Активность "${a.label}": проверьте диапазон дней (1–${days})`);
+        setError(`Практика "${p.title}": проверьте диапазон дней (1–${days})`);
         return;
       }
     }
 
     setSaving(true); setError('');
-    const result = await updateCourseWithActivities(courseId, {
+    const result = await updateTrackerWithPractices(trackerId, {
       title: title.trim(),
-      description: description.trim(),
       avatarIcon: avatarCustom ? null : avatarIcon,
       avatarCustom,
       daysCount: days,
-      deletedActivityIds: deletedIds,
-      activities: valid.map(a => ({
-        dbId: a.dbId,
-        label: a.label.trim(),
-        iconNum: a.iconNum,
-        firstDay: parseInt(a.firstDay) || 1,
-        lastDay: Math.min(parseInt(a.lastDay) || days, days),
-        durationMin: Math.min(parseInt(a.durationMin) || 10, 1200),
+      deletedPracticeIds: deletedIds,
+      practices: valid.map(p => ({
+        dbId: p.dbId,
+        title: p.title.trim(),
+        iconNum: p.iconNum,
+        firstDay: parseInt(p.firstDay) || 1,
+        lastDay: Math.min(parseInt(p.lastDay) || days, days),
+        durationMin: Math.min(parseInt(p.durationMin) || 10, 1200),
       })),
     });
     setSaving(false);
 
     if (result?.error) setError(result.error);
     else if (result?.id) onSaved();
-    else setError('Не удалось сохранить курс');
-  };
-
-  const handleDelete = async () => {
-    if (!user?.id) return;
-    setError('');
-    setDeleting(true);
-
-    const check = await canDeleteCourse(courseId, user.id);
-    if (!check.canDelete) {
-      setError(check.reason);
-      setDeleting(false);
-      return;
-    }
-
-    if (!confirm('Удалить курс? Все данные курса будут безвозвратно потеряны.')) {
-      setDeleting(false);
-      return;
-    }
-
-    const result = await deleteCourse(courseId, user.id);
-    setDeleting(false);
-
-    if (result?.deleted) {
-      onDeleted();
-    } else {
-      setError(result?.reason || 'Не удалось удалить курс');
-    }
+    else setError('Не удалось сохранить трекер');
   };
 
   const avatarSrc = avatarCustom || (avatarIcon ? getIconPath(avatarIcon) : null);
@@ -157,7 +126,7 @@ export default function EditCoursePage({ courseId, user, onBack, onSaved, onDele
     return (
       <Layout>
         <div style={{ ...pageWrapper, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh' }}>
-          <span style={{ fontSize: 14, color: '#aaa' }}>Загрузка курса...</span>
+          <span style={{ fontSize: 14, color: '#aaa' }}>Загрузка трекера...</span>
         </div>
       </Layout>
     );
@@ -168,11 +137,11 @@ export default function EditCoursePage({ courseId, user, onBack, onSaved, onDele
       <div style={pageWrapper}>
         <div style={topBar}>
           <button onClick={onBack} style={btnBack}>←</button>
-          <h2 style={topBarTitle}>Редактировать курс</h2>
+          <h2 style={topBarTitle}>Редактировать трекер</h2>
           <div style={{ width: 42 }} />
         </div>
 
-        {/* Avatar + Title + Description */}
+        {/* Avatar + Title */}
         <div style={{ ...glass, borderRadius: 18, padding: '20px 16px', marginBottom: 16 }}>
           <div style={{ display: 'flex', gap: 14, alignItems: 'center', marginBottom: 16 }}>
             <div style={{ position: 'relative', flexShrink: 0 }}>
@@ -183,7 +152,7 @@ export default function EditCoursePage({ courseId, user, onBack, onSaved, onDele
               }}>
                 {avatarSrc
                   ? <img src={avatarSrc} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
-                  : <span style={{ fontSize: 28 }}>📚</span>}
+                  : <span style={{ fontSize: 28 }}>🎯</span>}
               </button>
               <button onClick={() => fileRef.current?.click()} style={{
                 position: 'absolute', bottom: -4, right: -4, width: 24, height: 24,
@@ -193,15 +162,10 @@ export default function EditCoursePage({ courseId, user, onBack, onSaved, onDele
               <input ref={fileRef} type="file" accept=".svg" style={{ display: 'none' }} onChange={handleAvatarUpload} />
             </div>
             <div style={{ flex: 1 }}>
-              <label style={labelStyle}>Название курса</label>
-              <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Мой курс" style={inputStyle} />
+              <label style={labelStyle}>Название</label>
+              <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Мой трекер" style={inputStyle} />
             </div>
           </div>
-
-          <label style={labelStyle}>Описание</label>
-          <textarea value={description} onChange={e => setDescription(e.target.value)}
-            placeholder="Краткое описание курса..." rows={2}
-            style={{ ...inputStyle, resize: 'vertical', fontFamily: 'inherit', marginBottom: 12 }} />
 
           <label style={labelStyle}>Длительность (дней)</label>
           <input type="number" value={daysCount} min={1} max={365}
@@ -218,51 +182,29 @@ export default function EditCoursePage({ courseId, user, onBack, onSaved, onDele
             style={{ ...inputStyle, width: 100 }} />
         </div>
 
-        {/* Activities */}
+        {/* Practices */}
         <div style={{ fontSize: 14, fontWeight: 600, color: '#888', marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-          Активности
+          Практики
         </div>
 
-        {activities.map((a, idx) => (
-          <ActivityCard key={a._key} activity={a} index={idx} maxDay={daysCount}
-            onUpdate={(f, v) => updateActivity(idx, f, v)}
-            onRemove={() => removeActivity(idx)}
+        {practices.map((p, idx) => (
+          <PracticeCard key={p._key} practice={p} index={idx} maxDay={daysCount}
+            onUpdate={(f, v) => updatePractice(idx, f, v)}
+            onRemove={() => removePractice(idx)}
             onPickIcon={() => setPickerTarget(idx)} />
         ))}
 
-        <button onClick={addActivity} style={{
+        <button onClick={addPractice} style={{
           width: '100%', padding: 14, borderRadius: 14,
           border: '2px dashed rgba(39,174,96,0.3)', background: 'rgba(39,174,96,0.04)',
           color: GREEN, fontSize: 15, fontWeight: 600, cursor: 'pointer', marginBottom: 20,
-        }}>+ Добавить активность</button>
+        }}>+ Добавить практику</button>
 
-        <button onClick={handleSave} disabled={saving || deleting} style={{
+        <button onClick={handleSave} disabled={saving} style={{
           width: '100%', padding: 16, background: '#1a1a2e', color: '#fff',
           border: 'none', borderRadius: 14, fontSize: 16, fontWeight: 600,
           cursor: saving ? 'wait' : 'pointer', opacity: saving ? 0.6 : 1,
         }}>{saving ? 'Сохранение...' : 'Сохранить изменения'}</button>
-
-        {/* Delete course */}
-        {onDeleted && (
-          <div style={{
-            marginTop: 24, padding: '16px', borderRadius: 14,
-            border: '1.5px solid rgba(231,76,60,0.2)', background: 'rgba(231,76,60,0.03)',
-          }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: '#e74c3c', marginBottom: 8 }}>
-              Опасная зона
-            </div>
-            <div style={{ fontSize: 13, color: '#888', marginBottom: 12 }}>
-              Курс можно удалить только если в нём нет учеников (кроме создателя).
-            </div>
-            <button onClick={handleDelete} disabled={deleting || saving} style={{
-              width: '100%', padding: 14, background: deleting ? '#ccc' : 'rgba(231,76,60,0.1)',
-              color: '#e74c3c', border: '1.5px solid rgba(231,76,60,0.3)', borderRadius: 12,
-              fontSize: 15, fontWeight: 600, cursor: deleting ? 'wait' : 'pointer',
-            }}>
-              {deleting ? 'Проверка...' : '🗑 Удалить курс'}
-            </button>
-          </div>
-        )}
 
         {error && (
           <div style={{ marginTop: 12, padding: '12px 16px', borderRadius: 12, background: 'rgba(231,76,60,0.1)', color: '#e74c3c', fontSize: 14 }}>
@@ -273,10 +215,10 @@ export default function EditCoursePage({ courseId, user, onBack, onSaved, onDele
 
       {pickerTarget !== null && (
         <IconPicker
-          value={pickerTarget === 'avatar' ? avatarIcon : activities[pickerTarget]?.iconNum}
+          value={pickerTarget === 'avatar' ? avatarIcon : practices[pickerTarget]?.iconNum}
           onChange={num => {
             if (pickerTarget === 'avatar') { setAvatarIcon(num); setAvatarCustom(null); }
-            else updateActivity(pickerTarget, 'iconNum', num);
+            else updatePractice(pickerTarget, 'iconNum', num);
           }}
           onClose={() => setPickerTarget(null)} />
       )}
@@ -284,7 +226,7 @@ export default function EditCoursePage({ courseId, user, onBack, onSaved, onDele
   );
 }
 
-function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon }) {
+function PracticeCard({ practice, index, maxDay, onUpdate, onRemove, onPickIcon }) {
   const numChange = (field) => (e) => {
     const raw = e.target.value;
     if (raw === '') { onUpdate(field, ''); return; }
@@ -293,14 +235,14 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon 
   };
 
   const clamp = (field, min, max) => () => {
-    const v = parseInt(activity[field]);
+    const v = parseInt(practice[field]);
     onUpdate(field, isNaN(v) || v < min ? min : Math.min(v, max));
   };
 
   return (
     <div style={{ ...glass, borderRadius: 16, padding: '14px 14px', marginBottom: 10 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-        <span style={{ fontSize: 13, fontWeight: 700, color: '#aaa' }}>Активность {index + 1}</span>
+        <span style={{ fontSize: 13, fontWeight: 700, color: '#aaa' }}>Практика {index + 1}</span>
         <button onClick={onRemove} style={{ background: 'none', border: 'none', fontSize: 18, color: '#ccc', cursor: 'pointer', padding: 2 }}>✕</button>
       </div>
 
@@ -310,30 +252,30 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon 
           border: '2px solid rgba(0,0,0,0.08)', background: '#fafafa',
           cursor: 'pointer', padding: 4, display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>
-          <img src={getIconPath(activity.iconNum)} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+          <img src={getIconPath(practice.iconNum)} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
         </button>
-        <input value={activity.label} onChange={e => onUpdate('label', e.target.value)}
-          placeholder="Название активности" style={{ ...inputStyle, flex: 1 }} />
+        <input value={practice.title} onChange={e => onUpdate('title', e.target.value)}
+          placeholder="Название практики" style={{ ...inputStyle, flex: 1 }} />
       </div>
 
       <div style={{ display: 'flex', gap: 8 }}>
         <div style={{ flex: 1 }}>
           <label style={{ ...labelStyle, fontSize: 11 }}>С дня</label>
-          <input type="number" value={activity.firstDay}
+          <input type="number" value={practice.firstDay}
             onChange={numChange('firstDay')}
             onBlur={clamp('firstDay', 1, maxDay)}
             style={{ ...inputStyle, padding: '8px 10px', fontSize: 14 }} />
         </div>
         <div style={{ flex: 1 }}>
           <label style={{ ...labelStyle, fontSize: 11 }}>По день</label>
-          <input type="number" value={activity.lastDay}
+          <input type="number" value={practice.lastDay}
             onChange={numChange('lastDay')}
             onBlur={clamp('lastDay', 1, maxDay)}
             style={{ ...inputStyle, padding: '8px 10px', fontSize: 14 }} />
         </div>
         <div style={{ flex: 1 }}>
           <label style={{ ...labelStyle, fontSize: 11 }}>Минут</label>
-          <input type="number" value={activity.durationMin}
+          <input type="number" value={practice.durationMin}
             onChange={numChange('durationMin')}
             onBlur={clamp('durationMin', 1, 1200)}
             style={{ ...inputStyle, padding: '8px 10px', fontSize: 14 }} />

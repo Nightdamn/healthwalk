@@ -13,6 +13,7 @@ import InvitePage from './pages/InviteToCourse';
 import MyTrackersPage from './pages/MyTrackers';
 import CreateTrackerPage from './pages/CreateTracker';
 import EditCoursePage from './pages/EditCourse';
+import EditTrackerPage from './pages/EditTracker';
 import Layout from './components/Layout';
 import { DAY_START_HOUR, getCourseDay } from './data/constants';
 import { supabase } from './lib/supabase';
@@ -52,6 +53,7 @@ export default function App() {
   const [availableItems, setAvailableItems] = useState([]);
   const [activeItem, setActiveItem] = useState(null);
   const [editCourseId, setEditCourseId] = useState(null);
+  const [editTrackerId, setEditTrackerId] = useState(null);
 
   // Progress for active context (keyed by activity UUID)
   const [progress, setProgress] = useState({});       // { day: { actId: true/false } }
@@ -338,6 +340,37 @@ export default function App() {
     setScreen('my_trackers');
   };
 
+  const handleEditTracker = (trackerId) => {
+    setEditTrackerId(trackerId);
+    setScreen('edit_tracker');
+  };
+
+  const handleTrackerSaved = async () => {
+    await refreshItems();
+    if (activeItem?.type === 'tracker' && activeItem?.id === editTrackerId) {
+      const items = await getAvailableItems(user.id);
+      setAvailableItems(items);
+      const updated = items.find(i => i.type === 'tracker' && i.id === editTrackerId);
+      if (updated) setActiveItem(updated);
+    }
+    setEditTrackerId(null);
+    setScreen('my_trackers');
+  };
+
+  const handleCourseDeleted = async () => {
+    // If the deleted course was active, reset context
+    if (activeItem?.type === 'course' && activeItem?.id === editCourseId) {
+      setActiveItem(null);
+    }
+    const items = await refreshItems();
+    // If no active item, pick first available
+    if (activeItem?.type === 'course' && activeItem?.id === editCourseId && items?.length) {
+      handleSwitchContext(items[0]);
+    }
+    setEditCourseId(null);
+    setScreen('my_courses');
+  };
+
   const getElapsedForDay = (day) => {
     if (!activeItem) return {};
     const el = {};
@@ -376,10 +409,11 @@ export default function App() {
     case 'assign_role': return <AssignRolePage onBack={goMain} onAssign={handleAssignRole} />;
     case 'my_courses': return <MyCoursesPage user={user} userRole={userRole} onBack={goMain} onNavigate={setScreen} onEditCourse={handleEditCourse} onRefresh={refreshItems} availableItems={availableItems} activeItem={activeItem} onStartCourse={(item) => { handleSwitchContext(item); setScreen('main'); }} />;
     case 'create_course': return <CreateCoursePage user={user} onBack={goMain} onCreated={handleCourseCreated} />;
-    case 'edit_course': return <EditCoursePage courseId={editCourseId} onBack={() => setScreen('my_courses')} onSaved={handleCourseSaved} />;
+    case 'edit_course': return <EditCoursePage courseId={editCourseId} user={user} onBack={() => setScreen('my_courses')} onSaved={handleCourseSaved} onDeleted={handleCourseDeleted} />;
     case 'invite': return <InvitePage user={user} onBack={goMain} />;
-    case 'my_trackers': return <MyTrackersPage user={user} onBack={goMain} onNavigate={setScreen} />;
+    case 'my_trackers': return <MyTrackersPage user={user} onBack={goMain} onNavigate={setScreen} onEditTracker={handleEditTracker} />;
     case 'create_tracker': return <CreateTrackerPage user={user} onBack={() => setScreen('my_trackers')} onCreated={handleTrackerCreated} />;
+    case 'edit_tracker': return <EditTrackerPage trackerId={editTrackerId} onBack={() => setScreen('my_trackers')} onSaved={handleTrackerSaved} />;
     default: return (
       <Dashboard user={user} userRole={userRole} currentDay={currentDay}
         progress={progress} elapsedTime={elapsedTime} dayStartHour={dayStartHour}

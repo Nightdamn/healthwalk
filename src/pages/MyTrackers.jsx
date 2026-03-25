@@ -6,7 +6,7 @@ import { getMyTrackers, deleteTracker } from '../lib/db';
 
 const GREEN = '#27ae60';
 
-export default function MyTrackersPage({ user, onBack, onNavigate }) {
+export default function MyTrackersPage({ user, onBack, onNavigate, onEditTracker }) {
   const [trackers, setTrackers] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -65,6 +65,7 @@ export default function MyTrackersPage({ user, onBack, onNavigate }) {
               <TrackerCard
                 key={tracker.id}
                 tracker={tracker}
+                onEdit={() => onEditTracker && onEditTracker(tracker.id)}
                 onDelete={() => handleDelete(tracker.id)}
               />
             ))}
@@ -87,7 +88,7 @@ export default function MyTrackersPage({ user, onBack, onNavigate }) {
   );
 }
 
-function TrackerCard({ tracker, onDelete }) {
+function TrackerCard({ tracker, onEdit, onDelete }) {
   const practices = tracker.tracker_practices || [];
   const avatarSrc = tracker.avatar_custom || (tracker.avatar_icon ? getIconPath(tracker.avatar_icon) : null);
 
@@ -123,15 +124,27 @@ function TrackerCard({ tracker, onDelete }) {
             )}
           </div>
         </div>
-        {/* Delete button */}
-        <button
-          onClick={onDelete}
-          style={{
-            background: 'rgba(231,76,60,0.08)', border: 'none', borderRadius: 10,
-            width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center',
-            cursor: 'pointer', fontSize: 16, color: '#e74c3c', flexShrink: 0,
-          }}
-        >🗑</button>
+        {/* Action buttons */}
+        <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+          <button
+            onClick={onEdit}
+            style={{
+              background: 'rgba(39,174,96,0.08)', border: 'none', borderRadius: 10,
+              width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              cursor: 'pointer', fontSize: 16, color: GREEN,
+            }}
+            title="Редактировать"
+          >✏️</button>
+          <button
+            onClick={onDelete}
+            style={{
+              background: 'rgba(231,76,60,0.08)', border: 'none', borderRadius: 10,
+              width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              cursor: 'pointer', fontSize: 16, color: '#e74c3c',
+            }}
+            title="Удалить"
+          >🗑</button>
+        </div>
       </div>
 
       {/* Practices mini-list */}
