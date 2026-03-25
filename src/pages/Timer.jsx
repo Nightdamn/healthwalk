@@ -15,6 +15,52 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
   const hasStarted = elapsed > 0;
   const isDone = timerSeconds === 0;
 
+  // ─── Wake Lock: keep screen on while timer is running ───
+  const wakeLockRef = useRef(null);
+
+  useEffect(() => {
+    let active = true;
+
+    const requestWakeLock = async () => {
+      if (!('wakeLock' in navigator)) return;
+      try {
+        wakeLockRef.current = await navigator.wakeLock.request('screen');
+        wakeLockRef.current.addEventListener('release', () => {
+          if (active) wakeLockRef.current = null;
+        });
+      } catch (e) {
+        // Wake Lock request failed (e.g. low battery, tab hidden)
+      }
+    };
+
+    const releaseWakeLock = async () => {
+      if (wakeLockRef.current) {
+        try { await wakeLockRef.current.release(); } catch (e) {}
+        wakeLockRef.current = null;
+      }
+    };
+
+    if (!timerPaused && !isDone) {
+      requestWakeLock();
+    } else {
+      releaseWakeLock();
+    }
+
+    // Re-acquire wake lock when tab becomes visible again
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && !timerPaused && !isDone) {
+        requestWakeLock();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
+    return () => {
+      active = false;
+      releaseWakeLock();
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [timerPaused, isDone]);
+
   // ─── Max progress: the furthest point the timer has counted to ───
   const maxElapsedRef = useRef(elapsed);
   useEffect(() => {
