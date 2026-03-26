@@ -186,7 +186,7 @@ export default function MyCoursesPage({ user, userRole, onBack, onNavigate, onEd
                               color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer',
                               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
                             }}>
-                            <span>👨‍🏫</span> Кабинет тренера
+                            <span>Кабинет тренера</span>
                           </button>
                         </div>
                       );

@@ -211,16 +211,8 @@ export default function Dashboard({
         {(() => {
           const items = [{ label: 'Профиль', icon: '👤', target: 'profile' }];
           if (userRole === 'admin') items.push({ label: 'Назначить роль', icon: '🔑', target: 'assign_role' });
-          if (userRole === 'trainer' || userRole === 'admin') {
-            items.push(
-              { label: 'Создать курс', icon: '🛠️', target: 'create_course' },
-              { label: 'Пригласить', icon: '📨', target: 'invite' },
-              { label: 'Мои курсы', icon: '📚', target: 'my_courses' },
-            );
-          }
-          if (userRole === 'curator') items.push({ label: 'Мои курсы', icon: '📚', target: 'my_courses' });
-          if (userRole === 'student') items.push({ label: 'Мои курсы', icon: '📚', target: 'my_courses' });
           items.push(
+            { label: 'Мои курсы', icon: '📚', target: 'my_courses' },
             { label: 'Мои трекеры', icon: '🎯', target: 'my_trackers' },
             { label: 'Детали прогресса', icon: '📊', target: 'details' },
             { label: 'Рекомендации', icon: '💡', target: 'recommendations' },

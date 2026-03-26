@@ -19,7 +19,7 @@ function emptyActivity(daysCount) {
   return { dbId: null, label: '', iconNum: 'health/1', firstDay: 1, lastDay: daysCount, durationMin: 10, _key: Date.now() + Math.random() };
 }
 
-export default function EditCoursePage({ courseId, user, onBack, onSaved, onDeleted }) {
+export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted }) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [daysCount, setDaysCount] = useState(30);
@@ -125,11 +125,10 @@ export default function EditCoursePage({ courseId, user, onBack, onSaved, onDele
   };
 
   const handleDelete = async () => {
-    if (!user?.id) return;
     setError('');
     setDeleting(true);
 
-    const check = await canDeleteCourse(courseId, user.id);
+    const check = await canDeleteCourse(courseId);
     if (!check.canDelete) {
       setError(check.reason);
       setDeleting(false);
@@ -141,7 +140,7 @@ export default function EditCoursePage({ courseId, user, onBack, onSaved, onDele
       return;
     }
 
-    const result = await deleteCourse(courseId, user.id);
+    const result = await deleteCourse(courseId);
     setDeleting(false);
 
     if (result?.deleted) {

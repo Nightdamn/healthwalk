@@ -66,17 +66,19 @@ export async function getAvailableItems(userId) {
   // 1. Enrolled courses
   const { data: enrollments } = await supabase
     .from('course_enrollments')
-    .select('role, courses(id, title, days_count, avatar_icon, avatar_custom, owner_id, course_activities(*))')
+    .select('role, joined_at, courses(id, title, days_count, avatar_icon, avatar_custom, owner_id, created_at, course_activities(*))')
     .eq('user_id', userId);
 
   const courseIds = new Set();
   const courses = (enrollments || []).filter(e => e.courses).map(e => {
     courseIds.add(e.courses.id);
+    // Use enrollment joined_at as start date; fallback to course created_at
+    const startDate = (e.joined_at || e.courses.created_at || '').slice(0, 10) || null;
     return {
       type: 'course', id: e.courses.id, title: e.courses.title,
       daysCount: e.courses.days_count, avatarIcon: e.courses.avatar_icon,
       avatarCustom: e.courses.avatar_custom, ownerId: e.courses.owner_id,
-      enrollRole: e.role,
+      enrollRole: e.role, startDate,
       activities: mapActivities(e.courses.course_activities, e.courses.days_count),
     };
   });
@@ -84,15 +86,17 @@ export async function getAvailableItems(userId) {
   // 2. Own courses not yet in list
   const { data: ownCourses } = await supabase
     .from('courses')
-    .select('id, title, days_count, avatar_icon, avatar_custom, owner_id, course_activities(*)')
+    .select('id, title, days_count, avatar_icon, avatar_custom, owner_id, created_at, course_activities(*)')
     .eq('owner_id', userId);
 
   for (const c of (ownCourses || [])) {
     if (!courseIds.has(c.id)) {
+      const startDate = (c.created_at || '').slice(0, 10) || null;
       courses.push({
         type: 'course', id: c.id, title: c.title,
         daysCount: c.days_count, avatarIcon: c.avatar_icon,
         avatarCustom: c.avatar_custom, ownerId: c.owner_id, enrollRole: 'trainer',
+        startDate,
         activities: mapActivities(c.course_activities, c.days_count),
       });
     }
@@ -511,37 +515,16 @@ export async function updateTrackerWithPractices(trackerId, { title, avatarIcon,
 // COURSE DELETE
 // ═══════════════════════════════════════════════════════════
 
-export async function canDeleteCourse(courseId, ownerId) {
-  // Check if there are any enrollments from users other than the owner
-  const { data, error } = await supabase
-    .from('course_enrollments')
-    .select('id, user_id')
-    .eq('course_id', courseId)
-    .neq('user_id', ownerId);
-
-  if (error) { console.error('[DB] Check course enrollments:', error); return { canDelete: false, reason: 'Ошибка проверки' }; }
-
-  if (data && data.length > 0) {
-    return { canDelete: false, reason: `Курс нельзя удалить: есть ${data.length} ${data.length === 1 ? 'ученик' : 'учеников'}` };
-  }
-
-  return { canDelete: true };
+export async function canDeleteCourse(courseId) {
+  const { data, error } = await supabase.rpc('can_delete_course', { p_course_id: courseId });
+  if (error) { console.error('[DB] Can delete course:', error); return { canDelete: false, reason: 'Ошибка проверки: ' + error.message }; }
+  return { canDelete: data?.can_delete || false, reason: data?.reason || '' };
 }
 
-export async function deleteCourse(courseId, ownerId) {
-  const check = await canDeleteCourse(courseId, ownerId);
-  if (!check.canDelete) return check;
-
-  // Delete in order: enrollments → activities → course
-  await supabase.from('course_enrollments').delete().eq('course_id', courseId);
-  await supabase.from('course_activities').delete().eq('course_id', courseId);
-  // Also clean up any pending invitations
-  await supabase.from('pending_invitations').delete().eq('course_id', courseId);
-
-  const { error } = await supabase.from('courses').delete().eq('id', courseId);
+export async function deleteCourse(courseId) {
+  const { data, error } = await supabase.rpc('delete_course_safe', { p_course_id: courseId });
   if (error) { console.error('[DB] Delete course:', error); return { canDelete: false, reason: error.message }; }
-
-  return { deleted: true };
+  return data || { canDelete: false, reason: 'Нет ответа' };
 }
 
 // ═══════════════════════════════════════════════════════════

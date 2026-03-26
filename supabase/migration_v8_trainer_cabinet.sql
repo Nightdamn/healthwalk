@@ -109,5 +109,54 @@ BEGIN
 END;
 $$;
 
+-- 6. Check if course can be deleted (SECURITY DEFINER for consistent auth.users access)
+CREATE OR REPLACE FUNCTION can_delete_course(p_course_id UUID)
+RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+  v_count INTEGER;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM courses WHERE id = p_course_id AND owner_id = auth.uid()) THEN
+    RETURN jsonb_build_object('can_delete', false, 'reason', 'Нет доступа');
+  END IF;
+
+  SELECT COUNT(*) INTO v_count
+  FROM course_enrollments
+  WHERE course_id = p_course_id AND user_id != auth.uid();
+
+  IF v_count > 0 THEN
+    RETURN jsonb_build_object('can_delete', false, 'reason',
+      'Курс нельзя удалить: есть ' || v_count || ' ' ||
+      CASE
+        WHEN v_count % 10 = 1 AND v_count % 100 != 11 THEN 'ученик'
+        WHEN v_count % 10 IN (2,3,4) AND v_count % 100 NOT IN (12,13,14) THEN 'ученика'
+        ELSE 'учеников'
+      END);
+  END IF;
+
+  RETURN jsonb_build_object('can_delete', true);
+END;
+$$;
+
+-- 7. Delete course safely (SECURITY DEFINER)
+CREATE OR REPLACE FUNCTION delete_course_safe(p_course_id UUID)
+RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+  v_check JSONB;
+BEGIN
+  v_check := can_delete_course(p_course_id);
+  IF NOT (v_check->>'can_delete')::boolean THEN
+    RETURN v_check;
+  END IF;
+
+  DELETE FROM course_progress WHERE course_id = p_course_id;
+  DELETE FROM pending_invitations WHERE course_id = p_course_id;
+  DELETE FROM course_enrollments WHERE course_id = p_course_id;
+  DELETE FROM course_activities WHERE course_id = p_course_id;
+  DELETE FROM courses WHERE id = p_course_id AND owner_id = auth.uid();
+
+  RETURN jsonb_build_object('deleted', true);
+END;
+$$;
+
 -- Force PostgREST to pick up new functions
 NOTIFY pgrst, 'reload schema';

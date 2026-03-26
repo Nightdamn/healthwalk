@@ -415,10 +415,10 @@ export default function App() {
     case 'ask': return <AskCoachPage user={user} onBack={goMain} />;
     case 'assign_role': return <AssignRolePage onBack={goMain} onAssign={handleAssignRole} />;
     case 'my_courses': return <MyCoursesPage user={user} userRole={userRole} onBack={goMain} onNavigate={setScreen} onEditCourse={handleEditCourse} onTrainerCabinet={handleTrainerCabinet} onRefresh={refreshItems} availableItems={availableItems} />;
-    case 'create_course': return <CreateCoursePage user={user} onBack={goMain} onCreated={handleCourseCreated} />;
-    case 'edit_course': return <EditCoursePage courseId={editCourseId} user={user} onBack={() => setScreen('my_courses')} onSaved={handleCourseSaved} onDeleted={handleCourseDeleted} />;
+    case 'create_course': return <CreateCoursePage user={user} onBack={() => setScreen('my_courses')} onCreated={handleCourseCreated} />;
+    case 'edit_course': return <EditCoursePage courseId={editCourseId} onBack={() => setScreen('my_courses')} onSaved={handleCourseSaved} onDeleted={handleCourseDeleted} />;
     case 'trainer_cabinet': return <TrainerCabinetPage courseId={trainerCourseId} user={user} onBack={() => setScreen('my_courses')} />;
-    case 'invite': return <InvitePage user={user} onBack={goMain} />;
+    case 'invite': return <InvitePage user={user} onBack={() => setScreen('my_courses')} />;
     case 'my_trackers': return <MyTrackersPage user={user} onBack={goMain} onNavigate={setScreen} onEditTracker={handleEditTracker} />;
     case 'create_tracker': return <CreateTrackerPage user={user} onBack={() => setScreen('my_trackers')} onCreated={handleTrackerCreated} />;
     case 'edit_tracker': return <EditTrackerPage trackerId={editTrackerId} onBack={() => setScreen('my_trackers')} onSaved={handleTrackerSaved} />;
