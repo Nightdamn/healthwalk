@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import Layout from '../components/Layout';
 import { getIconPath } from '../data/iconCatalog';
+import { getCourseDay } from '../data/constants';
 import { btnBack, glass, pageWrapper, topBar, topBarTitle } from '../styles/shared';
 import {
   getCourseStudentsInfo, getCourseAllStudentsProgress,
@@ -87,19 +88,20 @@ export default function TrainerCabinetPage({ courseId, user, onBack }) {
   const activities = (course?.course_activities || []).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
   const daysCount = course?.days_count || 30;
 
-  // Calculate completion stats for a student
-  const getStudentStats = (userId) => {
-    const prog = allProgress[userId] || {};
+  // Calculate stats for a student: elapsed days (based on joined_at) and completion
+  const getStudentStats = (student) => {
+    const startDate = (student.joined_at || '').slice(0, 10);
+    const studentCurrentDay = startDate ? getCourseDay(startDate, null, 0, daysCount) : 1;
+    const elapsedDays = Math.max(0, studentCurrentDay - 1);
+    // Also count completed days for color
+    const prog = allProgress[student.user_id] || {};
     let completedDays = 0;
-    for (let d = 1; d <= daysCount; d++) {
-      const dayActivities = activities.filter(a => d >= (a.first_day || 1) && d <= (a.last_day || daysCount));
-      if (dayActivities.length === 0) continue;
-      const allDone = dayActivities.every(a => prog[d]?.[a.id]?.completed);
-      if (allDone) completedDays++;
+    for (let d = 1; d < studentCurrentDay; d++) {
+      const dayActs = activities.filter(a => d >= (a.first_day || 1) && d <= (a.last_day || daysCount));
+      if (dayActs.length === 0) continue;
+      if (dayActs.every(a => prog[d]?.[a.id]?.completed)) completedDays++;
     }
-    const totalActiveDays = Array.from({ length: daysCount }, (_, i) => i + 1)
-      .filter(d => activities.some(a => d >= (a.first_day || 1) && d <= (a.last_day || daysCount))).length;
-    return { completedDays, totalActiveDays };
+    return { elapsedDays, studentCurrentDay, completedDays, totalDays: daysCount };
   };
 
   const avatarSrc = course?.avatar_custom || (course?.avatar_icon ? getIconPath(course.avatar_icon) : null);
@@ -213,8 +215,8 @@ export default function TrainerCabinetPage({ courseId, user, onBack }) {
           </div>
         ) : (
           students.map(st => {
-            const stats = getStudentStats(st.user_id);
-            const pct = stats.totalActiveDays > 0 ? Math.round((stats.completedDays / stats.totalActiveDays) * 100) : 0;
+            const stats = getStudentStats(st);
+            const pct = stats.totalDays > 0 ? Math.round((stats.elapsedDays / stats.totalDays) * 100) : 0;
             const isExpanded = expandedId === st.enrollment_id;
             const isBusy = actionId === st.enrollment_id;
 
@@ -256,21 +258,21 @@ export default function TrainerCabinetPage({ courseId, user, onBack }) {
                         </span>
                       )}
                     </div>
-                    <div style={{ fontSize: 12, color: '#999', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {st.email}
+                    <div style={{ fontSize: 12, color: '#999', marginTop: 2 }}>
+                      {st.email} · день {stats.studentCurrentDay}
                     </div>
 
-                    {/* Progress bar */}
+                    {/* Progress bar — elapsed days */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
                       <div style={{ flex: 1, height: 6, borderRadius: 3, background: 'rgba(0,0,0,0.05)', overflow: 'hidden' }}>
                         <div style={{
                           width: `${pct}%`, height: '100%', borderRadius: 3,
-                          background: pct === 100 ? GREEN : pct > 50 ? BLUE : '#ddd',
+                          background: pct >= 100 ? GREEN : pct > 50 ? BLUE : pct > 0 ? '#bbb' : '#eee',
                           transition: 'width 0.3s ease',
                         }} />
                       </div>
                       <span style={{ fontSize: 11, fontWeight: 600, color: pct > 50 ? GREEN : '#aaa', flexShrink: 0 }}>
-                        {stats.completedDays}/{stats.totalActiveDays}
+                        {stats.elapsedDays}/{stats.totalDays}
                       </span>
                     </div>
                   </div>
@@ -286,6 +288,7 @@ export default function TrainerCabinetPage({ courseId, user, onBack }) {
                       progress={allProgress[st.user_id] || {}}
                       activities={activities}
                       daysCount={daysCount}
+                      studentCurrentDay={stats.studentCurrentDay}
                     />
 
                     {/* Actions */}
@@ -322,61 +325,112 @@ export default function TrainerCabinetPage({ courseId, user, onBack }) {
 }
 
 /* ── Student detail progress view ── */
-function StudentDetails({ userId, progress, activities, daysCount }) {
-  // Show last 10 days of progress as a grid
+function StudentDetails({ userId, progress, activities, daysCount, studentCurrentDay }) {
+  const [selectedDay, setSelectedDay] = useState(null);
+
+  // Build day data
   const days = [];
   for (let d = 1; d <= daysCount; d++) {
     const dayActivities = activities.filter(a => d >= (a.first_day || 1) && d <= (a.last_day || daysCount));
     if (dayActivities.length === 0) continue;
     const completed = dayActivities.filter(a => progress[d]?.[a.id]?.completed).length;
-    days.push({ day: d, total: dayActivities.length, completed });
+    const started = dayActivities.filter(a => (progress[d]?.[a.id]?.elapsed || 0) > 0).length;
+    days.push({ day: d, total: dayActivities.length, completed, started });
   }
 
-  // Show compact grid
+  const viewDay = selectedDay || (studentCurrentDay > 1 ? studentCurrentDay - 1 : 1);
+
   return (
     <div>
       <div style={{ fontSize: 12, fontWeight: 600, color: '#888', marginBottom: 8 }}>
-        Прогресс по дням
+        Прогресс по дням <span style={{ fontWeight: 400, color: '#bbb' }}>(нажмите на день)</span>
       </div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
         {days.map(d => {
           const pct = d.total > 0 ? d.completed / d.total : 0;
+          const partialPct = d.total > 0 ? d.started / d.total : 0;
+          const isFuture = d.day > studentCurrentDay;
+          const isSelected = d.day === viewDay;
+
           let bg = 'rgba(0,0,0,0.04)';
-          if (pct === 1) bg = GREEN;
-          else if (pct > 0) bg = `${GREEN}50`;
+          let color = '#ccc';
+          if (isFuture) {
+            bg = 'rgba(0,0,0,0.02)'; color = '#ddd';
+          } else if (pct === 1) {
+            bg = GREEN; color = '#fff';
+          } else if (pct > 0) {
+            bg = `${GREEN}90`; color = '#fff';
+          } else if (partialPct > 0) {
+            bg = `${GREEN}35`; color = '#fff';
+          }
+
           return (
-            <div key={d.day} title={`День ${d.day}: ${d.completed}/${d.total}`} style={{
-              width: 24, height: 24, borderRadius: 6,
-              background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 9, fontWeight: 600, color: pct === 1 ? '#fff' : pct > 0 ? '#fff' : '#ccc',
-            }}>
+            <div
+              key={d.day}
+              onClick={() => !isFuture && setSelectedDay(d.day)}
+              title={`День ${d.day}: ${d.completed}/${d.total}`}
+              style={{
+                width: 26, height: 26, borderRadius: 6,
+                background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 9, fontWeight: 600, color,
+                cursor: isFuture ? 'default' : 'pointer',
+                outline: isSelected ? `2px solid ${GREEN}` : 'none',
+                outlineOffset: 1,
+              }}
+            >
               {d.day}
             </div>
           );
         })}
       </div>
 
-      {/* Activity breakdown for last active day */}
-      {days.length > 0 && (() => {
-        const lastDay = days[days.length - 1];
+      {/* Activity breakdown for selected day */}
+      {(() => {
         const dayActs = activities.filter(a =>
-          lastDay.day >= (a.first_day || 1) && lastDay.day <= (a.last_day || daysCount)
+          viewDay >= (a.first_day || 1) && viewDay <= (a.last_day || daysCount)
         );
+        if (dayActs.length === 0) return null;
+        const dayComplete = dayActs.every(a => progress[viewDay]?.[a.id]?.completed);
+        const dayStarted = dayActs.some(a => (progress[viewDay]?.[a.id]?.elapsed || 0) > 0);
         return (
-          <div style={{ marginTop: 10 }}>
-            <div style={{ fontSize: 11, color: '#aaa', marginBottom: 6 }}>
-              День {lastDay.day} — детали:
+          <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 10, background: 'rgba(0,0,0,0.02)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: '#555' }}>
+                День {viewDay}
+              </span>
+              <span style={{
+                fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 6,
+                background: dayComplete ? `${GREEN}15` : dayStarted ? `${ORANGE}15` : 'rgba(0,0,0,0.04)',
+                color: dayComplete ? GREEN : dayStarted ? ORANGE : '#bbb',
+              }}>
+                {dayComplete ? 'Выполнен' : dayStarted ? 'Частично' : 'Не начат'}
+              </span>
             </div>
             {dayActs.map(a => {
-              const p = progress[lastDay.day]?.[a.id];
+              const p = progress[viewDay]?.[a.id];
               const mins = p?.elapsed ? Math.floor(p.elapsed / 60) : 0;
+              const secs = p?.elapsed ? p.elapsed % 60 : 0;
+              const target = a.duration_min || 10;
+              const timePct = Math.min(100, Math.round((mins / target) * 100));
               return (
-                <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                  <img src={getIconPath(a.icon_num || 'health/1')} alt="" style={{ width: 18, height: 18 }} />
-                  <span style={{ fontSize: 12, color: '#555', flex: 1 }}>{a.label}</span>
-                  <span style={{ fontSize: 11, color: p?.completed ? GREEN : '#ccc', fontWeight: 600 }}>
-                    {p?.completed ? `✓ ${mins}м` : mins > 0 ? `${mins}м` : '—'}
+                <div key={a.id} style={{
+                  display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6,
+                  padding: '4px 0',
+                }}>
+                  <img src={getIconPath(a.icon_num || 'health/1')} alt="" style={{ width: 20, height: 20, flexShrink: 0 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12, color: '#555', fontWeight: 500, marginBottom: 2 }}>{a.label}</div>
+                    <div style={{ height: 4, borderRadius: 2, background: 'rgba(0,0,0,0.06)', overflow: 'hidden' }}>
+                      <div style={{
+                        width: `${timePct}%`, height: '100%', borderRadius: 2,
+                        background: p?.completed ? GREEN : timePct > 0 ? ORANGE : 'transparent',
+                      }} />
+                    </div>
+                  </div>
+                  <span style={{ fontSize: 11, color: p?.completed ? GREEN : mins > 0 ? ORANGE : '#ccc', fontWeight: 600, flexShrink: 0 }}>
+                    {p?.completed ? `✓ ${mins}м` : mins > 0 ? `${mins}:${String(secs).padStart(2, '0')}` : '—'}
                   </span>
+                  <span style={{ fontSize: 10, color: '#bbb', flexShrink: 0 }}>/{target}м</span>
                 </div>
               );
             })}

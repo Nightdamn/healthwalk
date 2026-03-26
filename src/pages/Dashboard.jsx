@@ -92,7 +92,7 @@ export default function Dashboard({
     return acts.length > 0 && acts.every(a => dp[a.id]);
   };
 
-  const completedDays = Array.from({ length: daysTotal }, (_, i) => i + 1).filter(d => isDayComplete(d)).length;
+  const elapsedDays = Math.max(0, currentDay - 1); // days that have fully passed
 
   const totalSecDay = dayActivities.reduce((s, a) => s + a.durationMin * 60, 0);
   const elapsedSecDay = dayActivities.reduce((s, a) => {
@@ -267,7 +267,7 @@ export default function Dashboard({
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 20px', marginBottom: 12 }}>
                 <span style={{ fontSize: 13, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Прогресс</span>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <span style={{ fontSize: 13, color: '#aaa', fontWeight: 500 }}>{completedDays}/{daysTotal}</span>
+                  <span style={{ fontSize: 13, color: '#aaa', fontWeight: 500 }}>{elapsedDays}/{daysTotal}</span>
                   <button onClick={() => onNavigate('details')}
                     style={{ padding: '6px 14px', background: '#1a1a2e', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Детали</button>
                 </div>
