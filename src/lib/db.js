@@ -564,3 +564,9 @@ export async function removeStudentFromCourse(enrollmentId) {
   if (error) { console.error('[DB] Remove student:', error); return { success: false, error: error.message }; }
   return data || { success: false };
 }
+
+export async function changeStudentRole(enrollmentId, newRole) {
+  const { data, error } = await supabase.rpc('change_student_role', { p_enrollment_id: enrollmentId, p_new_role: newRole });
+  if (error) { console.error('[DB] Change role:', error); return { success: false, error: error.message }; }
+  return data || { success: false };
+}

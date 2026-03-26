@@ -6,7 +6,7 @@ import { btnBack, glass, pageWrapper, topBar, topBarTitle } from '../styles/shar
 import {
   getCourseStudentsInfo, getCourseAllStudentsProgress,
   inviteToCourse, toggleStudentPause, removeStudentFromCourse,
-  loadCourseForEdit,
+  changeStudentRole, loadCourseForEdit,
 } from '../lib/db';
 
 const GREEN = '#27ae60';
@@ -81,6 +81,19 @@ export default function TrainerCabinetPage({ courseId, user, onBack }) {
       setStudents(prev => prev.filter(s => s.enrollment_id !== enrollmentId));
     } else {
       alert(result.error || 'Ошибка');
+    }
+    setActionId(null);
+  };
+
+  const handleChangeRole = async (enrollmentId, newRole) => {
+    setActionId(enrollmentId);
+    const result = await changeStudentRole(enrollmentId, newRole);
+    if (result.success) {
+      setStudents(prev => prev.map(s =>
+        s.enrollment_id === enrollmentId ? { ...s, role: result.role } : s
+      ));
+    } else {
+      alert(result.error || 'Ошибка смены роли');
     }
     setActionId(null);
   };
@@ -291,8 +304,32 @@ export default function TrainerCabinetPage({ courseId, user, onBack }) {
                       studentCurrentDay={stats.studentCurrentDay}
                     />
 
+                    {/* Role selector */}
+                    <div style={{ marginTop: 14 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#888', marginBottom: 6 }}>Роль в курсе</div>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        {['student', 'curator', 'trainer'].map(r => (
+                          <button
+                            key={r}
+                            onClick={() => r !== st.role && handleChangeRole(st.enrollment_id, r)}
+                            disabled={isBusy || r === st.role}
+                            style={{
+                              flex: 1, padding: '8px 0', borderRadius: 8, fontSize: 12, fontWeight: 600,
+                              border: st.role === r ? `2px solid ${ROLE_COLORS[r]}` : '1.5px solid rgba(0,0,0,0.08)',
+                              background: st.role === r ? `${ROLE_COLORS[r]}12` : '#fff',
+                              color: st.role === r ? ROLE_COLORS[r] : '#999',
+                              cursor: isBusy || r === st.role ? 'default' : 'pointer',
+                              opacity: isBusy ? 0.5 : 1,
+                            }}
+                          >
+                            {ROLE_LABELS[r]}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
                     {/* Actions */}
-                    <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+                    <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
                       <button onClick={() => handleTogglePause(st.enrollment_id)} disabled={isBusy}
                         style={{
                           flex: 1, padding: '10px 0', borderRadius: 10,
@@ -301,7 +338,7 @@ export default function TrainerCabinetPage({ courseId, user, onBack }) {
                           color: st.paused ? GREEN : ORANGE,
                           fontSize: 13, fontWeight: 600, cursor: isBusy ? 'wait' : 'pointer',
                         }}>
-                        {st.paused ? '▶ Возобновить' : '⏸ Поставить на паузу'}
+                        {st.paused ? '▶ Возобновить' : '⏸ На паузу'}
                       </button>
                       <button onClick={() => handleRemove(st.enrollment_id, st.display_name)} disabled={isBusy}
                         style={{

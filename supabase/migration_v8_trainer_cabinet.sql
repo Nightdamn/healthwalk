@@ -158,5 +158,36 @@ BEGIN
 END;
 $$;
 
+-- 8. Change student role (only course owner can do this)
+CREATE OR REPLACE FUNCTION change_student_role(p_enrollment_id UUID, p_new_role TEXT)
+RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+  v_enrollment course_enrollments%ROWTYPE;
+BEGIN
+  IF p_new_role NOT IN ('student', 'curator', 'trainer') THEN
+    RETURN jsonb_build_object('success', false, 'error', 'Недопустимая роль');
+  END IF;
+
+  SELECT * INTO v_enrollment FROM course_enrollments WHERE id = p_enrollment_id;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('success', false, 'error', 'Запись не найдена');
+  END IF;
+
+  -- Only course owner (trainer who created the course) can change roles
+  IF NOT EXISTS (SELECT 1 FROM courses WHERE id = v_enrollment.course_id AND owner_id = auth.uid()) THEN
+    RETURN jsonb_build_object('success', false, 'error', 'Нет доступа');
+  END IF;
+
+  -- Cannot change own role
+  IF v_enrollment.user_id = auth.uid() THEN
+    RETURN jsonb_build_object('success', false, 'error', 'Нельзя изменить собственную роль');
+  END IF;
+
+  UPDATE course_enrollments SET role = p_new_role WHERE id = p_enrollment_id;
+
+  RETURN jsonb_build_object('success', true, 'role', p_new_role);
+END;
+$$;
+
 -- Force PostgREST to pick up new functions
 NOTIFY pgrst, 'reload schema';
