@@ -7,7 +7,7 @@ import { getOwnCourses, getMyInvitations, acceptInvitation, declineInvitation } 
 const GREEN = '#27ae60';
 const ROLE_LABELS = { student: 'Ученик', curator: 'Куратор', trainer: 'Тренер' };
 
-export default function MyCoursesPage({ user, userRole, onBack, onNavigate, onEditCourse, onRefresh, availableItems, activeItem, onStartCourse }) {
+export default function MyCoursesPage({ user, userRole, onBack, onNavigate, onEditCourse, onRefresh, onTrainerCabinet, availableItems }) {
   const [ownCourses, setOwnCourses] = useState([]);
   const [invitations, setInvitations] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -166,7 +166,6 @@ export default function MyCoursesPage({ user, userRole, onBack, onNavigate, onEd
                   <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 24 }}>
                     {(myCourses.length > 0 ? myCourses : ownCourses).map((c) => {
                       const item = c.type ? c : null; // from availableItems
-                      const isActive = activeItem?.id === (item?.id || c.id);
                       return (
                         <div key={item?.id || c.id} style={{ ...glass, borderRadius: 16, padding: "16px 16px" }}>
                           <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
@@ -180,19 +179,15 @@ export default function MyCoursesPage({ user, userRole, onBack, onNavigate, onEd
                             <button onClick={() => onEditCourse(item?.id || c.id)}
                               style={{ background: 'none', border: 'none', fontSize: 18, color: '#bbb', cursor: 'pointer', padding: '4px 8px' }}>✏️</button>
                           </div>
-                          {!isActive && item && (
-                            <button onClick={() => onStartCourse(item)}
-                              style={{ width: '100%', marginTop: 12, padding: '10px 0', borderRadius: 10,
-                                border: `1.5px solid ${GREEN}`, background: 'rgba(39,174,96,0.06)',
-                                color: GREEN, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
-                              Начать курс
-                            </button>
-                          )}
-                          {isActive && (
-                            <div style={{ marginTop: 10, fontSize: 12, fontWeight: 600, color: GREEN, textAlign: 'center' }}>
-                              ✓ Активный курс
-                            </div>
-                          )}
+                          {/* Trainer cabinet button */}
+                          <button onClick={() => onTrainerCabinet(item?.id || c.id)}
+                            style={{ width: '100%', marginTop: 12, padding: '11px 0', borderRadius: 10,
+                              border: 'none', background: '#1a1a2e',
+                              color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                            }}>
+                            <span>👨‍🏫</span> Кабинет тренера
+                          </button>
                         </div>
                       );
                     })}
@@ -216,7 +211,6 @@ export default function MyCoursesPage({ user, userRole, onBack, onNavigate, onEd
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 {enrolledCourses.map((item) => {
-                  const isActive = activeItem?.id === item.id;
                   return (
                     <div key={item.id} style={{ ...glass, borderRadius: 16, padding: '16px 16px' }}>
                       <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
@@ -235,19 +229,6 @@ export default function MyCoursesPage({ user, userRole, onBack, onNavigate, onEd
                           {ROLE_LABELS[item.enrollRole] || item.enrollRole}
                         </span>
                       </div>
-
-                      {!isActive ? (
-                        <button onClick={() => onStartCourse(item)}
-                          style={{ width: '100%', marginTop: 12, padding: '11px 0', borderRadius: 10,
-                            border: 'none', background: '#1a1a2e',
-                            color: '#fff', fontSize: 15, fontWeight: 600, cursor: 'pointer' }}>
-                          Начать курс
-                        </button>
-                      ) : (
-                        <div style={{ marginTop: 10, fontSize: 12, fontWeight: 600, color: GREEN, textAlign: 'center' }}>
-                          ✓ Активный курс
-                        </div>
-                      )}
                     </div>
                   );
                 })}

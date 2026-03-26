@@ -543,3 +543,41 @@ export async function deleteCourse(courseId, ownerId) {
 
   return { deleted: true };
 }
+
+// ═══════════════════════════════════════════════════════════
+// TRAINER CABINET
+// ═══════════════════════════════════════════════════════════
+
+export async function getCourseStudentsInfo(courseId) {
+  const { data, error } = await supabase.rpc('get_course_students_info', { p_course_id: courseId });
+  if (error) { console.error('[DB] Get course students info:', error); return []; }
+  return data || [];
+}
+
+export async function getCourseAllStudentsProgress(courseId) {
+  const { data, error } = await supabase.rpc('get_course_all_students_progress', { p_course_id: courseId });
+  if (error) { console.error('[DB] Get course all progress:', error); return []; }
+  // Group by user_id → { day → { activity_id → { elapsed, completed } } }
+  const result = {};
+  for (const row of (data || [])) {
+    if (!result[row.user_id]) result[row.user_id] = {};
+    if (!result[row.user_id][row.day]) result[row.user_id][row.day] = {};
+    result[row.user_id][row.day][row.activity_id] = {
+      elapsed: row.elapsed_seconds,
+      completed: row.completed,
+    };
+  }
+  return result;
+}
+
+export async function toggleStudentPause(enrollmentId) {
+  const { data, error } = await supabase.rpc('toggle_student_pause', { p_enrollment_id: enrollmentId });
+  if (error) { console.error('[DB] Toggle pause:', error); return { success: false, error: error.message }; }
+  return data || { success: false };
+}
+
+export async function removeStudentFromCourse(enrollmentId) {
+  const { data, error } = await supabase.rpc('remove_student_from_course', { p_enrollment_id: enrollmentId });
+  if (error) { console.error('[DB] Remove student:', error); return { success: false, error: error.message }; }
+  return data || { success: false };
+}

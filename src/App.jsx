@@ -14,6 +14,7 @@ import MyTrackersPage from './pages/MyTrackers';
 import CreateTrackerPage from './pages/CreateTracker';
 import EditCoursePage from './pages/EditCourse';
 import EditTrackerPage from './pages/EditTracker';
+import TrainerCabinetPage from './pages/TrainerCabinet';
 import Layout from './components/Layout';
 import { DAY_START_HOUR, getCourseDay } from './data/constants';
 import { supabase } from './lib/supabase';
@@ -54,6 +55,7 @@ export default function App() {
   const [activeItem, setActiveItem] = useState(null);
   const [editCourseId, setEditCourseId] = useState(null);
   const [editTrackerId, setEditTrackerId] = useState(null);
+  const [trainerCourseId, setTrainerCourseId] = useState(null);
 
   // Progress for active context (keyed by activity UUID)
   const [progress, setProgress] = useState({});       // { day: { actId: true/false } }
@@ -320,6 +322,11 @@ export default function App() {
     setScreen('edit_course');
   };
 
+  const handleTrainerCabinet = (courseId) => {
+    setTrainerCourseId(courseId);
+    setScreen('trainer_cabinet');
+  };
+
   const handleCourseSaved = async () => {
     await refreshItems();
     // Reload active item if it's the edited course
@@ -407,9 +414,10 @@ export default function App() {
     case 'recommendations': return <RecommendationsPage onBack={goMain} />;
     case 'ask': return <AskCoachPage user={user} onBack={goMain} />;
     case 'assign_role': return <AssignRolePage onBack={goMain} onAssign={handleAssignRole} />;
-    case 'my_courses': return <MyCoursesPage user={user} userRole={userRole} onBack={goMain} onNavigate={setScreen} onEditCourse={handleEditCourse} onRefresh={refreshItems} availableItems={availableItems} activeItem={activeItem} onStartCourse={(item) => { handleSwitchContext(item); setScreen('main'); }} />;
+    case 'my_courses': return <MyCoursesPage user={user} userRole={userRole} onBack={goMain} onNavigate={setScreen} onEditCourse={handleEditCourse} onTrainerCabinet={handleTrainerCabinet} onRefresh={refreshItems} availableItems={availableItems} />;
     case 'create_course': return <CreateCoursePage user={user} onBack={goMain} onCreated={handleCourseCreated} />;
     case 'edit_course': return <EditCoursePage courseId={editCourseId} user={user} onBack={() => setScreen('my_courses')} onSaved={handleCourseSaved} onDeleted={handleCourseDeleted} />;
+    case 'trainer_cabinet': return <TrainerCabinetPage courseId={trainerCourseId} user={user} onBack={() => setScreen('my_courses')} />;
     case 'invite': return <InvitePage user={user} onBack={goMain} />;
     case 'my_trackers': return <MyTrackersPage user={user} onBack={goMain} onNavigate={setScreen} onEditTracker={handleEditTracker} />;
     case 'create_tracker': return <CreateTrackerPage user={user} onBack={() => setScreen('my_trackers')} onCreated={handleTrackerCreated} />;
