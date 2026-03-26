@@ -13,13 +13,16 @@ function DayDot({ day, done, frac, isToday, isFuture, uid, actId }) {
   const stroke = isFuture ? 'rgba(0,0,0,0.1)' : GREEN;
   const strokeW = isFuture ? 1 : 1.5;
 
+  // Solid fill when practice is done for this day
+  const fillOpacity = done ? 0.85 : 0.25;
+
   return (
     <svg width={SZ} height={SZ} viewBox={`0 0 ${SZ} ${SZ}`} style={{ display: 'block', width: '100%', height: 'auto' }}>
       <defs><clipPath id={clipId}><circle cx={CX} cy={CY} r={IR} /></clipPath></defs>
       <circle cx={CX} cy={CY} r={IR} fill={isFuture ? 'rgba(0,0,0,0.02)' : 'rgba(255,255,255,0.5)'} />
-      {frac > 0 && <rect x={CX - IR} y={fillY} width={diam} height={fillH} fill={GREEN} opacity={done ? 0.35 : 0.25} clipPath={`url(#${clipId})`} />}
+      {frac > 0 && <rect x={CX - IR} y={fillY} width={diam} height={fillH} fill={GREEN} opacity={fillOpacity} clipPath={`url(#${clipId})`} />}
       <circle cx={CX} cy={CY} r={R} fill="none" stroke={stroke} strokeWidth={strokeW} opacity={isFuture ? 1 : 0.7} />
-      <text x={CX} y={CY + 1} textAnchor="middle" dominantBaseline="middle" fill={isFuture ? '#ccc' : '#1a1a2e'} fontSize={9} fontWeight={600}>{day}</text>
+      <text x={CX} y={CY + 1} textAnchor="middle" dominantBaseline="middle" fill={done ? '#fff' : isFuture ? '#ccc' : '#1a1a2e'} fontSize={9} fontWeight={600}>{day}</text>
     </svg>
   );
 }

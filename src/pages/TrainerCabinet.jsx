@@ -328,14 +328,22 @@ export default function TrainerCabinetPage({ courseId, user, onBack }) {
 function StudentDetails({ userId, progress, activities, daysCount, studentCurrentDay }) {
   const [selectedDay, setSelectedDay] = useState(null);
 
-  // Build day data
+  // Build day data with time-based fraction (like Dashboard getPracticeFraction)
   const days = [];
   for (let d = 1; d <= daysCount; d++) {
     const dayActivities = activities.filter(a => d >= (a.first_day || 1) && d <= (a.last_day || daysCount));
     if (dayActivities.length === 0) continue;
     const completed = dayActivities.filter(a => progress[d]?.[a.id]?.completed).length;
-    const started = dayActivities.filter(a => (progress[d]?.[a.id]?.elapsed || 0) > 0).length;
-    days.push({ day: d, total: dayActivities.length, completed, started });
+    const allDone = completed === dayActivities.length;
+    // Time-based fraction for proportional fill
+    const totalSec = dayActivities.reduce((s, a) => s + (a.duration_min || 10) * 60, 0);
+    let elapsedSec = 0;
+    dayActivities.forEach(a => {
+      if (progress[d]?.[a.id]?.completed) elapsedSec += (a.duration_min || 10) * 60;
+      else elapsedSec += (progress[d]?.[a.id]?.elapsed || 0);
+    });
+    const frac = totalSec > 0 ? elapsedSec / totalSec : 0;
+    days.push({ day: d, total: dayActivities.length, completed, allDone, frac });
   }
 
   const viewDay = selectedDay || (studentCurrentDay > 1 ? studentCurrentDay - 1 : 1);
@@ -347,39 +355,19 @@ function StudentDetails({ userId, progress, activities, daysCount, studentCurren
       </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
         {days.map(d => {
-          const pct = d.total > 0 ? d.completed / d.total : 0;
-          const partialPct = d.total > 0 ? d.started / d.total : 0;
           const isFuture = d.day > studentCurrentDay;
           const isSelected = d.day === viewDay;
-
-          let bg = 'rgba(0,0,0,0.04)';
-          let color = '#ccc';
-          if (isFuture) {
-            bg = 'rgba(0,0,0,0.02)'; color = '#ddd';
-          } else if (pct === 1) {
-            bg = GREEN; color = '#fff';
-          } else if (pct > 0) {
-            bg = `${GREEN}90`; color = '#fff';
-          } else if (partialPct > 0) {
-            bg = `${GREEN}35`; color = '#fff';
-          }
-
           return (
-            <div
+            <DaySquare
               key={d.day}
-              onClick={() => !isFuture && setSelectedDay(d.day)}
+              day={d.day}
+              frac={d.frac}
+              allDone={d.allDone}
+              isFuture={isFuture}
+              isSelected={isSelected}
               title={`День ${d.day}: ${d.completed}/${d.total}`}
-              style={{
-                width: 26, height: 26, borderRadius: 6,
-                background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 9, fontWeight: 600, color,
-                cursor: isFuture ? 'default' : 'pointer',
-                outline: isSelected ? `2px solid ${GREEN}` : 'none',
-                outlineOffset: 1,
-              }}
-            >
-              {d.day}
-            </div>
+              onClick={() => !isFuture && setSelectedDay(d.day)}
+            />
           );
         })}
       </div>
@@ -438,6 +426,54 @@ function StudentDetails({ userId, progress, activities, daysCount, studentCurren
         );
       })()}
     </div>
+  );
+}
+
+/* ── Day square with proportional fill (like DayCircle in Dashboard) ── */
+function DaySquare({ day, frac, allDone, isFuture, isSelected, title, onClick }) {
+  const SZ = 26, R = 5, PAD = 1;
+  const innerH = SZ - PAD * 2;
+  const fillH = Math.min(frac, 1) * innerH;
+  const fillY = SZ - PAD - fillH;
+  const fillOpacity = allDone ? 0.85 : 0.25;
+  const clipId = `sq-${day}`;
+
+  return (
+    <svg
+      width={SZ} height={SZ}
+      viewBox={`0 0 ${SZ} ${SZ}`}
+      onClick={onClick}
+      style={{
+        display: 'block', cursor: isFuture ? 'default' : 'pointer', flexShrink: 0,
+        outline: isSelected ? `2px solid ${GREEN}` : 'none',
+        outlineOffset: 1, borderRadius: R + 1,
+      }}
+    >
+      <title>{title}</title>
+      <defs>
+        <clipPath id={clipId}>
+          <rect x={PAD} y={PAD} width={SZ - PAD * 2} height={innerH} rx={R - 1} />
+        </clipPath>
+      </defs>
+      {/* Background */}
+      <rect x={0} y={0} width={SZ} height={SZ} rx={R}
+        fill={isFuture ? 'rgba(0,0,0,0.02)' : 'rgba(0,0,0,0.04)'} />
+      {/* Proportional fill from bottom */}
+      {frac > 0 && (
+        <rect x={PAD} y={fillY} width={SZ - PAD * 2} height={fillH}
+          fill={GREEN} opacity={fillOpacity} clipPath={`url(#${clipId})`} />
+      )}
+      {/* Border */}
+      <rect x={0.5} y={0.5} width={SZ - 1} height={SZ - 1} rx={R}
+        fill="none" stroke={isFuture ? 'rgba(0,0,0,0.06)' : GREEN} strokeWidth={0.8}
+        opacity={isFuture ? 0.5 : allDone ? 0.6 : 0.3} />
+      {/* Day number */}
+      <text x={SZ / 2} y={SZ / 2 + 1} textAnchor="middle" dominantBaseline="middle"
+        fill={allDone ? '#fff' : frac > 0.5 ? '#fff' : isFuture ? '#ddd' : '#999'}
+        fontSize={9} fontWeight={600}>
+        {day}
+      </text>
+    </svg>
   );
 }
 
