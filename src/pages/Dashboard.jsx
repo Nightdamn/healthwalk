@@ -66,8 +66,15 @@ export default function Dashboard({
   const allActivities = activeItem?.activities || [];
   const daysTotal = activeItem?.daysCount || 30;
 
+  // Helper: check if an activity is scheduled on a given day (respects interval)
+  const isActivityOnDay = (a, day) => {
+    if (day < a.firstDay || day > a.lastDay) return false;
+    const interval = a.intervalDays || 1;
+    return (day - a.firstDay) % interval === 0;
+  };
+
   // Activities active on the viewed day
-  const dayActivities = allActivities.filter(a => activeDay >= a.firstDay && activeDay <= a.lastDay);
+  const dayActivities = allActivities.filter(a => isActivityOnDay(a, activeDay));
 
   const dayElapsed = isToday ? elapsedTime : getElapsedForDay(activeDay);
 
@@ -91,7 +98,7 @@ export default function Dashboard({
 
   const isDayComplete = (day) => {
     const dp = progress[day] || {};
-    const acts = allActivities.filter(a => day >= a.firstDay && day <= a.lastDay);
+    const acts = allActivities.filter(a => isActivityOnDay(a, day));
     return acts.length > 0 && acts.every(a => dp[a.id]);
   };
 
@@ -109,7 +116,7 @@ export default function Dashboard({
   const getPracticeFraction = (day) => {
     const dp = progress[day] || {};
     const el = day === currentDay ? elapsedTime : getElapsedForDay(day);
-    const acts = allActivities.filter(a => day >= a.firstDay && day <= a.lastDay);
+    const acts = allActivities.filter(a => isActivityOnDay(a, day));
     const totalSec = acts.reduce((s, a) => s + a.durationMin * 60, 0);
     if (totalSec === 0) return 0;
     let sec = 0;

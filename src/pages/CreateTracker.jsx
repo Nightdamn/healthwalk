@@ -16,7 +16,7 @@ const inputStyle = {
 const labelStyle = { fontSize: 13, fontWeight: 600, color: '#888', marginBottom: 6, display: 'block' };
 
 function emptyPractice(daysCount) {
-  return { title: '', iconNum: 'health/1', firstDay: 1, lastDay: daysCount, durationMin: 10, _key: Date.now() + Math.random() };
+  return { title: '', iconNum: 'health/1', firstDay: 1, lastDay: daysCount, durationMin: 10, intervalDays: 1, _key: Date.now() + Math.random() };
 }
 
 export default function CreateTrackerPage({ user, onBack, onCreated }) {
@@ -84,6 +84,7 @@ export default function CreateTrackerPage({ user, onBack, onCreated }) {
         firstDay: parseInt(p.firstDay) || 1,
         lastDay: Math.min(parseInt(p.lastDay) || days, days),
         durationMin: Math.min(parseInt(p.durationMin) || 10, 1200),
+        intervalDays: Math.max(parseInt(p.intervalDays) || 1, 1),
       })),
     });
     setLoading(false);
@@ -275,7 +276,7 @@ function PracticeCard({ practice, index, maxDay, onUpdate, onRemove, onPickIcon 
         />
       </div>
 
-      {/* Day range + Duration */}
+      {/* Day range + Interval + Duration */}
       <div style={{ display: 'flex', gap: 8 }}>
         <div style={{ flex: 1 }}>
           <label style={{ ...labelStyle, fontSize: 11 }}>С дня</label>
@@ -289,6 +290,13 @@ function PracticeCard({ practice, index, maxDay, onUpdate, onRemove, onPickIcon 
           <input type="number" value={practice.lastDay}
             onChange={numChange('lastDay')}
             onBlur={clamp('lastDay', 1, maxDay)}
+            style={{ ...inputStyle, padding: '8px 10px', fontSize: 14 }} />
+        </div>
+        <div style={{ flex: 1 }}>
+          <label style={{ ...labelStyle, fontSize: 11 }}>Интервал (дн)</label>
+          <input type="number" value={practice.intervalDays ?? 1}
+            onChange={numChange('intervalDays')}
+            onBlur={clamp('intervalDays', 1, maxDay)}
             style={{ ...inputStyle, padding: '8px 10px', fontSize: 14 }} />
         </div>
         <div style={{ flex: 1 }}>

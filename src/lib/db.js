@@ -59,6 +59,7 @@ function mapActivities(acts, fallbackDays) {
       iconNum: a.icon_num || 'health/1',
       firstDay: a.first_day || 1,
       lastDay: a.last_day || fallbackDays,
+      intervalDays: a.interval_days || 1,
     }));
 }
 
@@ -120,6 +121,7 @@ export async function getAvailableItems(userId) {
         id: p.id, activityId: p.id, label: p.title,
         durationMin: p.duration_min, iconNum: p.icon_num || 'health/1',
         firstDay: p.first_day || 1, lastDay: p.last_day || t.days_count,
+        intervalDays: p.interval_days || 1,
       })),
   }));
 
@@ -264,6 +266,7 @@ export async function createCourseWithActivities(ownerId, { title, description, 
       course_id: course.id, activity_id: a.activityId || `act_${Date.now()}_${i}`,
       label: a.label, duration_min: a.durationMin || 10, icon_num: a.iconNum || 'health/1',
       first_day: a.firstDay || 1, last_day: a.lastDay || daysCount, sort_order: i,
+      interval_days: a.intervalDays || 1,
     }));
     const { error: aErr } = await supabase.from('course_activities').insert(rows);
     if (aErr) console.error('[DB] Create activities:', aErr);
@@ -323,6 +326,7 @@ export async function updateCourseWithActivities(courseId, { title, description,
     const row = {
       label: a.label, duration_min: a.durationMin, icon_num: a.iconNum,
       first_day: a.firstDay, last_day: a.lastDay, sort_order: i,
+      interval_days: a.intervalDays || 1,
     };
     if (a.dbId) {
       const { error } = await supabase.from('course_activities').update(row).eq('id', a.dbId);
@@ -448,6 +452,7 @@ export async function createTracker(userId, { title, avatarIcon, avatarCustom, d
       tracker_id: tracker.id, title: p.title, icon_num: p.iconNum || 'health/1',
       first_day: p.firstDay || 1, last_day: p.lastDay || daysCount,
       duration_min: p.durationMin || 10, sort_order: i,
+      interval_days: p.intervalDays || 1,
     }));
     await supabase.from('tracker_practices').insert(rows);
   }
@@ -497,6 +502,7 @@ export async function updateTrackerWithPractices(trackerId, { title, avatarIcon,
       title: p.title, icon_num: p.iconNum || 'health/1',
       first_day: p.firstDay, last_day: p.lastDay,
       duration_min: p.durationMin, sort_order: i,
+      interval_days: p.intervalDays || 1,
     };
     if (p.dbId) {
       const { error } = await supabase.from('tracker_practices').update(row).eq('id', p.dbId);

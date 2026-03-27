@@ -16,7 +16,7 @@ const ORANGE = '#e67e22';
 const ROLE_LABELS = { student: 'Ученик', curator: 'Куратор', trainer: 'Тренер' };
 const ROLE_COLORS = { student: GREEN, curator: BLUE, trainer: ORANGE };
 
-export default function TrainerCabinetPage({ courseId, user, onBack }) {
+export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRole }) {
   const [course, setCourse] = useState(null);
   const [students, setStudents] = useState([]);
   const [allProgress, setAllProgress] = useState({});
@@ -92,6 +92,7 @@ export default function TrainerCabinetPage({ courseId, user, onBack }) {
       setStudents(prev => prev.map(s =>
         s.enrollment_id === enrollmentId ? { ...s, role: result.role } : s
       ));
+      if (onRefreshRole) onRefreshRole();
     } else {
       alert(result.error || 'Ошибка смены роли');
     }
@@ -259,12 +260,23 @@ export default function TrainerCabinetPage({ courseId, user, onBack }) {
                       <span style={{ fontSize: 15, fontWeight: 600, color: '#1a1a2e', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {st.display_name}
                       </span>
-                      <span style={{
-                        padding: '2px 7px', borderRadius: 6, fontSize: 10, fontWeight: 600,
-                        background: `${ROLE_COLORS[st.role]}15`, color: ROLE_COLORS[st.role],
-                      }}>
-                        {ROLE_LABELS[st.role] || st.role}
-                      </span>
+                      <select
+                        value={st.role}
+                        disabled={isBusy}
+                        onClick={e => e.stopPropagation()}
+                        onChange={e => { e.stopPropagation(); handleChangeRole(st.enrollment_id, e.target.value); }}
+                        style={{
+                          padding: '2px 6px', borderRadius: 6, fontSize: 11, fontWeight: 600,
+                          border: `1.5px solid ${ROLE_COLORS[st.role]}40`,
+                          background: `${ROLE_COLORS[st.role]}15`, color: ROLE_COLORS[st.role],
+                          cursor: isBusy ? 'wait' : 'pointer', outline: 'none',
+                          opacity: isBusy ? 0.5 : 1,
+                        }}
+                      >
+                        {['student', 'curator', 'trainer'].map(r => (
+                          <option key={r} value={r}>{ROLE_LABELS[r]}</option>
+                        ))}
+                      </select>
                       {st.paused && (
                         <span style={{ padding: '2px 7px', borderRadius: 6, fontSize: 10, fontWeight: 600, background: `${ORANGE}15`, color: ORANGE }}>
                           Пауза
@@ -303,30 +315,6 @@ export default function TrainerCabinetPage({ courseId, user, onBack }) {
                       daysCount={daysCount}
                       studentCurrentDay={stats.studentCurrentDay}
                     />
-
-                    {/* Role selector */}
-                    <div style={{ marginTop: 14 }}>
-                      <div style={{ fontSize: 12, fontWeight: 600, color: '#888', marginBottom: 6 }}>Роль в курсе</div>
-                      <div style={{ display: 'flex', gap: 6 }}>
-                        {['student', 'curator', 'trainer'].map(r => (
-                          <button
-                            key={r}
-                            onClick={() => r !== st.role && handleChangeRole(st.enrollment_id, r)}
-                            disabled={isBusy || r === st.role}
-                            style={{
-                              flex: 1, padding: '8px 0', borderRadius: 8, fontSize: 12, fontWeight: 600,
-                              border: st.role === r ? `2px solid ${ROLE_COLORS[r]}` : '1.5px solid rgba(0,0,0,0.08)',
-                              background: st.role === r ? `${ROLE_COLORS[r]}12` : '#fff',
-                              color: st.role === r ? ROLE_COLORS[r] : '#999',
-                              cursor: isBusy || r === st.role ? 'default' : 'pointer',
-                              opacity: isBusy ? 0.5 : 1,
-                            }}
-                          >
-                            {ROLE_LABELS[r]}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
 
                     {/* Actions */}
                     <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>

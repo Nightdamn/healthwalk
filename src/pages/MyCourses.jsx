@@ -229,6 +229,16 @@ export default function MyCoursesPage({ user, userRole, onBack, onNavigate, onEd
                           {ROLE_LABELS[item.enrollRole] || item.enrollRole}
                         </span>
                       </div>
+                      {(item.enrollRole === 'trainer' || item.enrollRole === 'curator') && (
+                        <button onClick={() => onTrainerCabinet(item.id)}
+                          style={{ width: '100%', marginTop: 12, padding: '11px 0', borderRadius: 10,
+                            border: 'none', background: item.enrollRole === 'curator' ? '#3498db' : '#1a1a2e',
+                            color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                          }}>
+                          {item.enrollRole === 'curator' ? 'Кабинет куратора' : 'Кабинет тренера'}
+                        </button>
+                      )}
                     </div>
                   );
                 })}

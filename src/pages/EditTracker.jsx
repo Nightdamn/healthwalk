@@ -16,7 +16,7 @@ const inputStyle = {
 const labelStyle = { fontSize: 13, fontWeight: 600, color: '#888', marginBottom: 6, display: 'block' };
 
 function emptyPractice(daysCount) {
-  return { dbId: null, title: '', iconNum: 'health/1', firstDay: 1, lastDay: daysCount, durationMin: 10, _key: Date.now() + Math.random() };
+  return { dbId: null, title: '', iconNum: 'health/1', firstDay: 1, lastDay: daysCount, durationMin: 10, intervalDays: 1, _key: Date.now() + Math.random() };
 }
 
 export default function EditTrackerPage({ trackerId, onBack, onSaved }) {
@@ -54,6 +54,7 @@ export default function EditTrackerPage({ trackerId, onBack, onSaved }) {
           firstDay: p.first_day || 1,
           lastDay: p.last_day || tracker.days_count,
           durationMin: p.duration_min || 10,
+          intervalDays: p.interval_days || 1,
           _key: p.id,
         }));
       setPractices(pracs.length > 0 ? pracs : [emptyPractice(tracker.days_count)]);
@@ -111,6 +112,7 @@ export default function EditTrackerPage({ trackerId, onBack, onSaved }) {
         firstDay: parseInt(p.firstDay) || 1,
         lastDay: Math.min(parseInt(p.lastDay) || days, days),
         durationMin: Math.min(parseInt(p.durationMin) || 10, 1200),
+        intervalDays: Math.max(parseInt(p.intervalDays) || 1, 1),
       })),
     });
     setSaving(false);
@@ -271,6 +273,20 @@ function PracticeCard({ practice, index, maxDay, onUpdate, onRemove, onPickIcon 
           <input type="number" value={practice.lastDay}
             onChange={numChange('lastDay')}
             onBlur={clamp('lastDay', 1, maxDay)}
+            style={{ ...inputStyle, padding: '8px 10px', fontSize: 14 }} />
+        </div>
+        <div style={{ flex: 1 }}>
+          <label style={{ ...labelStyle, fontSize: 11 }}>Интервал (дн)</label>
+          <input type="number" value={practice.intervalDays ?? 1}
+            onChange={numChange('intervalDays')}
+            onBlur={clamp('intervalDays', 1, maxDay)}
+            style={{ ...inputStyle, padding: '8px 10px', fontSize: 14 }} />
+        </div>
+        <div style={{ flex: 1 }}>
+          <label style={{ ...labelStyle, fontSize: 11 }}>Интервал (дн)</label>
+          <input type="number" value={practice.intervalDays ?? 1}
+            onChange={numChange('intervalDays')}
+            onBlur={clamp('intervalDays', 1, maxDay)}
             style={{ ...inputStyle, padding: '8px 10px', fontSize: 14 }} />
         </div>
         <div style={{ flex: 1 }}>

@@ -20,7 +20,7 @@ import { DAY_START_HOUR, getCourseDay } from './data/constants';
 import { supabase } from './lib/supabase';
 import {
   loadUserSettings, saveUserSettings,
-  checkAndApplyPendingRole, assignRole as dbAssignRole,
+  checkAndApplyPendingRole, getUserRole, assignRole as dbAssignRole,
   getAvailableItems, saveActiveContext,
   loadCourseProgress, saveCourseActivityProgress,
   loadTrackerProgress, saveTrackerActivityProgress,
@@ -310,6 +310,12 @@ export default function App() {
     return items;
   };
 
+  const refreshRole = async () => {
+    if (!user?.id) return;
+    const role = await getUserRole(user.id);
+    setUserRole(role);
+  };
+
   const handleCourseCreated = async (course) => {
     const items = await refreshItems();
     const newItem = items?.find(i => i.type === 'course' && i.id === course.id);
@@ -417,7 +423,7 @@ export default function App() {
     case 'my_courses': return <MyCoursesPage user={user} userRole={userRole} onBack={goMain} onNavigate={setScreen} onEditCourse={handleEditCourse} onTrainerCabinet={handleTrainerCabinet} onRefresh={refreshItems} availableItems={availableItems} />;
     case 'create_course': return <CreateCoursePage user={user} onBack={() => setScreen('my_courses')} onCreated={handleCourseCreated} />;
     case 'edit_course': return <EditCoursePage courseId={editCourseId} onBack={() => setScreen('my_courses')} onSaved={handleCourseSaved} onDeleted={handleCourseDeleted} />;
-    case 'trainer_cabinet': return <TrainerCabinetPage courseId={trainerCourseId} user={user} onBack={() => setScreen('my_courses')} />;
+    case 'trainer_cabinet': return <TrainerCabinetPage courseId={trainerCourseId} user={user} onBack={() => setScreen('my_courses')} onRefreshRole={refreshRole} />;
     case 'invite': return <InvitePage user={user} onBack={() => setScreen('my_courses')} />;
     case 'my_trackers': return <MyTrackersPage user={user} onBack={goMain} onNavigate={setScreen} onEditTracker={handleEditTracker} />;
     case 'create_tracker': return <CreateTrackerPage user={user} onBack={() => setScreen('my_trackers')} onCreated={handleTrackerCreated} />;

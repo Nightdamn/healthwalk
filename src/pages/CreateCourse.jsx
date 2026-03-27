@@ -16,7 +16,7 @@ const inputStyle = {
 const labelStyle = { fontSize: 13, fontWeight: 600, color: '#888', marginBottom: 6, display: 'block' };
 
 function emptyActivity(daysCount) {
-  return { label: '', iconNum: 'health/1', firstDay: 1, lastDay: daysCount, durationMin: 10, _key: Date.now() + Math.random() };
+  return { label: '', iconNum: 'health/1', firstDay: 1, lastDay: daysCount, durationMin: 10, intervalDays: 1, _key: Date.now() + Math.random() };
 }
 
 export default function CreateCoursePage({ user, onBack, onCreated }) {
@@ -74,6 +74,7 @@ export default function CreateCoursePage({ user, onBack, onCreated }) {
         firstDay: parseInt(a.firstDay) || 1,
         lastDay: Math.min(parseInt(a.lastDay) || days, days),
         durationMin: Math.min(parseInt(a.durationMin) || 10, 1200),
+        intervalDays: Math.max(parseInt(a.intervalDays) || 1, 1),
       })),
     });
     setLoading(false);
@@ -229,6 +230,13 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon 
           <input type="number" value={activity.lastDay}
             onChange={numChange('lastDay')}
             onBlur={clamp('lastDay', 1, maxDay)}
+            style={{ ...inputStyle, padding: '8px 10px', fontSize: 14 }} />
+        </div>
+        <div style={{ flex: 1 }}>
+          <label style={{ ...labelStyle, fontSize: 11 }}>Интервал (дн)</label>
+          <input type="number" value={activity.intervalDays ?? 1}
+            onChange={numChange('intervalDays')}
+            onBlur={clamp('intervalDays', 1, maxDay)}
             style={{ ...inputStyle, padding: '8px 10px', fontSize: 14 }} />
         </div>
         <div style={{ flex: 1 }}>
