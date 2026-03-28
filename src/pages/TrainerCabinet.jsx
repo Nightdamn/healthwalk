@@ -6,7 +6,7 @@ import { btnBack, glass, pageWrapper, topBar, topBarTitle } from '../styles/shar
 import {
   getCourseStudentsInfo, getCourseAllStudentsProgress,
   inviteToCourse, toggleStudentPause, removeStudentFromCourse,
-  changeStudentRole, loadCourseForEdit,
+  changeStudentRole, loadCourseForEdit, trainerUpdateStudentActivity,
 } from '../lib/db';
 
 const GREEN = '#27ae60';
@@ -310,10 +310,20 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
                   <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(0,0,0,0.05)' }}>
                     <StudentDetails
                       userId={st.user_id}
+                      courseId={courseId}
                       progress={allProgress[st.user_id] || {}}
                       activities={activities}
                       daysCount={daysCount}
                       studentCurrentDay={stats.studentCurrentDay}
+                      onProgressUpdate={(day, actId, elapsed, completed) => {
+                        setAllProgress(prev => {
+                          const next = { ...prev };
+                          if (!next[st.user_id]) next[st.user_id] = {};
+                          if (!next[st.user_id][day]) next[st.user_id][day] = {};
+                          next[st.user_id][day][actId] = { elapsed, completed };
+                          return next;
+                        });
+                      }}
                     />
 
                     {/* Actions */}
@@ -350,8 +360,9 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
 }
 
 /* ── Student detail progress view ── */
-function StudentDetails({ userId, progress, activities, daysCount, studentCurrentDay }) {
+function StudentDetails({ userId, courseId, progress, activities, daysCount, studentCurrentDay, onProgressUpdate }) {
   const [selectedDay, setSelectedDay] = useState(null);
+  const [saving, setSaving] = useState(null); // activity id being saved
 
   // Build day data with time-based fraction (like Dashboard getPracticeFraction)
   const days = [];
@@ -372,6 +383,26 @@ function StudentDetails({ userId, progress, activities, daysCount, studentCurren
   }
 
   const viewDay = selectedDay || (studentCurrentDay > 1 ? studentCurrentDay - 1 : 1);
+  const isFutureDay = viewDay > studentCurrentDay;
+
+  const handleToggleActivity = async (activity, currentProgress) => {
+    const isCompleted = !!currentProgress?.completed;
+    const targetMin = activity.duration_min || 10;
+    // Toggle: if completed → reset to 0, if not → mark completed with full time
+    const newCompleted = !isCompleted;
+    const newElapsed = newCompleted ? targetMin * 60 : 0;
+
+    setSaving(activity.id);
+    const result = await trainerUpdateStudentActivity(
+      courseId, userId, activity.id, viewDay, newElapsed, newCompleted
+    );
+    if (result.success) {
+      onProgressUpdate(viewDay, activity.id, newElapsed, newCompleted);
+    } else {
+      alert(result.error || 'Ошибка сохранения');
+    }
+    setSaving(null);
+  };
 
   return (
     <div>
@@ -391,7 +422,7 @@ function StudentDetails({ userId, progress, activities, daysCount, studentCurren
               isFuture={isFuture}
               isSelected={isSelected}
               title={`День ${d.day}: ${d.completed}/${d.total}`}
-              onClick={() => !isFuture && setSelectedDay(d.day)}
+              onClick={() => setSelectedDay(d.day)}
             />
           );
         })}
@@ -408,9 +439,16 @@ function StudentDetails({ userId, progress, activities, daysCount, studentCurren
         return (
           <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 10, background: 'rgba(0,0,0,0.02)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-              <span style={{ fontSize: 13, fontWeight: 600, color: '#555' }}>
-                День {viewDay}
-              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: '#555' }}>
+                  День {viewDay}
+                </span>
+                {isFutureDay && (
+                  <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 6px', borderRadius: 5, background: `${BLUE}15`, color: BLUE }}>
+                    будущий
+                  </span>
+                )}
+              </div>
               <span style={{
                 fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 6,
                 background: dayComplete ? `${GREEN}15` : dayStarted ? `${ORANGE}15` : 'rgba(0,0,0,0.04)',
@@ -425,6 +463,7 @@ function StudentDetails({ userId, progress, activities, daysCount, studentCurren
               const secs = p?.elapsed ? p.elapsed % 60 : 0;
               const target = a.duration_min || 10;
               const timePct = Math.min(100, Math.round((mins / target) * 100));
+              const isSaving = saving === a.id;
               return (
                 <div key={a.id} style={{
                   display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6,
@@ -444,6 +483,22 @@ function StudentDetails({ userId, progress, activities, daysCount, studentCurren
                     {p?.completed ? `✓ ${mins}м` : mins > 0 ? `${mins}:${String(secs).padStart(2, '0')}` : '—'}
                   </span>
                   <span style={{ fontSize: 10, color: '#bbb', flexShrink: 0 }}>/{target}м</span>
+                  <button
+                    onClick={() => handleToggleActivity(a, p)}
+                    disabled={isSaving}
+                    style={{
+                      width: 28, height: 28, borderRadius: 7, flexShrink: 0,
+                      border: `1.5px solid ${p?.completed ? RED : GREEN}40`,
+                      background: p?.completed ? `${RED}08` : `${GREEN}08`,
+                      color: p?.completed ? RED : GREEN,
+                      fontSize: 14, fontWeight: 700, cursor: isSaving ? 'wait' : 'pointer',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      opacity: isSaving ? 0.5 : 1, padding: 0,
+                    }}
+                    title={p?.completed ? 'Снять отметку' : 'Отметить выполненным'}
+                  >
+                    {p?.completed ? '✕' : '✓'}
+                  </button>
                 </div>
               );
             })}
@@ -469,7 +524,7 @@ function DaySquare({ day, frac, allDone, isFuture, isSelected, title, onClick })
       viewBox={`0 0 ${SZ} ${SZ}`}
       onClick={onClick}
       style={{
-        display: 'block', cursor: isFuture ? 'default' : 'pointer', flexShrink: 0,
+        display: 'block', cursor: 'pointer', flexShrink: 0,
         outline: isSelected ? `2px solid ${GREEN}` : 'none',
         outlineOffset: 1, borderRadius: R + 1,
       }}

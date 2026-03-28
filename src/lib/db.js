@@ -576,3 +576,12 @@ export async function changeStudentRole(enrollmentId, newRole) {
   if (error) { console.error('[DB] Change role:', error); return { success: false, error: error.message }; }
   return data || { success: false };
 }
+
+export async function trainerUpdateStudentActivity(courseId, userId, activityId, day, elapsedSeconds, completed) {
+  const { data, error } = await supabase.rpc('trainer_update_student_activity', {
+    p_course_id: courseId, p_user_id: userId, p_activity_id: activityId,
+    p_day: day, p_elapsed_seconds: elapsedSeconds, p_completed: completed,
+  });
+  if (error) { console.error('[DB] Trainer update activity:', error); return { success: false, error: error.message }; }
+  return data || { success: false };
+}
