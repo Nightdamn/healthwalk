@@ -51,6 +51,7 @@ export default function Dashboard({
   getElapsedForDay, onStartTimer, onNavigate,
   // New dynamic props
   activeItem, availableItems, onSwitchContext,
+  exclusions = {}, customActivities = [],
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [switcherOpen, setSwitcherOpen] = useState(false);
@@ -62,15 +63,18 @@ export default function Dashboard({
   const activeDay = viewingDay ?? currentDay;
   const isToday = activeDay === currentDay;
 
-  // Dynamic activities from active course/tracker
-  const allActivities = activeItem?.activities || [];
+  // Dynamic activities from active course/tracker + custom student activities
+  const allActivities = [...(activeItem?.activities || []), ...customActivities];
   const daysTotal = activeItem?.daysCount || 30;
 
-  // Helper: check if an activity is scheduled on a given day (respects interval)
+  // Helper: check if an activity is scheduled on a given day (respects interval + exclusions)
   const isActivityOnDay = (a, day) => {
     if (day < a.firstDay || day > a.lastDay) return false;
     const interval = a.intervalDays || 1;
-    return (day - a.firstDay) % interval === 0;
+    if ((day - a.firstDay) % interval !== 0) return false;
+    // Check exclusion
+    if (exclusions[`${a.id}_${day}`]) return false;
+    return true;
   };
 
   // Activities active on the viewed day

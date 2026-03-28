@@ -6,7 +6,9 @@ import { btnBack, glass, pageWrapper, topBar, topBarTitle } from '../styles/shar
 import {
   getCourseStudentsInfo, getCourseAllStudentsProgress,
   inviteToCourse, toggleStudentPause, removeStudentFromCourse,
-  changeStudentRole, loadCourseForEdit, trainerUpdateStudentActivity,
+  changeStudentRole, loadCourseForEdit,
+  trainerToggleExclusion, trainerAddStudentActivity, trainerDeleteStudentActivity,
+  getCourseExclusions, getCourseCustomActivities,
 } from '../lib/db';
 
 const GREEN = '#27ae60';
@@ -20,6 +22,8 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
   const [course, setCourse] = useState(null);
   const [students, setStudents] = useState([]);
   const [allProgress, setAllProgress] = useState({});
+  const [allExclusions, setAllExclusions] = useState({}); // { userId: { `actId_day`: true } }
+  const [allCustomActivities, setAllCustomActivities] = useState([]); // array of custom activities
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState(null);
   const [actionId, setActionId] = useState(null);
@@ -34,14 +38,18 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
   const loadData = useCallback(async () => {
     if (!courseId) return;
     setLoading(true);
-    const [c, s, p] = await Promise.all([
+    const [c, s, p, excl, custom] = await Promise.all([
       loadCourseForEdit(courseId),
       getCourseStudentsInfo(courseId),
       getCourseAllStudentsProgress(courseId),
+      getCourseExclusions(courseId),
+      getCourseCustomActivities(courseId),
     ]);
     setCourse(c);
     setStudents(s);
     setAllProgress(p);
+    setAllExclusions(excl);
+    setAllCustomActivities(custom);
     setLoading(false);
   }, [courseId]);
 
@@ -102,16 +110,24 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
   const activities = (course?.course_activities || []).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
   const daysCount = course?.days_count || 30;
 
+  const isActOnDay = (a, d) => {
+    if (d < (a.first_day || 1) || d > (a.last_day || daysCount)) return false;
+    const interval = a.interval_days || 1;
+    return (d - (a.first_day || 1)) % interval === 0;
+  };
+
   // Calculate stats for a student: elapsed days (based on joined_at) and completion
   const getStudentStats = (student) => {
     const startDate = (student.joined_at || '').slice(0, 10);
     const studentCurrentDay = startDate ? getCourseDay(startDate, null, 0, daysCount) : 1;
     const elapsedDays = Math.max(0, studentCurrentDay - 1);
-    // Also count completed days for color
     const prog = allProgress[student.user_id] || {};
+    const excl = allExclusions[student.user_id] || {};
+    const customActs = allCustomActivities.filter(ca => ca.user_id === student.user_id);
     let completedDays = 0;
     for (let d = 1; d < studentCurrentDay; d++) {
-      const dayActs = activities.filter(a => d >= (a.first_day || 1) && d <= (a.last_day || daysCount));
+      const dayActs = [...activities, ...customActs]
+        .filter(a => isActOnDay(a, d) && !excl[`${a.id}_${d}`]);
       if (dayActs.length === 0) continue;
       if (dayActs.every(a => prog[d]?.[a.id]?.completed)) completedDays++;
     }
@@ -315,14 +331,41 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
                       activities={activities}
                       daysCount={daysCount}
                       studentCurrentDay={stats.studentCurrentDay}
-                      onProgressUpdate={(day, actId, elapsed, completed) => {
-                        setAllProgress(prev => {
-                          const next = { ...prev };
-                          if (!next[st.user_id]) next[st.user_id] = {};
-                          if (!next[st.user_id][day]) next[st.user_id][day] = {};
-                          next[st.user_id][day][actId] = { elapsed, completed };
-                          return next;
-                        });
+                      exclusions={allExclusions[st.user_id] || {}}
+                      customActivities={allCustomActivities.filter(ca => ca.user_id === st.user_id)}
+                      onToggleExclusion={async (actId, day) => {
+                        const result = await trainerToggleExclusion(courseId, st.user_id, actId, day);
+                        if (result.success) {
+                          setAllExclusions(prev => {
+                            const next = { ...prev };
+                            if (!next[st.user_id]) next[st.user_id] = {};
+                            const key = `${actId}_${day}`;
+                            if (result.excluded) next[st.user_id][key] = true;
+                            else delete next[st.user_id][key];
+                            return next;
+                          });
+                        }
+                        return result;
+                      }}
+                      onAddActivity={async (label, iconNum, durationMin, firstDay, lastDay, intervalDays) => {
+                        const result = await trainerAddStudentActivity(
+                          courseId, st.user_id, label, iconNum, durationMin, firstDay, lastDay, intervalDays
+                        );
+                        if (result.success) {
+                          setAllCustomActivities(prev => [...prev, {
+                            id: result.id, user_id: st.user_id, label, icon_num: iconNum,
+                            duration_min: durationMin, first_day: firstDay, last_day: lastDay,
+                            interval_days: intervalDays,
+                          }]);
+                        }
+                        return result;
+                      }}
+                      onDeleteCustomActivity={async (actId) => {
+                        const result = await trainerDeleteStudentActivity(actId);
+                        if (result.success) {
+                          setAllCustomActivities(prev => prev.filter(a => a.id !== actId));
+                        }
+                        return result;
                       }}
                     />
 
@@ -360,18 +403,41 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
 }
 
 /* ── Student detail progress view ── */
-function StudentDetails({ userId, courseId, progress, activities, daysCount, studentCurrentDay, onProgressUpdate }) {
+function StudentDetails({
+  userId, courseId, progress, activities, daysCount, studentCurrentDay,
+  exclusions, customActivities, onToggleExclusion, onAddActivity, onDeleteCustomActivity,
+}) {
   const [selectedDay, setSelectedDay] = useState(null);
-  const [saving, setSaving] = useState(null); // activity id being saved
+  const [saving, setSaving] = useState(null);
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [addForm, setAddForm] = useState({ label: '', iconNum: 'health/1', durationMin: 10, firstDay: '', lastDay: '', intervalDays: 1 });
+  const [addSaving, setAddSaving] = useState(false);
 
-  // Build day data with time-based fraction (like Dashboard getPracticeFraction)
+  const isActOnDay = (a, d) => {
+    const first = a.first_day || 1;
+    const last = a.last_day || daysCount;
+    if (d < first || d > last) return false;
+    const interval = a.interval_days || 1;
+    return (d - first) % interval === 0;
+  };
+
+  // Merge course activities + custom activities for this student
+  const allActs = [
+    ...activities,
+    ...customActivities.map(ca => ({
+      ...ca, label: ca.label, icon_num: ca.icon_num, duration_min: ca.duration_min,
+      first_day: ca.first_day, last_day: ca.last_day, interval_days: ca.interval_days,
+      _isCustom: true,
+    })),
+  ];
+
+  // Build day data accounting for exclusions
   const days = [];
   for (let d = 1; d <= daysCount; d++) {
-    const dayActivities = activities.filter(a => d >= (a.first_day || 1) && d <= (a.last_day || daysCount));
+    const dayActivities = allActs.filter(a => isActOnDay(a, d) && !exclusions[`${a.id}_${d}`]);
     if (dayActivities.length === 0) continue;
     const completed = dayActivities.filter(a => progress[d]?.[a.id]?.completed).length;
     const allDone = completed === dayActivities.length;
-    // Time-based fraction for proportional fill
     const totalSec = dayActivities.reduce((s, a) => s + (a.duration_min || 10) * 60, 0);
     let elapsedSec = 0;
     dayActivities.forEach(a => {
@@ -383,26 +449,40 @@ function StudentDetails({ userId, courseId, progress, activities, daysCount, stu
   }
 
   const viewDay = selectedDay || (studentCurrentDay > 1 ? studentCurrentDay - 1 : 1);
-  const isFutureDay = viewDay > studentCurrentDay;
+  const isFutureDay = viewDay >= studentCurrentDay;
+  const isPastDay = viewDay < studentCurrentDay;
 
-  const handleToggleActivity = async (activity, currentProgress) => {
-    const isCompleted = !!currentProgress?.completed;
-    const targetMin = activity.duration_min || 10;
-    // Toggle: if completed → reset to 0, if not → mark completed with full time
-    const newCompleted = !isCompleted;
-    const newElapsed = newCompleted ? targetMin * 60 : 0;
-
-    setSaving(activity.id);
-    const result = await trainerUpdateStudentActivity(
-      courseId, userId, activity.id, viewDay, newElapsed, newCompleted
-    );
-    if (result.success) {
-      onProgressUpdate(viewDay, activity.id, newElapsed, newCompleted);
-    } else {
-      alert(result.error || 'Ошибка сохранения');
-    }
+  const handleToggleExcl = async (actId) => {
+    setSaving(actId);
+    const result = await onToggleExclusion(actId, viewDay);
+    if (!result.success) alert(result.error || 'Ошибка');
     setSaving(null);
   };
+
+  const handleAdd = async () => {
+    if (!addForm.label.trim()) return;
+    setAddSaving(true);
+    const result = await onAddActivity(
+      addForm.label.trim(), addForm.iconNum,
+      addForm.durationMin || 10,
+      addForm.firstDay || viewDay, addForm.lastDay || daysCount,
+      addForm.intervalDays || 1,
+    );
+    if (result.success) {
+      setShowAddForm(false);
+      setAddForm({ label: '', iconNum: 'health/1', durationMin: 10, firstDay: '', lastDay: '', intervalDays: 1 });
+    } else {
+      alert(result.error || 'Ошибка');
+    }
+    setAddSaving(false);
+  };
+
+  const inputStyle = {
+    padding: '8px 10px', borderRadius: 10, fontSize: 13,
+    border: '1.5px solid rgba(0,0,0,0.08)', background: 'rgba(255,255,255,0.7)',
+    outline: 'none', boxSizing: 'border-box', width: '100%', color: '#1a1a2e',
+  };
+  const labelStyle = { fontSize: 11, fontWeight: 600, color: '#888', marginBottom: 4, display: 'block' };
 
   return (
     <div>
@@ -411,7 +491,7 @@ function StudentDetails({ userId, courseId, progress, activities, daysCount, stu
       </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
         {days.map(d => {
-          const isFuture = d.day > studentCurrentDay;
+          const isFuture = d.day >= studentCurrentDay;
           const isSelected = d.day === viewDay;
           return (
             <DaySquare
@@ -430,12 +510,16 @@ function StudentDetails({ userId, courseId, progress, activities, daysCount, stu
 
       {/* Activity breakdown for selected day */}
       {(() => {
-        const dayActs = activities.filter(a =>
-          viewDay >= (a.first_day || 1) && viewDay <= (a.last_day || daysCount)
-        );
-        if (dayActs.length === 0) return null;
-        const dayComplete = dayActs.every(a => progress[viewDay]?.[a.id]?.completed);
-        const dayStarted = dayActs.some(a => (progress[viewDay]?.[a.id]?.elapsed || 0) > 0);
+        // Show all activities for this day (active + excluded for trainer view)
+        const allDayActs = allActs.filter(a => isActOnDay(a, viewDay));
+        const activeDayActs = allDayActs.filter(a => !exclusions[`${a.id}_${viewDay}`]);
+        const excludedDayActs = allDayActs.filter(a => exclusions[`${a.id}_${viewDay}`]);
+
+        if (allDayActs.length === 0 && !isFutureDay) return null;
+
+        const dayComplete = activeDayActs.length > 0 && activeDayActs.every(a => progress[viewDay]?.[a.id]?.completed);
+        const dayStarted = activeDayActs.some(a => (progress[viewDay]?.[a.id]?.elapsed || 0) > 0);
+
         return (
           <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 10, background: 'rgba(0,0,0,0.02)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
@@ -449,15 +533,19 @@ function StudentDetails({ userId, courseId, progress, activities, daysCount, stu
                   </span>
                 )}
               </div>
-              <span style={{
-                fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 6,
-                background: dayComplete ? `${GREEN}15` : dayStarted ? `${ORANGE}15` : 'rgba(0,0,0,0.04)',
-                color: dayComplete ? GREEN : dayStarted ? ORANGE : '#bbb',
-              }}>
-                {dayComplete ? 'Выполнен' : dayStarted ? 'Частично' : 'Не начат'}
-              </span>
+              {!isFutureDay && (
+                <span style={{
+                  fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 6,
+                  background: dayComplete ? `${GREEN}15` : dayStarted ? `${ORANGE}15` : 'rgba(0,0,0,0.04)',
+                  color: dayComplete ? GREEN : dayStarted ? ORANGE : '#bbb',
+                }}>
+                  {dayComplete ? 'Выполнен' : dayStarted ? 'Частично' : 'Не начат'}
+                </span>
+              )}
             </div>
-            {dayActs.map(a => {
+
+            {/* Active activities */}
+            {activeDayActs.map(a => {
               const p = progress[viewDay]?.[a.id];
               const mins = p?.elapsed ? Math.floor(p.elapsed / 60) : 0;
               const secs = p?.elapsed ? p.elapsed % 60 : 0;
@@ -466,12 +554,14 @@ function StudentDetails({ userId, courseId, progress, activities, daysCount, stu
               const isSaving = saving === a.id;
               return (
                 <div key={a.id} style={{
-                  display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6,
-                  padding: '4px 0',
+                  display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, padding: '4px 0',
                 }}>
                   <img src={getIconPath(a.icon_num || 'health/1')} alt="" style={{ width: 20, height: 20, flexShrink: 0 }} />
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 12, color: '#555', fontWeight: 500, marginBottom: 2 }}>{a.label}</div>
+                    <div style={{ fontSize: 12, color: '#555', fontWeight: 500, marginBottom: 2 }}>
+                      {a.label}
+                      {a._isCustom && <span style={{ fontSize: 9, color: BLUE, marginLeft: 4 }}>индив.</span>}
+                    </div>
                     <div style={{ height: 4, borderRadius: 2, background: 'rgba(0,0,0,0.06)', overflow: 'hidden' }}>
                       <div style={{
                         width: `${timePct}%`, height: '100%', borderRadius: 2,
@@ -483,25 +573,138 @@ function StudentDetails({ userId, courseId, progress, activities, daysCount, stu
                     {p?.completed ? `✓ ${mins}м` : mins > 0 ? `${mins}:${String(secs).padStart(2, '0')}` : '—'}
                   </span>
                   <span style={{ fontSize: 10, color: '#bbb', flexShrink: 0 }}>/{target}м</span>
-                  <button
-                    onClick={() => handleToggleActivity(a, p)}
-                    disabled={isSaving}
-                    style={{
-                      width: 28, height: 28, borderRadius: 7, flexShrink: 0,
-                      border: `1.5px solid ${p?.completed ? RED : GREEN}40`,
-                      background: p?.completed ? `${RED}08` : `${GREEN}08`,
-                      color: p?.completed ? RED : GREEN,
-                      fontSize: 14, fontWeight: 700, cursor: isSaving ? 'wait' : 'pointer',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      opacity: isSaving ? 0.5 : 1, padding: 0,
-                    }}
-                    title={p?.completed ? 'Снять отметку' : 'Отметить выполненным'}
-                  >
-                    {p?.completed ? '✕' : '✓'}
-                  </button>
+                  {/* Only show disable button for future days */}
+                  {isFutureDay && (
+                    <button onClick={() => handleToggleExcl(a.id)} disabled={isSaving}
+                      title="Отключить для ученика"
+                      style={{
+                        width: 26, height: 26, borderRadius: 6, flexShrink: 0, padding: 0,
+                        border: `1.5px solid ${RED}40`, background: `${RED}08`, color: RED,
+                        fontSize: 12, fontWeight: 700, cursor: isSaving ? 'wait' : 'pointer',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        opacity: isSaving ? 0.5 : 1,
+                      }}>✕</button>
+                  )}
+                  {/* Delete button for custom activities */}
+                  {isFutureDay && a._isCustom && (
+                    <button onClick={async () => {
+                      if (!confirm(`Удалить индивидуальную практику "${a.label}"?`)) return;
+                      setSaving(a.id);
+                      await onDeleteCustomActivity(a.id);
+                      setSaving(null);
+                    }} disabled={isSaving}
+                      title="Удалить индивидуальную практику"
+                      style={{
+                        width: 26, height: 26, borderRadius: 6, flexShrink: 0, padding: 0,
+                        border: `1.5px solid ${RED}40`, background: `${RED}15`, color: RED,
+                        fontSize: 11, cursor: isSaving ? 'wait' : 'pointer',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      }}>🗑</button>
+                  )}
                 </div>
               );
             })}
+
+            {/* Excluded (disabled) activities shown as greyed out */}
+            {excludedDayActs.length > 0 && (
+              <div style={{ marginTop: 6, paddingTop: 6, borderTop: '1px dashed rgba(0,0,0,0.08)' }}>
+                <div style={{ fontSize: 10, color: '#bbb', marginBottom: 4 }}>Отключено:</div>
+                {excludedDayActs.map(a => {
+                  const isSaving = saving === a.id;
+                  return (
+                    <div key={a.id} style={{
+                      display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, padding: '3px 0', opacity: 0.5,
+                    }}>
+                      <img src={getIconPath(a.icon_num || 'health/1')} alt="" style={{ width: 18, height: 18, flexShrink: 0 }} />
+                      <span style={{ flex: 1, fontSize: 12, color: '#999', textDecoration: 'line-through' }}>{a.label}</span>
+                      {isFutureDay && (
+                        <button onClick={() => handleToggleExcl(a.id)} disabled={isSaving}
+                          title="Включить обратно"
+                          style={{
+                            width: 26, height: 26, borderRadius: 6, flexShrink: 0, padding: 0,
+                            border: `1.5px solid ${GREEN}40`, background: `${GREEN}08`, color: GREEN,
+                            fontSize: 12, fontWeight: 700, cursor: isSaving ? 'wait' : 'pointer',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          }}>✓</button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Add practice button — only for future days */}
+            {isFutureDay && (
+              <div style={{ marginTop: 8 }}>
+                {!showAddForm ? (
+                  <button onClick={() => {
+                    setAddForm(f => ({ ...f, firstDay: viewDay, lastDay: daysCount }));
+                    setShowAddForm(true);
+                  }} style={{
+                    width: '100%', padding: '8px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+                    border: `1.5px dashed ${GREEN}40`, background: `${GREEN}06`, color: GREEN,
+                    cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
+                  }}>
+                    + Добавить практику
+                  </button>
+                ) : (
+                  <div style={{ padding: '10px', borderRadius: 10, background: 'rgba(255,255,255,0.5)', border: '1px solid rgba(0,0,0,0.06)' }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#555', marginBottom: 8 }}>
+                      Новая практика для ученика
+                    </div>
+                    <div style={{ marginBottom: 6 }}>
+                      <label style={labelStyle}>Название</label>
+                      <input value={addForm.label} onChange={e => setAddForm(f => ({ ...f, label: e.target.value }))}
+                        placeholder="Например: Растяжка" style={inputStyle} />
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+                      <div style={{ flex: 1 }}>
+                        <label style={labelStyle}>С дня</label>
+                        <input type="number" value={addForm.firstDay}
+                          onChange={e => setAddForm(f => ({ ...f, firstDay: parseInt(e.target.value) || '' }))}
+                          style={inputStyle} />
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <label style={labelStyle}>По день</label>
+                        <input type="number" value={addForm.lastDay}
+                          onChange={e => setAddForm(f => ({ ...f, lastDay: parseInt(e.target.value) || '' }))}
+                          style={inputStyle} />
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <label style={labelStyle}>Интервал</label>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <input type="number" value={addForm.intervalDays}
+                            onChange={e => setAddForm(f => ({ ...f, intervalDays: parseInt(e.target.value) || 1 }))}
+                            style={inputStyle} />
+                          <span style={{ fontSize: 11, color: '#888', whiteSpace: 'nowrap' }}>дней</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{ marginBottom: 8 }}>
+                      <label style={labelStyle}>Минут</label>
+                      <input type="number" value={addForm.durationMin}
+                        onChange={e => setAddForm(f => ({ ...f, durationMin: parseInt(e.target.value) || 1 }))}
+                        style={{ ...inputStyle, width: 80 }} />
+                    </div>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button onClick={handleAdd} disabled={addSaving || !addForm.label.trim()} style={{
+                        flex: 1, padding: '8px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+                        border: 'none', background: '#1a1a2e', color: '#fff',
+                        cursor: addSaving ? 'wait' : 'pointer', opacity: addSaving ? 0.6 : 1,
+                      }}>
+                        {addSaving ? 'Сохранение...' : 'Добавить'}
+                      </button>
+                      <button onClick={() => setShowAddForm(false)} style={{
+                        padding: '8px 14px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+                        border: '1.5px solid rgba(0,0,0,0.1)', background: '#fff', color: '#888', cursor: 'pointer',
+                      }}>
+                        Отмена
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         );
       })()}

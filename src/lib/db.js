@@ -577,11 +577,70 @@ export async function changeStudentRole(enrollmentId, newRole) {
   return data || { success: false };
 }
 
-export async function trainerUpdateStudentActivity(courseId, userId, activityId, day, elapsedSeconds, completed) {
-  const { data, error } = await supabase.rpc('trainer_update_student_activity', {
-    p_course_id: courseId, p_user_id: userId, p_activity_id: activityId,
-    p_day: day, p_elapsed_seconds: elapsedSeconds, p_completed: completed,
+export async function trainerToggleExclusion(courseId, userId, activityId, day) {
+  const { data, error } = await supabase.rpc('trainer_toggle_exclusion', {
+    p_course_id: courseId, p_user_id: userId, p_activity_id: activityId, p_day: day,
   });
-  if (error) { console.error('[DB] Trainer update activity:', error); return { success: false, error: error.message }; }
+  if (error) { console.error('[DB] Toggle exclusion:', error); return { success: false, error: error.message }; }
   return data || { success: false };
+}
+
+export async function trainerAddStudentActivity(courseId, userId, label, iconNum, durationMin, firstDay, lastDay, intervalDays) {
+  const { data, error } = await supabase.rpc('trainer_add_student_activity', {
+    p_course_id: courseId, p_user_id: userId, p_label: label, p_icon_num: iconNum,
+    p_duration_min: durationMin, p_first_day: firstDay, p_last_day: lastDay, p_interval_days: intervalDays,
+  });
+  if (error) { console.error('[DB] Add student activity:', error); return { success: false, error: error.message }; }
+  return data || { success: false };
+}
+
+export async function trainerDeleteStudentActivity(activityId) {
+  const { data, error } = await supabase.rpc('trainer_delete_student_activity', { p_activity_id: activityId });
+  if (error) { console.error('[DB] Delete student activity:', error); return { success: false, error: error.message }; }
+  return data || { success: false };
+}
+
+export async function getCourseExclusions(courseId) {
+  const { data, error } = await supabase.rpc('get_course_exclusions', { p_course_id: courseId });
+  if (error) { console.error('[DB] Get exclusions:', error); return {}; }
+  // Group: { user_id: { `${activity_id}_${day}`: true } }
+  const result = {};
+  for (const row of (data || [])) {
+    if (!result[row.user_id]) result[row.user_id] = {};
+    result[row.user_id][`${row.activity_id}_${row.day}`] = true;
+  }
+  return result;
+}
+
+export async function getCourseCustomActivities(courseId) {
+  const { data, error } = await supabase.rpc('get_course_custom_activities', { p_course_id: courseId });
+  if (error) { console.error('[DB] Get custom activities:', error); return []; }
+  return data || [];
+}
+
+export async function loadStudentExclusions(userId, courseId) {
+  const { data, error } = await supabase
+    .from('student_activity_exclusions')
+    .select('activity_id, day')
+    .eq('user_id', userId).eq('course_id', courseId);
+  if (error) { console.error('[DB] Load exclusions:', error); return {}; }
+  const result = {};
+  for (const row of (data || [])) {
+    result[`${row.activity_id}_${row.day}`] = true;
+  }
+  return result;
+}
+
+export async function loadStudentCustomActivities(userId, courseId) {
+  const { data, error } = await supabase
+    .from('student_custom_activities')
+    .select('*')
+    .eq('user_id', userId).eq('course_id', courseId);
+  if (error) { console.error('[DB] Load custom activities:', error); return []; }
+  return (data || []).map(a => ({
+    id: a.id, activityId: a.id, label: a.label,
+    durationMin: a.duration_min, iconNum: a.icon_num || 'health/1',
+    firstDay: a.first_day, lastDay: a.last_day,
+    intervalDays: a.interval_days || 1, isCustom: true,
+  }));
 }

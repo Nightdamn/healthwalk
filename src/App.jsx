@@ -24,6 +24,7 @@ import {
   getAvailableItems, saveActiveContext,
   loadCourseProgress, saveCourseActivityProgress,
   loadTrackerProgress, saveTrackerActivityProgress,
+  loadStudentExclusions, loadStudentCustomActivities,
 } from './lib/db';
 
 function extractUser(session) {
@@ -61,6 +62,8 @@ export default function App() {
   const [progress, setProgress] = useState({});       // { day: { actId: true/false } }
   const [rawProgress, setRawProgress] = useState({});  // { day: { actId: { elapsed, completed } } }
   const [elapsedTime, setElapsedTime] = useState({});  // { actId: seconds }
+  const [exclusions, setExclusions] = useState({});    // { `actId_day`: true }
+  const [customActivities, setCustomActivities] = useState([]); // student-specific activities
 
   // Timer
   const [activeActivity, setActiveActivity] = useState(null);
@@ -106,9 +109,9 @@ export default function App() {
   useEffect(() => {
     if (!activeItem) return;
     const el = {};
-    activeItem.activities.forEach(a => { el[a.id] = rawProgress[currentDay]?.[a.id]?.elapsed || 0; });
+    [...activeItem.activities, ...customActivities].forEach(a => { el[a.id] = rawProgress[currentDay]?.[a.id]?.elapsed || 0; });
     setElapsedTime(el);
-  }, [currentDay, rawProgress, activeItem]);
+  }, [currentDay, rawProgress, activeItem, customActivities]);
 
   // ─── Auth ───
   useEffect(() => {
@@ -159,10 +162,26 @@ export default function App() {
 
         if (active) {
           setActiveItem(active);
-          const raw = active.type === 'course'
-            ? await loadCourseProgress(user.id, active.id)
-            : await loadTrackerProgress(user.id, active.id);
+          const loadPromises = [
+            active.type === 'course'
+              ? loadCourseProgress(user.id, active.id)
+              : loadTrackerProgress(user.id, active.id),
+          ];
+          if (active.type === 'course') {
+            loadPromises.push(
+              loadStudentExclusions(user.id, active.id),
+              loadStudentCustomActivities(user.id, active.id),
+            );
+          }
+          const [raw, excl, custom] = await Promise.all(loadPromises);
           setRawProgress(raw);
+          if (active.type === 'course') {
+            setExclusions(excl || {});
+            setCustomActivities(custom || []);
+          } else {
+            setExclusions({});
+            setCustomActivities([]);
+          }
 
           // Calculate current day from start date
           const startDate = active.startDate || settings?.course_start_date;
@@ -171,7 +190,8 @@ export default function App() {
           let day = startDate ? getCourseDay(startDate, tz, dsh, active.daysCount) : (settings?.current_day || 1);
           day = Math.max(1, day);
           setCurrentDay(day);
-          const { progress: p, elapsed: el } = buildFromRaw(raw, active.activities, day);
+          const allActs = [...active.activities, ...(custom || [])];
+          const { progress: p, elapsed: el } = buildFromRaw(raw, allActs, day);
           setProgress(p);
           setElapsedTime(el);
         }
@@ -186,10 +206,26 @@ export default function App() {
     setActiveItem(item);
     await saveActiveContext(user.id, item.type, item.id);
 
-    const raw = item.type === 'course'
-      ? await loadCourseProgress(user.id, item.id)
-      : await loadTrackerProgress(user.id, item.id);
+    const loadPromises = [
+      item.type === 'course'
+        ? loadCourseProgress(user.id, item.id)
+        : loadTrackerProgress(user.id, item.id),
+    ];
+    if (item.type === 'course') {
+      loadPromises.push(
+        loadStudentExclusions(user.id, item.id),
+        loadStudentCustomActivities(user.id, item.id),
+      );
+    }
+    const [raw, excl, custom] = await Promise.all(loadPromises);
     setRawProgress(raw);
+    if (item.type === 'course') {
+      setExclusions(excl || {});
+      setCustomActivities(custom || []);
+    } else {
+      setExclusions({});
+      setCustomActivities([]);
+    }
 
     // Calculate day based on item's own start date
     const startDate = item.startDate || courseStartDate;
@@ -197,14 +233,15 @@ export default function App() {
       ? getCourseDay(startDate, tzOffsetMin, dayStartHour, item.daysCount)
       : 1;
     setCurrentDay(day);
+    const allActs = [...item.activities, ...(custom || [])];
     const p = {};
     for (let d = 1; d <= item.daysCount; d++) {
       p[d] = {};
-      item.activities.forEach(a => { p[d][a.id] = raw[d]?.[a.id]?.completed || false; });
+      allActs.forEach(a => { p[d][a.id] = raw[d]?.[a.id]?.completed || false; });
     }
     setProgress(p);
     const el = {};
-    item.activities.forEach(a => { el[a.id] = raw[day]?.[a.id]?.elapsed || 0; });
+    allActs.forEach(a => { el[a.id] = raw[day]?.[a.id]?.elapsed || 0; });
     setElapsedTime(el);
   }, [user?.id, activeItem?.id, currentDay]);
 
@@ -387,7 +424,7 @@ export default function App() {
   const getElapsedForDay = (day) => {
     if (!activeItem) return {};
     const el = {};
-    activeItem.activities.forEach(a => { el[a.id] = rawProgress[day]?.[a.id]?.elapsed || 0; });
+    [...activeItem.activities, ...customActivities].forEach(a => { el[a.id] = rawProgress[day]?.[a.id]?.elapsed || 0; });
     return el;
   };
 
@@ -410,7 +447,7 @@ export default function App() {
       <TimerPage activity={activeActivity} timerSeconds={timerSeconds} timerPaused={timerPaused}
         currentDay={currentDay} onPause={handleTimerPause} onBack={handleTimerBack} onDone={handleTimerDone} onSeek={handleTimerSeek} />
     );
-    case 'details': return <DetailsPage progress={progress} currentDay={currentDay} elapsedTime={elapsedTime} getElapsedForDay={getElapsedForDay} onBack={goMain} activeItem={activeItem} />;
+    case 'details': return <DetailsPage progress={progress} currentDay={currentDay} elapsedTime={elapsedTime} getElapsedForDay={getElapsedForDay} onBack={goMain} activeItem={activeItem} exclusions={exclusions} customActivities={customActivities} />;
     case 'profile': return (
       <ProfilePage user={user} currentDay={currentDay} progress={progress}
         tzOffsetMin={tzOffsetMin} dayStartHour={dayStartHour}
@@ -432,7 +469,8 @@ export default function App() {
       <Dashboard user={user} userRole={userRole} currentDay={currentDay}
         progress={progress} elapsedTime={elapsedTime} dayStartHour={dayStartHour}
         getElapsedForDay={getElapsedForDay} onStartTimer={handleStartTimer} onNavigate={setScreen}
-        activeItem={activeItem} availableItems={availableItems} onSwitchContext={handleSwitchContext} />
+        activeItem={activeItem} availableItems={availableItems} onSwitchContext={handleSwitchContext}
+        exclusions={exclusions} customActivities={customActivities} />
     );
   }
 }

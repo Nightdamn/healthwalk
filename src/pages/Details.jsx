@@ -27,10 +27,10 @@ function DayDot({ day, done, frac, isToday, isFuture, uid, actId }) {
   );
 }
 
-export default function DetailsPage({ progress, currentDay, elapsedTime, getElapsedForDay, onBack, activeItem }) {
+export default function DetailsPage({ progress, currentDay, elapsedTime, getElapsedForDay, onBack, activeItem, exclusions = {}, customActivities = [] }) {
   const uidRef = useRef(Math.random().toString(36).slice(2, 8));
 
-  const activities = activeItem?.activities || [];
+  const activities = [...(activeItem?.activities || []), ...customActivities];
   const daysTotal = activeItem?.daysCount || 30;
 
   return (
@@ -62,7 +62,9 @@ export default function DetailsPage({ progress, currentDay, elapsedTime, getElap
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 6 }}>
                 {Array.from({ length: daysTotal }, (_, i) => {
                   const day = i + 1;
-                  const inRange = day >= act.firstDay && day <= act.lastDay;
+                  const inRange = day >= act.firstDay && day <= act.lastDay
+                    && (act.intervalDays ? (day - act.firstDay) % act.intervalDays === 0 : true)
+                    && !exclusions[`${act.id}_${day}`];
                   const done = progress[day]?.[act.id];
                   const isToday = day === currentDay;
                   const isFuture = day > currentDay;
