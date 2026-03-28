@@ -19,6 +19,7 @@ END;
 $$;
 
 -- 3. Recreate get_course_students_info — any trainer can call, includes self and is_owner
+DROP FUNCTION IF EXISTS get_course_students_info(UUID);
 CREATE OR REPLACE FUNCTION get_course_students_info(p_course_id UUID)
 RETURNS TABLE (
   enrollment_id UUID,
