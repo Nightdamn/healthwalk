@@ -18,7 +18,7 @@ BEGIN
 END;
 $$;
 
--- 3. Recreate get_course_students_info — any trainer can call
+-- 3. Recreate get_course_students_info — any trainer can call, includes self and is_owner
 CREATE OR REPLACE FUNCTION get_course_students_info(p_course_id UUID)
 RETURNS TABLE (
   enrollment_id UUID,
@@ -27,12 +27,17 @@ RETURNS TABLE (
   display_name TEXT,
   role TEXT,
   paused BOOLEAN,
-  joined_at TIMESTAMPTZ
+  joined_at TIMESTAMPTZ,
+  is_owner BOOLEAN
 ) LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+  v_owner_id UUID;
 BEGIN
   IF NOT is_course_trainer(p_course_id) THEN
     RAISE EXCEPTION 'Not authorized';
   END IF;
+
+  SELECT owner_id INTO v_owner_id FROM courses WHERE id = p_course_id;
 
   RETURN QUERY
   SELECT
@@ -47,12 +52,14 @@ BEGIN
     )::TEXT AS display_name,
     ce.role,
     COALESCE(ce.paused, false) AS paused,
-    ce.joined_at
+    ce.joined_at,
+    (ce.user_id = v_owner_id) AS is_owner
   FROM course_enrollments ce
   JOIN auth.users u ON u.id = ce.user_id
   WHERE ce.course_id = p_course_id
-    AND ce.user_id != auth.uid()
-  ORDER BY ce.role, ce.joined_at;
+  ORDER BY
+    (ce.user_id = v_owner_id) DESC,
+    ce.role, ce.joined_at;
 END;
 $$;
 

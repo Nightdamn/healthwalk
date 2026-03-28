@@ -165,13 +165,14 @@ export default function MyCoursesPage({ user, userRole, onBack, onNavigate, onEd
                 ) : (
                   <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 24 }}>
                     {(myCourses.length > 0 ? myCourses : ownCourses).map((c) => {
-                      const item = c.type ? c : null; // from availableItems
+                      const item = c.type ? c : null;
                       const id = item?.id || c.id;
                       const title = item?.title || c.title;
                       const desc = item?.description || c.description || '';
                       const days = item?.daysCount || c.days_count;
-                      const actCount = item?.activities?.length || (c.course_activities || []).length;
+                      const acts = item?.activities || [];
                       const enrollCount = item?.enrollCount || (c.course_enrollments || []).length || 0;
+                      const studentCount = Math.max(0, enrollCount - 1); // не считаем создателя
                       return (
                         <div key={id} style={{ ...glass, borderRadius: 16, padding: "16px 16px" }}>
                           <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
@@ -183,15 +184,30 @@ export default function MyCoursesPage({ user, userRole, onBack, onNavigate, onEd
                                   {desc}
                                 </div>
                               )}
-                              <div style={{ fontSize: 12, color: '#aaa', marginTop: 4, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                                <span>{days} дней</span>
-                                <span>·</span>
-                                <span>{actCount} активн.</span>
-                                <span>·</span>
-                                <span>{enrollCount} уч.</span>
-                              </div>
                             </div>
                           </div>
+
+                          <div style={{ marginTop: 12, fontSize: 13, color: '#888' }}>
+                            <div style={{ marginBottom: 6 }}>Длительность: <span style={{ fontWeight: 600, color: '#555' }}>{days} дней</span></div>
+
+                            {acts.length > 0 && (
+                              <>
+                                <div style={{ marginBottom: 4, fontWeight: 600, color: '#888' }}>Активности:</div>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 6 }}>
+                                  {acts.map(a => (
+                                    <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                      <img src={getIconPath(a.iconNum || 'health/1')} alt="" style={{ width: 20, height: 20, flexShrink: 0 }} />
+                                      <span style={{ flex: 1, fontSize: 13, color: '#555' }}>{a.label}</span>
+                                      <span style={{ fontSize: 12, color: '#aaa', flexShrink: 0 }}>{a.durationMin} мин</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </>
+                            )}
+
+                            <div>Ученики: <span style={{ fontWeight: 600, color: '#555' }}>{studentCount} чел.</span></div>
+                          </div>
+
                           <button onClick={() => onTrainerCabinet(id)}
                             style={{ width: '100%', marginTop: 12, padding: '11px 0', borderRadius: 10,
                               border: 'none', background: '#1a1a2e',
@@ -224,6 +240,8 @@ export default function MyCoursesPage({ user, userRole, onBack, onNavigate, onEd
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 {enrolledCourses.map((item) => {
                   const roleColor = item.enrollRole === 'curator' ? '#3498db' : item.enrollRole === 'trainer' ? '#e67e22' : GREEN;
+                  const acts = item.activities || [];
+                  const studentCount = Math.max(0, (item.enrollCount || 0) - 1);
                   return (
                     <div key={item.id} style={{ ...glass, borderRadius: 16, padding: '16px 16px' }}>
                       <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
@@ -243,15 +261,30 @@ export default function MyCoursesPage({ user, userRole, onBack, onNavigate, onEd
                               {item.description}
                             </div>
                           )}
-                          <div style={{ fontSize: 12, color: '#aaa', marginTop: 4, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                            <span>{item.daysCount} дней</span>
-                            <span>·</span>
-                            <span>{item.activities?.length || 0} активн.</span>
-                            <span>·</span>
-                            <span>{item.enrollCount || 0} уч.</span>
-                          </div>
                         </div>
                       </div>
+
+                      <div style={{ marginTop: 12, fontSize: 13, color: '#888' }}>
+                        <div style={{ marginBottom: 6 }}>Длительность: <span style={{ fontWeight: 600, color: '#555' }}>{item.daysCount} дней</span></div>
+
+                        {acts.length > 0 && (
+                          <>
+                            <div style={{ marginBottom: 4, fontWeight: 600, color: '#888' }}>Активности:</div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 6 }}>
+                              {acts.map(a => (
+                                <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                  <img src={getIconPath(a.iconNum || 'health/1')} alt="" style={{ width: 20, height: 20, flexShrink: 0 }} />
+                                  <span style={{ flex: 1, fontSize: 13, color: '#555' }}>{a.label}</span>
+                                  <span style={{ fontSize: 12, color: '#aaa', flexShrink: 0 }}>{a.durationMin} мин</span>
+                                </div>
+                              ))}
+                            </div>
+                          </>
+                        )}
+
+                        <div>Ученики: <span style={{ fontWeight: 600, color: '#555' }}>{studentCount} чел.</span></div>
+                      </div>
+
                       {(item.enrollRole === 'trainer' || item.enrollRole === 'curator') && (
                         <button onClick={() => onTrainerCabinet(item.id)}
                           style={{ width: '100%', marginTop: 12, padding: '11px 0', borderRadius: 10,

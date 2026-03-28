@@ -390,8 +390,8 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
                       }}
                     />
 
-                    {/* Actions — hide for owner and self */}
-                    {!isOwner && !isSelf && (
+                    {/* Actions */}
+                    {(
                       <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
                         <button onClick={() => handleTogglePause(st.enrollment_id)} disabled={isBusy}
                           style={{
@@ -403,15 +403,17 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
                           }}>
                           {st.paused ? '▶ Возобновить' : '⏸ На паузу'}
                         </button>
-                        <button onClick={() => handleRemove(st.enrollment_id, st.display_name)} disabled={isBusy}
-                          style={{
-                            padding: '10px 16px', borderRadius: 10,
-                            border: `1.5px solid ${RED}30`, background: `${RED}06`,
-                            color: RED, fontSize: 13, fontWeight: 600,
-                            cursor: isBusy ? 'wait' : 'pointer',
-                          }}>
-                          🗑
-                        </button>
+                        {!isOwner && !isSelf && (
+                          <button onClick={() => handleRemove(st.enrollment_id, st.display_name)} disabled={isBusy}
+                            style={{
+                              padding: '10px 16px', borderRadius: 10,
+                              border: `1.5px solid ${RED}30`, background: `${RED}06`,
+                              color: RED, fontSize: 13, fontWeight: 600,
+                              cursor: isBusy ? 'wait' : 'pointer',
+                            }}>
+                            🗑
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>
