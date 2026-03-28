@@ -233,11 +233,14 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon 
             style={{ ...inputStyle, padding: '8px 10px', fontSize: 14 }} />
         </div>
         <div style={{ flex: 1 }}>
-          <label style={{ ...labelStyle, fontSize: 11 }}>Интервал (дн)</label>
-          <input type="number" value={activity.intervalDays ?? 1}
-            onChange={numChange('intervalDays')}
-            onBlur={clamp('intervalDays', 1, maxDay)}
-            style={{ ...inputStyle, padding: '8px 10px', fontSize: 14 }} />
+          <label style={{ ...labelStyle, fontSize: 11 }}>Интервал</label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <input type="number" value={activity.intervalDays ?? 1}
+              onChange={numChange('intervalDays')}
+              onBlur={clamp('intervalDays', 1, maxDay)}
+              style={{ ...inputStyle, padding: '8px 10px', fontSize: 14 }} />
+            <span style={{ fontSize: 13, color: '#888', whiteSpace: 'nowrap' }}>дней</span>
+          </div>
         </div>
         <div style={{ flex: 1 }}>
           <label style={{ ...labelStyle, fontSize: 11 }}>Минут</label>
