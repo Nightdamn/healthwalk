@@ -18,6 +18,7 @@ const RED = '#e74c3c';
 const ORANGE = '#e67e22';
 const ROLE_LABELS = { student: 'Ученик', curator: 'Куратор', trainer: 'Тренер' };
 const ROLE_COLORS = { student: GREEN, curator: BLUE, trainer: ORANGE };
+const OWNER_COLOR = '#8e44ad';
 
 export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRole }) {
   const [course, setCourse] = useState(null);
@@ -172,7 +173,7 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
               {course?.title}
             </div>
             <div style={{ fontSize: 13, color: '#888', marginTop: 2 }}>
-              {daysCount} дней · {activities.length} активн. · {students.length} {studentWord(students.length)}
+              {daysCount} дней · {activities.length} активн. · {students.length} уч.
             </div>
           </div>
         </div>
@@ -236,7 +237,7 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
 
         {/* Students list */}
         <div style={{ fontSize: 14, fontWeight: 600, color: '#888', marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-          Ученики ({students.length})
+          Участники ({students.length})
         </div>
 
         {students.length === 0 ? (
@@ -250,11 +251,14 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
             const pct = stats.totalDays > 0 ? Math.round((stats.elapsedDays / stats.totalDays) * 100) : 0;
             const isExpanded = expandedId === st.enrollment_id;
             const isBusy = actionId === st.enrollment_id;
+            const isSelf = st.user_id === user.id;
+            const isOwner = st.is_owner;
+            const avatarColor = isOwner ? OWNER_COLOR : (ROLE_COLORS[st.role] || GREEN);
 
             return (
               <div key={st.enrollment_id} style={{
                 ...glass, borderRadius: 16, padding: '14px 16px', marginBottom: 10,
-                border: st.paused ? '2px solid rgba(230,126,34,0.3)' : undefined,
+                border: st.paused ? '2px solid rgba(230,126,34,0.3)' : isOwner ? `2px solid ${OWNER_COLOR}30` : undefined,
                 opacity: st.paused ? 0.7 : 1,
               }}>
                 {/* Main row — clickable */}
@@ -265,35 +269,45 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
                   {/* Initials avatar */}
                   <div style={{
                     width: 44, height: 44, borderRadius: 12, flexShrink: 0,
-                    background: `${ROLE_COLORS[st.role] || GREEN}15`,
+                    background: `${avatarColor}15`,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 16, fontWeight: 700, color: ROLE_COLORS[st.role] || GREEN,
+                    fontSize: 16, fontWeight: 700, color: avatarColor,
                   }}>
                     {(st.display_name || '?')[0].toUpperCase()}
                   </div>
 
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                       <span style={{ fontSize: 15, fontWeight: 600, color: '#1a1a2e', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {st.display_name}
+                        {isSelf && <span style={{ fontSize: 11, color: '#aaa', fontWeight: 400 }}> (вы)</span>}
                       </span>
-                      <select
-                        value={st.role}
-                        disabled={isBusy}
-                        onClick={e => e.stopPropagation()}
-                        onChange={e => { e.stopPropagation(); handleChangeRole(st.enrollment_id, e.target.value); }}
-                        style={{
-                          padding: '2px 6px', borderRadius: 6, fontSize: 11, fontWeight: 600,
-                          border: `1.5px solid ${ROLE_COLORS[st.role]}40`,
-                          background: `${ROLE_COLORS[st.role]}15`, color: ROLE_COLORS[st.role],
-                          cursor: isBusy ? 'wait' : 'pointer', outline: 'none',
-                          opacity: isBusy ? 0.5 : 1,
-                        }}
-                      >
-                        {['student', 'curator', 'trainer'].map(r => (
-                          <option key={r} value={r}>{ROLE_LABELS[r]}</option>
-                        ))}
-                      </select>
+                      {isOwner ? (
+                        <span style={{
+                          padding: '2px 7px', borderRadius: 6, fontSize: 11, fontWeight: 600,
+                          background: `${OWNER_COLOR}15`, color: OWNER_COLOR,
+                        }}>
+                          Создатель
+                        </span>
+                      ) : (
+                        <select
+                          value={st.role}
+                          disabled={isBusy || isSelf}
+                          onClick={e => e.stopPropagation()}
+                          onChange={e => { e.stopPropagation(); handleChangeRole(st.enrollment_id, e.target.value); }}
+                          style={{
+                            padding: '2px 6px', borderRadius: 6, fontSize: 11, fontWeight: 600,
+                            border: `1.5px solid ${ROLE_COLORS[st.role]}40`,
+                            background: `${ROLE_COLORS[st.role]}15`, color: ROLE_COLORS[st.role],
+                            cursor: isBusy || isSelf ? 'default' : 'pointer', outline: 'none',
+                            opacity: isBusy ? 0.5 : 1,
+                          }}
+                        >
+                          {['student', 'curator', 'trainer'].map(r => (
+                            <option key={r} value={r}>{ROLE_LABELS[r]}</option>
+                          ))}
+                        </select>
+                      )}
                       {st.paused && (
                         <span style={{ padding: '2px 7px', borderRadius: 6, fontSize: 10, fontWeight: 600, background: `${ORANGE}15`, color: ORANGE }}>
                           Пауза
@@ -370,28 +384,30 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
                       }}
                     />
 
-                    {/* Actions */}
-                    <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-                      <button onClick={() => handleTogglePause(st.enrollment_id)} disabled={isBusy}
-                        style={{
-                          flex: 1, padding: '10px 0', borderRadius: 10,
-                          border: `1.5px solid ${st.paused ? GREEN : ORANGE}40`,
-                          background: st.paused ? `${GREEN}08` : `${ORANGE}08`,
-                          color: st.paused ? GREEN : ORANGE,
-                          fontSize: 13, fontWeight: 600, cursor: isBusy ? 'wait' : 'pointer',
-                        }}>
-                        {st.paused ? '▶ Возобновить' : '⏸ На паузу'}
-                      </button>
-                      <button onClick={() => handleRemove(st.enrollment_id, st.display_name)} disabled={isBusy}
-                        style={{
-                          padding: '10px 16px', borderRadius: 10,
-                          border: `1.5px solid ${RED}30`, background: `${RED}06`,
-                          color: RED, fontSize: 13, fontWeight: 600,
-                          cursor: isBusy ? 'wait' : 'pointer',
-                        }}>
-                        🗑
-                      </button>
-                    </div>
+                    {/* Actions — hide for owner and self */}
+                    {!isOwner && !isSelf && (
+                      <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                        <button onClick={() => handleTogglePause(st.enrollment_id)} disabled={isBusy}
+                          style={{
+                            flex: 1, padding: '10px 0', borderRadius: 10,
+                            border: `1.5px solid ${st.paused ? GREEN : ORANGE}40`,
+                            background: st.paused ? `${GREEN}08` : `${ORANGE}08`,
+                            color: st.paused ? GREEN : ORANGE,
+                            fontSize: 13, fontWeight: 600, cursor: isBusy ? 'wait' : 'pointer',
+                          }}>
+                          {st.paused ? '▶ Возобновить' : '⏸ На паузу'}
+                        </button>
+                        <button onClick={() => handleRemove(st.enrollment_id, st.display_name)} disabled={isBusy}
+                          style={{
+                            padding: '10px 16px', borderRadius: 10,
+                            border: `1.5px solid ${RED}30`, background: `${RED}06`,
+                            color: RED, fontSize: 13, fontWeight: 600,
+                            cursor: isBusy ? 'wait' : 'pointer',
+                          }}>
+                          🗑
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
