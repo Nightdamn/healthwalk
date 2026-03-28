@@ -576,8 +576,8 @@ function StudentDetails({
                     {p?.completed ? `✓ ${mins}м` : mins > 0 ? `${mins}:${String(secs).padStart(2, '0')}` : '—'}
                   </span>
                   <span style={{ fontSize: 10, color: '#bbb', flexShrink: 0 }}>/{target}м</span>
-                  {/* Disable button for course activities on future days */}
-                  {isFutureDay && !a._isCustom && (
+                  {/* Disable button for any activity on future days */}
+                  {isFutureDay && (
                     <button onClick={() => handleToggleExcl(a.id)} disabled={isSaving}
                       title="Отключить для ученика"
                       style={{
@@ -587,22 +587,6 @@ function StudentDetails({
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                         opacity: isSaving ? 0.5 : 1,
                       }}>✕</button>
-                  )}
-                  {/* Delete button for custom activities on future days */}
-                  {isFutureDay && a._isCustom && (
-                    <button onClick={async () => {
-                      if (!confirm(`Удалить практику "${a.label}"?`)) return;
-                      setSaving(a.id);
-                      await onDeleteCustomActivity(a.id);
-                      setSaving(null);
-                    }} disabled={isSaving}
-                      title="Удалить индивидуальную практику"
-                      style={{
-                        width: 26, height: 26, borderRadius: 6, flexShrink: 0, padding: 0,
-                        border: `1.5px solid ${RED}40`, background: `${RED}15`, color: RED,
-                        fontSize: 11, cursor: isSaving ? 'wait' : 'pointer',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      }}>🗑</button>
                   )}
                 </div>
               );
