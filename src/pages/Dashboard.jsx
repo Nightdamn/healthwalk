@@ -70,8 +70,9 @@ export default function Dashboard({
   // Helper: check if an activity is scheduled on a given day (respects interval + exclusions)
   const isActivityOnDay = (a, day) => {
     if (day < a.firstDay || day > a.lastDay) return false;
-    const interval = a.intervalDays || 1;
-    if ((day - a.firstDay) % interval !== 0) return false;
+    const interval = a.intervalDays || 0;
+    if (interval === 0) { if (day !== a.firstDay) return false; }
+    else if ((day - a.firstDay) % interval !== 0) return false;
     // Check exclusion
     if (exclusions[`${a.id}_${day}`]) return false;
     return true;

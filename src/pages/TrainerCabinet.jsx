@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import Layout from '../components/Layout';
+import IconPicker from '../components/IconPicker';
 import { getIconPath } from '../data/iconCatalog';
 import { getCourseDay } from '../data/constants';
 import { btnBack, glass, pageWrapper, topBar, topBarTitle } from '../styles/shared';
@@ -112,7 +113,8 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
 
   const isActOnDay = (a, d) => {
     if (d < (a.first_day || 1) || d > (a.last_day || daysCount)) return false;
-    const interval = a.interval_days || 1;
+    const interval = a.interval_days || 0;
+    if (interval === 0) return d === (a.first_day || 1);
     return (d - (a.first_day || 1)) % interval === 0;
   };
 
@@ -410,14 +412,16 @@ function StudentDetails({
   const [selectedDay, setSelectedDay] = useState(null);
   const [saving, setSaving] = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
-  const [addForm, setAddForm] = useState({ label: '', iconNum: 'health/1', durationMin: 10, firstDay: '', lastDay: '', intervalDays: 1 });
+  const [addForm, setAddForm] = useState({ label: '', iconNum: 'health/1', durationMin: 10, firstDay: '', lastDay: '', intervalDays: 0 });
   const [addSaving, setAddSaving] = useState(false);
+  const [showIconPicker, setShowIconPicker] = useState(false);
 
   const isActOnDay = (a, d) => {
     const first = a.first_day || 1;
     const last = a.last_day || daysCount;
     if (d < first || d > last) return false;
-    const interval = a.interval_days || 1;
+    const interval = a.interval_days || 0;
+    if (interval === 0) return d === first;
     return (d - first) % interval === 0;
   };
 
@@ -462,15 +466,17 @@ function StudentDetails({
   const handleAdd = async () => {
     if (!addForm.label.trim()) return;
     setAddSaving(true);
+    const interval = addForm.intervalDays ?? 0;
+    const firstDay = addForm.firstDay || viewDay;
+    const lastDay = interval === 0 ? firstDay : (addForm.lastDay || daysCount);
     const result = await onAddActivity(
       addForm.label.trim(), addForm.iconNum,
       addForm.durationMin || 10,
-      addForm.firstDay || viewDay, addForm.lastDay || daysCount,
-      addForm.intervalDays || 1,
+      firstDay, lastDay, interval,
     );
     if (result.success) {
       setShowAddForm(false);
-      setAddForm({ label: '', iconNum: 'health/1', durationMin: 10, firstDay: '', lastDay: '', intervalDays: 1 });
+      setAddForm({ label: '', iconNum: 'health/1', durationMin: 10, firstDay: '', lastDay: '', intervalDays: 0 });
     } else {
       alert(result.error || 'Ошибка');
     }
@@ -585,22 +591,7 @@ function StudentDetails({
                         opacity: isSaving ? 0.5 : 1,
                       }}>✕</button>
                   )}
-                  {/* Delete button for custom activities */}
-                  {isFutureDay && a._isCustom && (
-                    <button onClick={async () => {
-                      if (!confirm(`Удалить индивидуальную практику "${a.label}"?`)) return;
-                      setSaving(a.id);
-                      await onDeleteCustomActivity(a.id);
-                      setSaving(null);
-                    }} disabled={isSaving}
-                      title="Удалить индивидуальную практику"
-                      style={{
-                        width: 26, height: 26, borderRadius: 6, flexShrink: 0, padding: 0,
-                        border: `1.5px solid ${RED}40`, background: `${RED}15`, color: RED,
-                        fontSize: 11, cursor: isSaving ? 'wait' : 'pointer',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      }}>🗑</button>
-                  )}
+                  {/* No delete button here — delete only from excluded section */}
                 </div>
               );
             })}
@@ -627,6 +618,21 @@ function StudentDetails({
                             display: 'flex', alignItems: 'center', justifyContent: 'center',
                           }}>✓</button>
                       )}
+                      {isFutureDay && a._isCustom && (
+                        <button onClick={async () => {
+                          if (!confirm(`Удалить индивидуальную практику "${a.label}"?`)) return;
+                          setSaving(a.id);
+                          await onDeleteCustomActivity(a.id);
+                          setSaving(null);
+                        }} disabled={isSaving}
+                          title="Удалить индивидуальную практику"
+                          style={{
+                            width: 26, height: 26, borderRadius: 6, flexShrink: 0, padding: 0,
+                            border: `1.5px solid ${RED}40`, background: `${RED}15`, color: RED,
+                            fontSize: 11, cursor: isSaving ? 'wait' : 'pointer',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          }}>🗑</button>
+                      )}
                     </div>
                   );
                 })}
@@ -638,7 +644,7 @@ function StudentDetails({
               <div style={{ marginTop: 8 }}>
                 {!showAddForm ? (
                   <button onClick={() => {
-                    setAddForm(f => ({ ...f, firstDay: viewDay, lastDay: daysCount }));
+                    setAddForm(f => ({ ...f, firstDay: viewDay, lastDay: viewDay, intervalDays: 0 }));
                     setShowAddForm(true);
                   }} style={{
                     width: '100%', padding: '8px', borderRadius: 8, fontSize: 12, fontWeight: 600,
@@ -652,11 +658,22 @@ function StudentDetails({
                     <div style={{ fontSize: 12, fontWeight: 600, color: '#555', marginBottom: 8 }}>
                       Новая практика для ученика
                     </div>
-                    <div style={{ marginBottom: 6 }}>
-                      <label style={labelStyle}>Название</label>
-                      <input value={addForm.label} onChange={e => setAddForm(f => ({ ...f, label: e.target.value }))}
-                        placeholder="Например: Растяжка" style={inputStyle} />
+                    {/* Icon + Name row */}
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', marginBottom: 6 }}>
+                      <button onClick={() => setShowIconPicker(true)} style={{
+                        width: 42, height: 42, borderRadius: 10, flexShrink: 0, padding: 4, cursor: 'pointer',
+                        border: '1.5px solid rgba(0,0,0,0.08)', background: 'rgba(255,255,255,0.7)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      }}>
+                        <img src={getIconPath(addForm.iconNum)} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                      </button>
+                      <div style={{ flex: 1 }}>
+                        <label style={labelStyle}>Название</label>
+                        <input value={addForm.label} onChange={e => setAddForm(f => ({ ...f, label: e.target.value }))}
+                          placeholder="Например: Растяжка" style={inputStyle} />
+                      </div>
                     </div>
+                    {/* Day range + interval */}
                     <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
                       <div style={{ flex: 1 }}>
                         <label style={labelStyle}>С дня</label>
@@ -674,17 +691,24 @@ function StudentDetails({
                         <label style={labelStyle}>Интервал</label>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                           <input type="number" value={addForm.intervalDays}
-                            onChange={e => setAddForm(f => ({ ...f, intervalDays: parseInt(e.target.value) || 1 }))}
+                            onChange={e => setAddForm(f => ({ ...f, intervalDays: parseInt(e.target.value) || 0 }))}
                             style={inputStyle} />
                           <span style={{ fontSize: 11, color: '#888', whiteSpace: 'nowrap' }}>дней</span>
                         </div>
                       </div>
                     </div>
+                    {/* Duration */}
                     <div style={{ marginBottom: 8 }}>
-                      <label style={labelStyle}>Минут</label>
-                      <input type="number" value={addForm.durationMin}
-                        onChange={e => setAddForm(f => ({ ...f, durationMin: parseInt(e.target.value) || 1 }))}
-                        style={{ ...inputStyle, width: 80 }} />
+                      <label style={labelStyle}>Длительность</label>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <input type="number" value={addForm.durationMin}
+                          onChange={e => setAddForm(f => ({ ...f, durationMin: parseInt(e.target.value) || 1 }))}
+                          style={{ ...inputStyle, width: 80 }} />
+                        <span style={{ fontSize: 13, color: '#888', whiteSpace: 'nowrap' }}>минут</span>
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 10, color: '#aaa', marginBottom: 8 }}>
+                      Интервал 0 = только выбранный день
                     </div>
                     <div style={{ display: 'flex', gap: 6 }}>
                       <button onClick={handleAdd} disabled={addSaving || !addForm.label.trim()} style={{
@@ -701,6 +725,13 @@ function StudentDetails({
                         Отмена
                       </button>
                     </div>
+                    {showIconPicker && (
+                      <IconPicker
+                        value={addForm.iconNum}
+                        onChange={num => { setAddForm(f => ({ ...f, iconNum: num })); setShowIconPicker(false); }}
+                        onClose={() => setShowIconPicker(false)}
+                      />
+                    )}
                   </div>
                 )}
               </div>

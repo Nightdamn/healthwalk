@@ -276,8 +276,8 @@ function PracticeCard({ practice, index, maxDay, onUpdate, onRemove, onPickIcon 
         />
       </div>
 
-      {/* Day range + Interval + Duration */}
-      <div style={{ display: 'flex', gap: 8 }}>
+      {/* Day range + Interval */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
         <div style={{ flex: 1 }}>
           <label style={{ ...labelStyle, fontSize: 11 }}>С дня</label>
           <input type="number" value={practice.firstDay}
@@ -302,12 +302,16 @@ function PracticeCard({ practice, index, maxDay, onUpdate, onRemove, onPickIcon 
             <span style={{ fontSize: 13, color: '#888', whiteSpace: 'nowrap' }}>дней</span>
           </div>
         </div>
-        <div style={{ flex: 1 }}>
-          <label style={{ ...labelStyle, fontSize: 11 }}>Минут</label>
+      </div>
+      {/* Duration */}
+      <div>
+        <label style={{ ...labelStyle, fontSize: 11 }}>Длительность</label>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <input type="number" value={practice.durationMin}
             onChange={numChange('durationMin')}
             onBlur={clamp('durationMin', 1, 1200)}
-            style={{ ...inputStyle, padding: '8px 10px', fontSize: 14 }} />
+            style={{ ...inputStyle, padding: '8px 10px', fontSize: 14, width: 80 }} />
+          <span style={{ fontSize: 13, color: '#888', whiteSpace: 'nowrap' }}>минут</span>
         </div>
       </div>
     </div>
