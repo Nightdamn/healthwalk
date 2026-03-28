@@ -113,8 +113,7 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
 
   const isActOnDay = (a, d) => {
     if (d < (a.first_day || 1) || d > (a.last_day || daysCount)) return false;
-    const interval = a.interval_days || 0;
-    if (interval === 0) return d === (a.first_day || 1);
+    const interval = a.interval_days || 1;
     return (d - (a.first_day || 1)) % interval === 0;
   };
 
@@ -412,7 +411,7 @@ function StudentDetails({
   const [selectedDay, setSelectedDay] = useState(null);
   const [saving, setSaving] = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
-  const [addForm, setAddForm] = useState({ label: '', iconNum: 'health/1', durationMin: 10, firstDay: '', lastDay: '', intervalDays: 0 });
+  const [addForm, setAddForm] = useState({ label: '', iconNum: 'health/1', durationMin: 10, firstDay: '', lastDay: '', intervalDays: 1 });
   const [addSaving, setAddSaving] = useState(false);
   const [showIconPicker, setShowIconPicker] = useState(false);
 
@@ -466,17 +465,15 @@ function StudentDetails({
   const handleAdd = async () => {
     if (!addForm.label.trim()) return;
     setAddSaving(true);
-    const interval = addForm.intervalDays ?? 0;
-    const firstDay = addForm.firstDay || viewDay;
-    const lastDay = interval === 0 ? firstDay : (addForm.lastDay || daysCount);
     const result = await onAddActivity(
       addForm.label.trim(), addForm.iconNum,
       addForm.durationMin || 10,
-      firstDay, lastDay, interval,
+      addForm.firstDay || viewDay, addForm.lastDay || daysCount,
+      addForm.intervalDays || 1,
     );
     if (result.success) {
       setShowAddForm(false);
-      setAddForm({ label: '', iconNum: 'health/1', durationMin: 10, firstDay: '', lastDay: '', intervalDays: 0 });
+      setAddForm({ label: '', iconNum: 'health/1', durationMin: 10, firstDay: '', lastDay: '', intervalDays: 1 });
     } else {
       alert(result.error || 'Ошибка');
     }
@@ -579,8 +576,8 @@ function StudentDetails({
                     {p?.completed ? `✓ ${mins}м` : mins > 0 ? `${mins}:${String(secs).padStart(2, '0')}` : '—'}
                   </span>
                   <span style={{ fontSize: 10, color: '#bbb', flexShrink: 0 }}>/{target}м</span>
-                  {/* Only show disable button for future days */}
-                  {isFutureDay && (
+                  {/* Disable button for course activities on future days */}
+                  {isFutureDay && !a._isCustom && (
                     <button onClick={() => handleToggleExcl(a.id)} disabled={isSaving}
                       title="Отключить для ученика"
                       style={{
@@ -591,7 +588,22 @@ function StudentDetails({
                         opacity: isSaving ? 0.5 : 1,
                       }}>✕</button>
                   )}
-                  {/* No delete button here — delete only from excluded section */}
+                  {/* Delete button for custom activities on future days */}
+                  {isFutureDay && a._isCustom && (
+                    <button onClick={async () => {
+                      if (!confirm(`Удалить практику "${a.label}"?`)) return;
+                      setSaving(a.id);
+                      await onDeleteCustomActivity(a.id);
+                      setSaving(null);
+                    }} disabled={isSaving}
+                      title="Удалить индивидуальную практику"
+                      style={{
+                        width: 26, height: 26, borderRadius: 6, flexShrink: 0, padding: 0,
+                        border: `1.5px solid ${RED}40`, background: `${RED}15`, color: RED,
+                        fontSize: 11, cursor: isSaving ? 'wait' : 'pointer',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      }}>🗑</button>
+                  )}
                 </div>
               );
             })}
@@ -691,7 +703,7 @@ function StudentDetails({
                         <label style={labelStyle}>Интервал</label>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                           <input type="number" value={addForm.intervalDays}
-                            onChange={e => setAddForm(f => ({ ...f, intervalDays: parseInt(e.target.value) || 0 }))}
+                            onChange={e => setAddForm(f => ({ ...f, intervalDays: parseInt(e.target.value) || 1 }))}
                             style={inputStyle} />
                           <span style={{ fontSize: 11, color: '#888', whiteSpace: 'nowrap' }}>дней</span>
                         </div>
@@ -706,9 +718,6 @@ function StudentDetails({
                           style={{ ...inputStyle, width: 80 }} />
                         <span style={{ fontSize: 13, color: '#888', whiteSpace: 'nowrap' }}>минут</span>
                       </div>
-                    </div>
-                    <div style={{ fontSize: 10, color: '#aaa', marginBottom: 8 }}>
-                      Интервал 0 = только выбранный день
                     </div>
                     <div style={{ display: 'flex', gap: 6 }}>
                       <button onClick={handleAdd} disabled={addSaving || !addForm.label.trim()} style={{
