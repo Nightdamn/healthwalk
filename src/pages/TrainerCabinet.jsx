@@ -20,7 +20,7 @@ const ROLE_LABELS = { student: 'Ученик', curator: 'Куратор', traine
 const ROLE_COLORS = { student: GREEN, curator: BLUE, trainer: ORANGE };
 const OWNER_COLOR = '#8e44ad';
 
-export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRole }) {
+export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRole, onEditCourse }) {
   const [course, setCourse] = useState(null);
   const [students, setStudents] = useState([]);
   const [allProgress, setAllProgress] = useState({});
@@ -176,6 +176,12 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
               {daysCount} дней · {activities.length} активн. · {students.length} уч.
             </div>
           </div>
+          {onEditCourse && (
+            <button onClick={() => onEditCourse(courseId)}
+              style={{ background: 'none', border: 'none', fontSize: 20, color: '#bbb', cursor: 'pointer', padding: '4px 8px', flexShrink: 0 }}>
+              ✏️
+            </button>
+          )}
         </div>
 
         {/* Invite section */}

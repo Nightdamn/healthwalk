@@ -67,7 +67,7 @@ export async function getAvailableItems(userId) {
   // 1. Enrolled courses
   const { data: enrollments } = await supabase
     .from('course_enrollments')
-    .select('role, joined_at, courses(id, title, days_count, avatar_icon, avatar_custom, owner_id, created_at, course_activities(*))')
+    .select('role, joined_at, courses(id, title, description, days_count, avatar_icon, avatar_custom, owner_id, created_at, course_activities(*), course_enrollments(id))')
     .eq('user_id', userId);
 
   const courseIds = new Set();
@@ -77,9 +77,11 @@ export async function getAvailableItems(userId) {
     const startDate = (e.joined_at || e.courses.created_at || '').slice(0, 10) || null;
     return {
       type: 'course', id: e.courses.id, title: e.courses.title,
+      description: e.courses.description || '',
       daysCount: e.courses.days_count, avatarIcon: e.courses.avatar_icon,
       avatarCustom: e.courses.avatar_custom, ownerId: e.courses.owner_id,
       enrollRole: e.role, startDate,
+      enrollCount: (e.courses.course_enrollments || []).length,
       activities: mapActivities(e.courses.course_activities, e.courses.days_count),
     };
   });
@@ -87,7 +89,7 @@ export async function getAvailableItems(userId) {
   // 2. Own courses not yet in list
   const { data: ownCourses } = await supabase
     .from('courses')
-    .select('id, title, days_count, avatar_icon, avatar_custom, owner_id, created_at, course_activities(*)')
+    .select('id, title, description, days_count, avatar_icon, avatar_custom, owner_id, created_at, course_activities(*), course_enrollments(id)')
     .eq('owner_id', userId);
 
   for (const c of (ownCourses || [])) {
@@ -95,9 +97,11 @@ export async function getAvailableItems(userId) {
       const startDate = (c.created_at || '').slice(0, 10) || null;
       courses.push({
         type: 'course', id: c.id, title: c.title,
+        description: c.description || '',
         daysCount: c.days_count, avatarIcon: c.avatar_icon,
         avatarCustom: c.avatar_custom, ownerId: c.owner_id, enrollRole: 'trainer',
         startDate,
+        enrollCount: (c.course_enrollments || []).length,
         activities: mapActivities(c.course_activities, c.days_count),
       });
     }

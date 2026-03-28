@@ -166,21 +166,33 @@ export default function MyCoursesPage({ user, userRole, onBack, onNavigate, onEd
                   <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 24 }}>
                     {(myCourses.length > 0 ? myCourses : ownCourses).map((c) => {
                       const item = c.type ? c : null; // from availableItems
+                      const id = item?.id || c.id;
+                      const title = item?.title || c.title;
+                      const desc = item?.description || c.description || '';
+                      const days = item?.daysCount || c.days_count;
+                      const actCount = item?.activities?.length || (c.course_activities || []).length;
+                      const enrollCount = item?.enrollCount || (c.course_enrollments || []).length || 0;
                       return (
-                        <div key={item?.id || c.id} style={{ ...glass, borderRadius: 16, padding: "16px 16px" }}>
+                        <div key={id} style={{ ...glass, borderRadius: 16, padding: "16px 16px" }}>
                           <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                            {item && <CourseAvatar item={item} size={44} />}
+                            {item && <CourseAvatar item={item} size={48} />}
                             <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{ fontSize: 16, fontWeight: 600, color: '#1a1a2e' }}>{item?.title || c.title}</div>
-                              <div style={{ fontSize: 12, color: '#999', marginTop: 2 }}>
-                                {(item?.daysCount || c.days_count)} дней • {(item?.activities?.length || (c.course_activities || []).length)} активн.
+                              <div style={{ fontSize: 16, fontWeight: 600, color: '#1a1a2e' }}>{title}</div>
+                              {desc && (
+                                <div style={{ fontSize: 13, color: '#888', marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                  {desc}
+                                </div>
+                              )}
+                              <div style={{ fontSize: 12, color: '#aaa', marginTop: 4, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                                <span>{days} дней</span>
+                                <span>·</span>
+                                <span>{actCount} активн.</span>
+                                <span>·</span>
+                                <span>{enrollCount} уч.</span>
                               </div>
                             </div>
-                            <button onClick={() => onEditCourse(item?.id || c.id)}
-                              style={{ background: 'none', border: 'none', fontSize: 18, color: '#bbb', cursor: 'pointer', padding: '4px 8px' }}>✏️</button>
                           </div>
-                          {/* Trainer cabinet button */}
-                          <button onClick={() => onTrainerCabinet(item?.id || c.id)}
+                          <button onClick={() => onTrainerCabinet(id)}
                             style={{ width: '100%', marginTop: 12, padding: '11px 0', borderRadius: 10,
                               border: 'none', background: '#1a1a2e',
                               color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer',
@@ -211,23 +223,34 @@ export default function MyCoursesPage({ user, userRole, onBack, onNavigate, onEd
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 {enrolledCourses.map((item) => {
+                  const roleColor = item.enrollRole === 'curator' ? '#3498db' : item.enrollRole === 'trainer' ? '#e67e22' : GREEN;
                   return (
                     <div key={item.id} style={{ ...glass, borderRadius: 16, padding: '16px 16px' }}>
                       <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                        <CourseAvatar item={item} size={44} />
+                        <CourseAvatar item={item} size={48} />
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 16, fontWeight: 600, color: '#1a1a2e' }}>{item.title}</div>
-                          <div style={{ fontSize: 12, color: '#999', marginTop: 2 }}>
-                            {item.daysCount} дней • {item.activities?.length || 0} активн.
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ fontSize: 16, fontWeight: 600, color: '#1a1a2e', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.title}</span>
+                            <span style={{
+                              padding: "2px 8px", borderRadius: 6, fontSize: 10, fontWeight: 600, flexShrink: 0,
+                              background: `${roleColor}15`, color: roleColor,
+                            }}>
+                              {ROLE_LABELS[item.enrollRole] || item.enrollRole}
+                            </span>
+                          </div>
+                          {item.description && (
+                            <div style={{ fontSize: 13, color: '#888', marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {item.description}
+                            </div>
+                          )}
+                          <div style={{ fontSize: 12, color: '#aaa', marginTop: 4, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                            <span>{item.daysCount} дней</span>
+                            <span>·</span>
+                            <span>{item.activities?.length || 0} активн.</span>
+                            <span>·</span>
+                            <span>{item.enrollCount || 0} уч.</span>
                           </div>
                         </div>
-                        <span style={{
-                          padding: "4px 10px", borderRadius: 8, fontSize: 11, fontWeight: 600,
-                          background: item.enrollRole === 'curator' ? "rgba(52,152,219,0.1)" : "rgba(39,174,96,0.1)",
-                          color: item.enrollRole === 'curator' ? "#3498db" : GREEN,
-                        }}>
-                          {ROLE_LABELS[item.enrollRole] || item.enrollRole}
-                        </span>
                       </div>
                       {(item.enrollRole === 'trainer' || item.enrollRole === 'curator') && (
                         <button onClick={() => onTrainerCabinet(item.id)}
