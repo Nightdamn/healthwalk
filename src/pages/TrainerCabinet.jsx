@@ -664,7 +664,7 @@ function StudentDetails({
               <div style={{ marginTop: 8 }}>
                 {!showAddForm ? (
                   <button onClick={() => {
-                    setAddForm(f => ({ ...f, firstDay: viewDay, lastDay: viewDay, intervalDays: 0 }));
+                    setAddForm(f => ({ ...f, firstDay: viewDay, lastDay: viewDay, intervalDays: 1 }));
                     setShowAddForm(true);
                   }} style={{
                     width: '100%', padding: '8px', borderRadius: 8, fontSize: 12, fontWeight: 600,
@@ -698,20 +698,20 @@ function StudentDetails({
                       <div style={{ flex: 1 }}>
                         <label style={labelStyle}>С дня</label>
                         <input type="number" value={addForm.firstDay}
-                          onChange={e => setAddForm(f => ({ ...f, firstDay: parseInt(e.target.value) || '' }))}
-                          style={inputStyle} />
+                          disabled
+                          style={{ ...inputStyle, opacity: 0.5, cursor: 'not-allowed' }} />
                       </div>
                       <div style={{ flex: 1 }}>
                         <label style={labelStyle}>По день</label>
                         <input type="number" value={addForm.lastDay}
-                          onChange={e => setAddForm(f => ({ ...f, lastDay: parseInt(e.target.value) || '' }))}
+                          onChange={e => setAddForm(f => ({ ...f, lastDay: e.target.value === '' ? '' : parseInt(e.target.value) || '' }))}
                           style={inputStyle} />
                       </div>
                       <div style={{ flex: 1 }}>
                         <label style={labelStyle}>Интервал</label>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                           <input type="number" value={addForm.intervalDays}
-                            onChange={e => setAddForm(f => ({ ...f, intervalDays: parseInt(e.target.value) || 1 }))}
+                            onChange={e => setAddForm(f => ({ ...f, intervalDays: e.target.value === '' ? '' : parseInt(e.target.value) }))}
                             style={inputStyle} />
                           <span style={{ fontSize: 11, color: '#888', whiteSpace: 'nowrap' }}>дней</span>
                         </div>
@@ -722,7 +722,7 @@ function StudentDetails({
                       <label style={labelStyle}>Длительность</label>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         <input type="number" value={addForm.durationMin}
-                          onChange={e => setAddForm(f => ({ ...f, durationMin: parseInt(e.target.value) || 1 }))}
+                          onChange={e => setAddForm(f => ({ ...f, durationMin: e.target.value === '' ? '' : parseInt(e.target.value) }))}
                           style={{ ...inputStyle, width: 80 }} />
                         <span style={{ fontSize: 13, color: '#888', whiteSpace: 'nowrap' }}>минут</span>
                       </div>
