@@ -498,7 +498,13 @@ function CourseCompleteView({ progress, allActivities, daysTotal, exclusions, is
         background: 'linear-gradient(135deg, rgba(39,174,96,0.08) 0%, rgba(46,204,113,0.04) 100%)',
         border: '1.5px solid rgba(39,174,96,0.15)',
       }}>
-        <div style={{ fontSize: 48, marginBottom: 8 }}>🎉</div>
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 8 }}>
+          <svg width="56" height="56" viewBox="0 0 56 56" fill="none">
+            <circle cx="28" cy="28" r="27" fill="#27ae60" />
+            <circle cx="28" cy="28" r="23" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="1.5" />
+            <polyline points="18,28 25,35 38,21" fill="none" stroke="#fff" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </div>
         <div style={{ fontSize: 22, fontWeight: 800, color: '#1a1a2e', marginBottom: 4 }}>Поздравляем!</div>
         <div style={{ fontSize: 15, color: '#555', fontWeight: 500 }}>
           Курс {courseName ? `«${courseName}»` : ''} окончен
