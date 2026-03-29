@@ -105,6 +105,7 @@ END;
 $$;
 
 -- ── Get course staff (trainers + curators + owner) for student to pick recipient ──
+DROP FUNCTION IF EXISTS get_course_staff(UUID);
 CREATE OR REPLACE FUNCTION get_course_staff(p_course_id UUID)
 RETURNS TABLE (
   user_id UUID,
@@ -123,6 +124,7 @@ BEGIN
   SELECT owner_id INTO v_owner_id FROM courses WHERE id = p_course_id;
 
   RETURN QUERY
+  -- Enrolled trainers/curators
   SELECT
     ce.user_id,
     COALESCE(
@@ -136,11 +138,25 @@ BEGIN
   FROM course_enrollments ce
   JOIN auth.users u ON u.id = ce.user_id
   WHERE ce.course_id = p_course_id
-    AND ce.role IN ('trainer', 'curator')
+    AND (ce.role IN ('trainer', 'curator') OR ce.user_id = v_owner_id)
     AND ce.user_id != auth.uid()
-  ORDER BY
-    (ce.user_id = v_owner_id) DESC,
-    display_name ASC;
+  UNION
+  -- Owner even if not enrolled
+  SELECT
+    v_owner_id,
+    COALESCE(
+      u2.raw_user_meta_data->>'full_name',
+      u2.raw_user_meta_data->>'name',
+      u2.raw_user_meta_data->>'preferred_username',
+      split_part(u2.email, '@', 1)
+    )::TEXT AS display_name,
+    'trainer'::TEXT,
+    true AS is_owner
+  FROM auth.users u2
+  WHERE u2.id = v_owner_id
+    AND v_owner_id != auth.uid()
+    AND NOT EXISTS (SELECT 1 FROM course_enrollments WHERE course_id = p_course_id AND user_id = v_owner_id)
+  ORDER BY is_owner DESC, display_name ASC;
 END;
 $$;
 
