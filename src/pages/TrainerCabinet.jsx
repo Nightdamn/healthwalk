@@ -281,13 +281,22 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
                   style={{ display: 'flex', gap: 12, alignItems: 'center', cursor: 'pointer' }}
                 >
                   {/* Initials avatar */}
+                  <div style={{ position: 'relative', flexShrink: 0 }}>
                   <div style={{
-                    width: 44, height: 44, borderRadius: 12, flexShrink: 0,
+                    width: 44, height: 44, borderRadius: 12,
                     background: `${avatarColor}15`,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     fontSize: 16, fontWeight: 700, color: avatarColor,
                   }}>
                     {(st.display_name || '?')[0].toUpperCase()}
+                  </div>
+                  {!isSelf && (unreadMap[`${courseId}_${st.user_id}`] || 0) > 0 && (
+                    <div style={{
+                      position: 'absolute', top: -3, right: -3,
+                      width: 12, height: 12, borderRadius: '50%',
+                      background: ORANGE, border: '2px solid #fff',
+                    }} />
+                  )}
                   </div>
 
                   <div style={{ flex: 1, minWidth: 0 }}>

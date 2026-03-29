@@ -104,35 +104,37 @@ BEGIN
 END;
 $$;
 
--- ── Get course staff (trainers + curators + owner) for student to pick recipient ──
+-- ── Get contacts for messaging (bidirectional: students see staff, staff see students) ──
 DROP FUNCTION IF EXISTS get_course_staff(UUID);
 CREATE OR REPLACE FUNCTION get_course_staff(p_course_id UUID)
 RETURNS TABLE (
   out_user_id UUID,
   out_display_name TEXT,
+  out_email TEXT,
   out_role TEXT,
   out_is_owner BOOLEAN
 ) LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
   v_owner_id UUID;
+  v_my_role TEXT;
 BEGIN
-  -- Verify caller is enrolled OR is owner
   SELECT owner_id INTO v_owner_id FROM courses WHERE id = p_course_id;
 
-  IF auth.uid() != v_owner_id AND NOT EXISTS (
-    SELECT 1 FROM course_enrollments WHERE course_id = p_course_id AND user_id = auth.uid()
-  ) THEN
+  -- Get caller's role
+  SELECT role INTO v_my_role FROM course_enrollments
+    WHERE course_id = p_course_id AND user_id = auth.uid();
+
+  -- Must be enrolled or owner
+  IF v_my_role IS NULL AND auth.uid() != v_owner_id THEN
     RAISE EXCEPTION 'Not enrolled';
   END IF;
 
+  -- If caller is trainer/curator/owner → show all enrolled users
+  -- If caller is student → show only trainers/curators/owner
   RETURN QUERY
   SELECT
-    sub.uid,
-    sub.dname,
-    sub.rl,
-    sub.iown
+    sub.uid, sub.dname, sub.eml, sub.rl, sub.iown
   FROM (
-    -- Enrolled trainers/curators/owner
     SELECT DISTINCT ON (ce.user_id)
       ce.user_id AS uid,
       COALESCE(
@@ -141,15 +143,21 @@ BEGIN
         u.raw_user_meta_data->>'preferred_username',
         split_part(u.email, '@', 1)
       )::TEXT AS dname,
+      u.email::TEXT AS eml,
       ce.role::TEXT AS rl,
       (ce.user_id = v_owner_id) AS iown
     FROM course_enrollments ce
     JOIN auth.users u ON u.id = ce.user_id
     WHERE ce.course_id = p_course_id
-      AND (ce.role IN ('trainer', 'curator') OR ce.user_id = v_owner_id)
       AND ce.user_id != auth.uid()
+      AND (
+        -- Staff sees everyone
+        v_my_role IN ('trainer', 'curator') OR auth.uid() = v_owner_id
+        -- Students see only staff + owner
+        OR ce.role IN ('trainer', 'curator') OR ce.user_id = v_owner_id
+      )
   ) sub
-  ORDER BY sub.iown DESC, sub.dname ASC;
+  ORDER BY sub.iown DESC, sub.rl ASC, sub.dname ASC;
 END;
 $$;
 

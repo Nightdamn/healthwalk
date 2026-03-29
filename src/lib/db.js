@@ -456,6 +456,7 @@ export async function getCourseStaff(courseId) {
   return (data || []).map(s => ({
     user_id: s.out_user_id,
     display_name: s.out_display_name,
+    email: s.out_email,
     role: s.out_role,
     is_owner: s.out_is_owner,
   }));

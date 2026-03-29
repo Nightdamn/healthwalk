@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Layout from '../components/Layout';
 import { btnBack, glass } from '../styles/shared';
-import { sendMessage, getConversation, markMessagesRead, getCourseStaff } from '../lib/db';
+import { sendMessage, getConversation, markMessagesRead, getCourseStaff, getUnreadByConversation } from '../lib/db';
 
 const GREEN = '#27ae60';
 const BLUE = '#3498db';
 const ORANGE = '#e67e22';
 const OWNER_COLOR = '#8e44ad';
+const ROLE_LABELS = { trainer: 'Тренер', curator: 'Куратор', student: 'Ученик' };
 
 export default function AskCoachPage({ user, onBack, availableItems, activeItem, onUnreadChange }) {
   const courses = (availableItems || []).filter(i => i.type === 'course');
@@ -14,64 +15,34 @@ export default function AskCoachPage({ user, onBack, availableItems, activeItem,
 
   const [courseId, setCourseId] = useState(defaultCourseId);
   const [staff, setStaff] = useState([]);
-  const [recipientId, setRecipientId] = useState(null);
-  const [messages, setMessages] = useState([]);
-  const [text, setText] = useState('');
-  const [sending, setSending] = useState(false);
+  const [chatUserId, setChatUserId] = useState(null);
+  const [unreadMap, setUnreadMap] = useState({}); // { `courseId_senderId`: count }
   const [loading, setLoading] = useState(false);
-  const chatRef = useRef(null);
+
+  // Load unread map
+  const loadUnread = useCallback(async () => {
+    const data = await getUnreadByConversation();
+    const map = {};
+    for (const u of data) map[`${u.course_id}_${u.sender_id}`] = Number(u.unread_count);
+    setUnreadMap(map);
+  }, []);
+
+  useEffect(() => { loadUnread(); }, [loadUnread]);
 
   // Load staff when course changes
   useEffect(() => {
-    if (!courseId) { setStaff([]); setRecipientId(null); return; }
-    let cancelled = false;
-    getCourseStaff(courseId).then(s => {
-      if (cancelled) return;
-      setStaff(s);
-      setRecipientId(prev => {
-        if (prev && s.some(st => st.user_id === prev)) return prev;
-        return s[0]?.user_id || null;
-      });
-    });
-    return () => { cancelled = true; };
+    if (!courseId) { setStaff([]); return; }
+    setLoading(true);
+    getCourseStaff(courseId).then(s => { setStaff(s); setLoading(false); });
   }, [courseId]);
 
-  // Load conversation when recipient changes
-  const loadConversation = useCallback(async () => {
-    if (!courseId || !recipientId) { setMessages([]); return; }
-    setLoading(true);
-    const msgs = await getConversation(courseId, recipientId);
-    setMessages(msgs);
-    await markMessagesRead(courseId, recipientId);
-    if (onUnreadChange) onUnreadChange();
-    setLoading(false);
-  }, [courseId, recipientId, onUnreadChange]);
-
-  useEffect(() => { loadConversation(); }, [loadConversation]);
-
-  // Scroll to bottom on new messages
-  useEffect(() => {
-    if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight;
-  }, [messages]);
-
-  const handleSend = async () => {
-    if (!text.trim() || !recipientId || !courseId) return;
-    setSending(true);
-    const result = await sendMessage(courseId, recipientId, text.trim());
-    setSending(false);
-    if (result.success) {
-      setText('');
-      await loadConversation();
-    } else {
-      alert(result.error || 'Ошибка отправки');
-    }
+  // Check if course has any unread
+  const courseHasUnread = (cId) => {
+    return Object.keys(unreadMap).some(k => k.startsWith(cId + '_') && unreadMap[k] > 0);
   };
 
-  const handleKeyDown = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
-  };
-
-  const courseName = courses.find(c => c.id === courseId)?.title || '';
+  const getRoleColor = (s) => s.is_owner ? OWNER_COLOR : s.role === 'trainer' ? ORANGE : s.role === 'curator' ? BLUE : GREEN;
+  const getRoleLabel = (s) => s.is_owner ? 'Создатель' : (ROLE_LABELS[s.role] || s.role);
 
   if (courses.length === 0) {
     return (
@@ -79,7 +50,7 @@ export default function AskCoachPage({ user, onBack, availableItems, activeItem,
         <div style={{ minHeight: '100vh', padding: '0 24px', position: 'relative', zIndex: 1 }}>
           <div style={{ display: 'flex', alignItems: 'center', paddingTop: 52, marginBottom: 28 }}>
             <button onClick={onBack} style={btnBack}>←</button>
-            <h2 style={{ flex: 1, textAlign: 'center', fontSize: 20, fontWeight: 700, color: '#1a1a2e', margin: 0 }}>Вопрос тренеру</h2>
+            <h2 style={{ flex: 1, textAlign: 'center', fontSize: 20, fontWeight: 700, color: '#1a1a2e', margin: 0 }}>Сообщения</h2>
             <div style={{ width: 42 }} />
           </div>
           <div style={{ ...glass, borderRadius: 18, padding: '40px 20px', textAlign: 'center' }}>
@@ -94,65 +65,189 @@ export default function AskCoachPage({ user, onBack, availableItems, activeItem,
 
   return (
     <Layout>
-      <div style={{ minHeight: '100vh', padding: '0 20px 20px', position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column' }}>
+      <div style={{ minHeight: '100vh', padding: '0 20px 20px', position: 'relative', zIndex: 1 }}>
         <div style={{ display: 'flex', alignItems: 'center', paddingTop: 52, marginBottom: 16 }}>
           <button onClick={onBack} style={btnBack}>←</button>
-          <h2 style={{ flex: 1, textAlign: 'center', fontSize: 20, fontWeight: 700, color: '#1a1a2e', margin: 0 }}>Вопрос тренеру</h2>
+          <h2 style={{ flex: 1, textAlign: 'center', fontSize: 20, fontWeight: 700, color: '#1a1a2e', margin: 0 }}>Сообщения</h2>
           <div style={{ width: 42 }} />
         </div>
 
         {/* Course selector */}
-        <div style={{ marginBottom: 10 }}>
+        <div style={{ marginBottom: 14, position: 'relative' }}>
           <select value={courseId || ''} onChange={e => setCourseId(e.target.value)}
             style={{
-              width: '100%', padding: '10px 14px', borderRadius: 10,
+              width: '100%', padding: '12px 14px', borderRadius: 12,
               border: '1.5px solid rgba(0,0,0,0.08)', background: 'rgba(255,255,255,0.7)',
-              fontSize: 14, color: '#1a1a2e', fontWeight: 500, cursor: 'pointer', outline: 'none',
+              fontSize: 14, color: '#1a1a2e', fontWeight: 600, cursor: 'pointer', outline: 'none',
+              appearance: 'none', paddingRight: 36,
             }}>
-            {courses.map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
+            {courses.map(c => (
+              <option key={c.id} value={c.id}>
+                {c.title}{courseHasUnread(c.id) ? ' ●' : ''}
+              </option>
+            ))}
           </select>
+          <span style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', fontSize: 12, color: '#aaa', pointerEvents: 'none' }}>▼</span>
+          {courseHasUnread(courseId) && (
+            <div style={{ position: 'absolute', right: 30, top: 8, width: 8, height: 8, borderRadius: '50%', background: ORANGE }} />
+          )}
         </div>
 
-        {/* Recipient selector */}
-        {staff.length > 0 ? (
-          <div style={{ marginBottom: 12 }}>
-            <select value={recipientId || ''} onChange={e => setRecipientId(e.target.value)}
-              style={{
-                width: '100%', padding: '10px 14px', borderRadius: 10,
-                border: '1.5px solid rgba(0,0,0,0.08)', background: 'rgba(255,255,255,0.7)',
-                fontSize: 14, color: '#1a1a2e', fontWeight: 500, cursor: 'pointer', outline: 'none',
-              }}>
-              {staff.map(s => (
-                <option key={s.user_id} value={s.user_id}>
-                  {s.display_name} — {s.is_owner ? 'Создатель' : s.role === 'trainer' ? 'Тренер' : 'Куратор'}
-                </option>
-              ))}
-            </select>
+        {/* Contacts list */}
+        {loading ? (
+          <div style={{ textAlign: 'center', padding: 30, color: '#aaa', fontSize: 13 }}>Загрузка...</div>
+        ) : staff.length === 0 ? (
+          <div style={{ ...glass, borderRadius: 14, padding: '24px 16px', textAlign: 'center', fontSize: 13, color: '#999' }}>
+            Нет доступных контактов в этом курсе
           </div>
         ) : (
-          <div style={{ ...glass, borderRadius: 12, padding: '16px', marginBottom: 12, textAlign: 'center', fontSize: 13, color: '#999' }}>
-            В этом курсе нет доступных тренеров
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {staff.map(s => {
+              const color = getRoleColor(s);
+              const unread = unreadMap[`${courseId}_${s.user_id}`] || 0;
+              return (
+                <div key={s.user_id}
+                  onClick={() => setChatUserId(s.user_id)}
+                  style={{
+                    ...glass, borderRadius: 14, padding: '12px 14px', cursor: 'pointer',
+                    display: 'flex', gap: 12, alignItems: 'center',
+                    border: unread > 0 ? `1.5px solid ${ORANGE}40` : undefined,
+                    transition: 'transform 0.1s',
+                  }}>
+                  {/* Avatar with unread dot */}
+                  <div style={{ position: 'relative', flexShrink: 0 }}>
+                    <div style={{
+                      width: 44, height: 44, borderRadius: 12,
+                      background: `${color}15`,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 17, fontWeight: 700, color,
+                    }}>
+                      {(s.display_name || '?')[0].toUpperCase()}
+                    </div>
+                    {unread > 0 && (
+                      <div style={{
+                        position: 'absolute', top: -3, right: -3,
+                        width: 12, height: 12, borderRadius: '50%',
+                        background: ORANGE, border: '2px solid #fff',
+                      }} />
+                    )}
+                  </div>
+
+                  {/* Info */}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontSize: 15, fontWeight: 600, color: '#1a1a2e', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {s.display_name}
+                      </span>
+                      <span style={{
+                        padding: '2px 7px', borderRadius: 6, fontSize: 10, fontWeight: 600,
+                        background: `${color}15`, color, flexShrink: 0,
+                      }}>
+                        {getRoleLabel(s)}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 12, color: '#999', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {s.email}
+                    </div>
+                  </div>
+
+                  <span style={{ fontSize: 14, color: '#ccc', flexShrink: 0 }}>›</span>
+                </div>
+              );
+            })}
           </div>
         )}
+      </div>
 
-        {/* Chat history */}
+      {/* Chat modal */}
+      {chatUserId && (
+        <ChatModal
+          courseId={courseId}
+          userId={user.id}
+          otherUserId={chatUserId}
+          otherName={staff.find(s => s.user_id === chatUserId)?.display_name || ''}
+          onClose={() => setChatUserId(null)}
+          onRead={() => {
+            setUnreadMap(prev => {
+              const next = { ...prev };
+              delete next[`${courseId}_${chatUserId}`];
+              return next;
+            });
+            if (onUnreadChange) onUnreadChange();
+          }}
+        />
+      )}
+    </Layout>
+  );
+}
+
+/* ── Chat modal (shared between AskCoach and TrainerCabinet) ── */
+function ChatModal({ courseId, userId, otherUserId, otherName, onClose, onRead }) {
+  const [messages, setMessages] = useState([]);
+  const [text, setText] = useState('');
+  const [sending, setSending] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const chatRef = useRef(null);
+
+  const loadMessages = useCallback(async () => {
+    const msgs = await getConversation(courseId, otherUserId);
+    setMessages(msgs);
+    setLoading(false);
+    await markMessagesRead(courseId, otherUserId);
+    if (onRead) onRead();
+  }, [courseId, otherUserId, onRead]);
+
+  useEffect(() => { loadMessages(); }, [loadMessages]);
+
+  useEffect(() => {
+    if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight;
+  }, [messages]);
+
+  const handleSend = async () => {
+    if (!text.trim()) return;
+    setSending(true);
+    const result = await sendMessage(courseId, otherUserId, text.trim());
+    setSending(false);
+    if (result.success) { setText(''); await loadMessages(); }
+    else alert(result.error || 'Ошибка отправки');
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
+  };
+
+  return (
+    <div style={{
+      position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 1000,
+      background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+    }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{
+        width: '100%', maxWidth: 500, maxHeight: '85vh',
+        background: '#fff', borderRadius: '20px 20px 0 0', padding: '16px 16px 12px',
+        display: 'flex', flexDirection: 'column',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, paddingBottom: 10, borderBottom: '1px solid rgba(0,0,0,0.06)' }}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: '#1a1a2e' }}>💬 {otherName}</div>
+          <button onClick={onClose} style={{
+            width: 32, height: 32, borderRadius: 8, border: 'none', background: 'rgba(0,0,0,0.05)',
+            fontSize: 16, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>✕</button>
+        </div>
+
         <div ref={chatRef} style={{
-          ...glass, borderRadius: 16, padding: '12px', flex: 1, minHeight: 200, maxHeight: 'calc(100vh - 340px)',
-          overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12,
+          flex: 1, overflowY: 'auto', minHeight: 200, maxHeight: '55vh',
+          display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12, padding: '4px 0',
         }}>
           {loading ? (
-            <div style={{ textAlign: 'center', padding: 20, color: '#aaa', fontSize: 13 }}>Загрузка...</div>
+            <div style={{ textAlign: 'center', padding: 30, color: '#aaa', fontSize: 13 }}>Загрузка...</div>
           ) : messages.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: 30, color: '#bbb', fontSize: 13 }}>
-              Нет сообщений. Напишите первым!
-            </div>
+            <div style={{ textAlign: 'center', padding: 30, color: '#bbb', fontSize: 13 }}>Нет сообщений</div>
           ) : (
             messages.map(m => {
-              const isMine = m.sender_id === user.id;
+              const isMine = m.sender_id === userId;
               return (
                 <div key={m.id} style={{
-                  alignSelf: isMine ? 'flex-end' : 'flex-start',
-                  maxWidth: '80%',
+                  alignSelf: isMine ? 'flex-end' : 'flex-start', maxWidth: '80%',
                   padding: '8px 12px',
                   borderRadius: isMine ? '12px 12px 4px 12px' : '12px 12px 12px 4px',
                   background: isMine ? '#1a1a2e' : 'rgba(0,0,0,0.04)',
@@ -160,12 +255,8 @@ export default function AskCoachPage({ user, onBack, availableItems, activeItem,
                   fontSize: 14, lineHeight: 1.4, wordBreak: 'break-word',
                 }}>
                   <div>{m.body}</div>
-                  <div style={{
-                    fontSize: 10, marginTop: 4, textAlign: 'right',
-                    color: isMine ? 'rgba(255,255,255,0.5)' : '#bbb',
-                  }}>
+                  <div style={{ fontSize: 10, marginTop: 4, textAlign: 'right', color: isMine ? 'rgba(255,255,255,0.5)' : '#bbb' }}>
                     {new Date(m.created_at).toLocaleString('ru', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
-                    {!isMine && !m.is_read && <span style={{ color: ORANGE, marginLeft: 4, fontWeight: 700 }}>●</span>}
                   </div>
                 </div>
               );
@@ -173,39 +264,31 @@ export default function AskCoachPage({ user, onBack, availableItems, activeItem,
           )}
         </div>
 
-        {/* Input area */}
-        {recipientId && (
-          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
-            <div style={{ flex: 1, position: 'relative' }}>
-              <textarea
-                value={text}
-                onChange={e => { if (e.target.value.length <= 500) setText(e.target.value); }}
-                onKeyDown={handleKeyDown}
-                placeholder="Ваш вопрос..."
-                rows={2}
-                style={{
-                  width: '100%', padding: '10px 14px', borderRadius: 12,
-                  border: '1.5px solid rgba(0,0,0,0.08)', background: 'rgba(255,255,255,0.7)',
-                  fontSize: 14, resize: 'none', fontFamily: 'inherit', boxSizing: 'border-box',
-                  outline: 'none',
-                }}
-              />
-              <span style={{ position: 'absolute', right: 10, bottom: 6, fontSize: 10, color: text.length > 450 ? ORANGE : '#ccc' }}>
-                {text.length}/500
-              </span>
-            </div>
-            <button onClick={handleSend} disabled={sending || !text.trim()}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+          <div style={{ flex: 1, position: 'relative' }}>
+            <textarea value={text}
+              onChange={e => { if (e.target.value.length <= 500) setText(e.target.value); }}
+              onKeyDown={handleKeyDown} placeholder="Сообщение..." rows={2}
               style={{
-                padding: '10px 18px', borderRadius: 12, border: 'none',
-                background: '#1a1a2e', color: '#fff', fontSize: 14, fontWeight: 600,
-                cursor: sending || !text.trim() ? 'default' : 'pointer',
-                opacity: sending || !text.trim() ? 0.5 : 1, flexShrink: 0, height: 44,
-              }}>
-              {sending ? '...' : '→'}
-            </button>
+                width: '100%', padding: '10px 14px', borderRadius: 12,
+                border: '1.5px solid rgba(0,0,0,0.08)', background: 'rgba(0,0,0,0.02)',
+                fontSize: 14, resize: 'none', fontFamily: 'inherit', boxSizing: 'border-box', outline: 'none',
+              }} />
+            <span style={{ position: 'absolute', right: 10, bottom: 6, fontSize: 10, color: text.length > 450 ? ORANGE : '#ccc' }}>
+              {text.length}/500
+            </span>
           </div>
-        )}
+          <button onClick={handleSend} disabled={sending || !text.trim()}
+            style={{
+              padding: '10px 18px', borderRadius: 12, border: 'none',
+              background: '#1a1a2e', color: '#fff', fontSize: 14, fontWeight: 600,
+              cursor: sending || !text.trim() ? 'default' : 'pointer',
+              opacity: sending || !text.trim() ? 0.5 : 1, flexShrink: 0, height: 44,
+            }}>
+            {sending ? '...' : '→'}
+          </button>
+        </div>
       </div>
-    </Layout>
+    </div>
   );
 }
