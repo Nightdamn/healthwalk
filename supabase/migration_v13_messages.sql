@@ -108,55 +108,48 @@ $$;
 DROP FUNCTION IF EXISTS get_course_staff(UUID);
 CREATE OR REPLACE FUNCTION get_course_staff(p_course_id UUID)
 RETURNS TABLE (
-  user_id UUID,
-  display_name TEXT,
-  role TEXT,
-  is_owner BOOLEAN
+  out_user_id UUID,
+  out_display_name TEXT,
+  out_role TEXT,
+  out_is_owner BOOLEAN
 ) LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
   v_owner_id UUID;
 BEGIN
-  -- Verify caller is enrolled
-  IF NOT EXISTS (SELECT 1 FROM course_enrollments WHERE course_id = p_course_id AND user_id = auth.uid()) THEN
+  -- Verify caller is enrolled OR is owner
+  SELECT owner_id INTO v_owner_id FROM courses WHERE id = p_course_id;
+
+  IF auth.uid() != v_owner_id AND NOT EXISTS (
+    SELECT 1 FROM course_enrollments WHERE course_id = p_course_id AND user_id = auth.uid()
+  ) THEN
     RAISE EXCEPTION 'Not enrolled';
   END IF;
 
-  SELECT owner_id INTO v_owner_id FROM courses WHERE id = p_course_id;
-
   RETURN QUERY
-  -- Enrolled trainers/curators
   SELECT
-    ce.user_id,
-    COALESCE(
-      u.raw_user_meta_data->>'full_name',
-      u.raw_user_meta_data->>'name',
-      u.raw_user_meta_data->>'preferred_username',
-      split_part(u.email, '@', 1)
-    )::TEXT AS display_name,
-    ce.role,
-    (ce.user_id = v_owner_id) AS is_owner
-  FROM course_enrollments ce
-  JOIN auth.users u ON u.id = ce.user_id
-  WHERE ce.course_id = p_course_id
-    AND (ce.role IN ('trainer', 'curator') OR ce.user_id = v_owner_id)
-    AND ce.user_id != auth.uid()
-  UNION
-  -- Owner even if not enrolled
-  SELECT
-    v_owner_id,
-    COALESCE(
-      u2.raw_user_meta_data->>'full_name',
-      u2.raw_user_meta_data->>'name',
-      u2.raw_user_meta_data->>'preferred_username',
-      split_part(u2.email, '@', 1)
-    )::TEXT AS display_name,
-    'trainer'::TEXT,
-    true AS is_owner
-  FROM auth.users u2
-  WHERE u2.id = v_owner_id
-    AND v_owner_id != auth.uid()
-    AND NOT EXISTS (SELECT 1 FROM course_enrollments WHERE course_id = p_course_id AND user_id = v_owner_id)
-  ORDER BY is_owner DESC, display_name ASC;
+    sub.uid,
+    sub.dname,
+    sub.rl,
+    sub.iown
+  FROM (
+    -- Enrolled trainers/curators/owner
+    SELECT DISTINCT ON (ce.user_id)
+      ce.user_id AS uid,
+      COALESCE(
+        u.raw_user_meta_data->>'full_name',
+        u.raw_user_meta_data->>'name',
+        u.raw_user_meta_data->>'preferred_username',
+        split_part(u.email, '@', 1)
+      )::TEXT AS dname,
+      ce.role::TEXT AS rl,
+      (ce.user_id = v_owner_id) AS iown
+    FROM course_enrollments ce
+    JOIN auth.users u ON u.id = ce.user_id
+    WHERE ce.course_id = p_course_id
+      AND (ce.role IN ('trainer', 'curator') OR ce.user_id = v_owner_id)
+      AND ce.user_id != auth.uid()
+  ) sub
+  ORDER BY sub.iown DESC, sub.dname ASC;
 END;
 $$;
 

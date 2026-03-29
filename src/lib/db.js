@@ -452,7 +452,13 @@ export async function getUnreadCount() {
 export async function getCourseStaff(courseId) {
   const { data, error } = await supabase.rpc('get_course_staff', { p_course_id: courseId });
   if (error) { console.error('[DB] Get course staff:', error); return []; }
-  return data || [];
+  // Map output column names to frontend-friendly names
+  return (data || []).map(s => ({
+    user_id: s.out_user_id,
+    display_name: s.out_display_name,
+    role: s.out_role,
+    is_owner: s.out_is_owner,
+  }));
 }
 
 export async function getUnreadByConversation() {
