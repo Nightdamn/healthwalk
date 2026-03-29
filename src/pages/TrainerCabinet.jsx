@@ -32,6 +32,7 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
   const [actionId, setActionId] = useState(null);
   const [chatUserId, setChatUserId] = useState(null); // open chat with this student
   const [unreadMap, setUnreadMap] = useState({}); // { `courseId_senderId`: count }
+  const [roleDropdownId, setRoleDropdownId] = useState(null); // enrollment_id with open role dropdown
 
   // Invite state
   const [showInvite, setShowInvite] = useState(false);
@@ -313,23 +314,52 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
                           Создатель
                         </span>
                       ) : (
-                        <select
-                          value={st.role}
-                          disabled={isBusy || isSelf}
-                          onClick={e => e.stopPropagation()}
-                          onChange={e => { e.stopPropagation(); handleChangeRole(st.enrollment_id, e.target.value); }}
-                          style={{
-                            padding: '2px 6px', borderRadius: 6, fontSize: 11, fontWeight: 600,
-                            border: `1.5px solid ${ROLE_COLORS[st.role]}40`,
-                            background: `${ROLE_COLORS[st.role]}15`, color: ROLE_COLORS[st.role],
-                            cursor: isBusy || isSelf ? 'default' : 'pointer', outline: 'none',
-                            opacity: isBusy ? 0.5 : 1,
-                          }}
-                        >
-                          {['student', 'curator', 'trainer'].map(r => (
-                            <option key={r} value={r}>{ROLE_LABELS[r]}</option>
-                          ))}
-                        </select>
+                        <div style={{ position: 'relative' }} onClick={e => e.stopPropagation()}>
+                          <button
+                            onClick={() => {
+                              if (!isBusy && !isSelf) setRoleDropdownId(roleDropdownId === st.enrollment_id ? null : st.enrollment_id);
+                            }}
+                            style={{
+                              padding: '2px 7px', borderRadius: 6, fontSize: 11, fontWeight: 600,
+                              border: `1.5px solid ${ROLE_COLORS[st.role]}40`,
+                              background: `${ROLE_COLORS[st.role]}15`, color: ROLE_COLORS[st.role],
+                              cursor: isBusy || isSelf ? 'default' : 'pointer', outline: 'none',
+                              opacity: isBusy ? 0.5 : 1, display: 'flex', alignItems: 'center', gap: 3,
+                            }}
+                          >
+                            {ROLE_LABELS[st.role]}
+                            {!isSelf && <span style={{ fontSize: 8, marginLeft: 2 }}>▼</span>}
+                          </button>
+                          {roleDropdownId === st.enrollment_id && (
+                            <>
+                              <div onClick={() => setRoleDropdownId(null)} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 19 }} />
+                              <div style={{
+                                position: 'absolute', top: '100%', left: 0, zIndex: 20, marginTop: 4,
+                                background: '#fff', borderRadius: 10, border: '1px solid rgba(0,0,0,0.08)',
+                                boxShadow: '0 8px 24px rgba(0,0,0,0.12)', overflow: 'hidden', minWidth: 120,
+                              }}>
+                                {['student', 'curator', 'trainer'].map(r => (
+                                  <button key={r}
+                                    onClick={() => {
+                                      setRoleDropdownId(null);
+                                      if (r !== st.role) handleChangeRole(st.enrollment_id, r);
+                                    }}
+                                    style={{
+                                      width: '100%', padding: '10px 14px', border: 'none',
+                                      background: r === st.role ? `${ROLE_COLORS[r]}10` : '#fff',
+                                      fontSize: 13, fontWeight: r === st.role ? 600 : 400,
+                                      color: ROLE_COLORS[r], cursor: 'pointer', textAlign: 'left',
+                                      borderBottom: '1px solid rgba(0,0,0,0.04)',
+                                      display: 'flex', alignItems: 'center', gap: 6,
+                                    }}>
+                                    {r === st.role && <span style={{ fontSize: 11 }}>✓</span>}
+                                    {ROLE_LABELS[r]}
+                                  </button>
+                                ))}
+                              </div>
+                            </>
+                          )}
+                        </div>
                       )}
                       {st.paused && (
                         <span style={{ padding: '2px 7px', borderRadius: 6, fontSize: 10, fontWeight: 600, background: `${ORANGE}15`, color: ORANGE }}>
@@ -887,6 +917,7 @@ function TrainerChat({ courseId, trainerId, studentId, studentName, onClose, onR
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
   const chatRef = useRef(null);
+  const shouldScrollRef = useRef(true);
 
   const loadMessages = useCallback(async () => {
     const msgs = await getConversation(courseId, studentId);
@@ -896,10 +927,13 @@ function TrainerChat({ courseId, trainerId, studentId, studentName, onClose, onR
     if (onRead) onRead();
   }, [courseId, studentId, onRead]);
 
-  useEffect(() => { loadMessages(); }, [loadMessages]);
+  useEffect(() => { shouldScrollRef.current = true; loadMessages(); }, [loadMessages]);
 
   useEffect(() => {
-    if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight;
+    if (shouldScrollRef.current && chatRef.current) {
+      chatRef.current.scrollTop = chatRef.current.scrollHeight;
+      shouldScrollRef.current = false;
+    }
   }, [messages]);
 
   const handleSend = async () => {
@@ -909,6 +943,7 @@ function TrainerChat({ courseId, trainerId, studentId, studentName, onClose, onR
     setSending(false);
     if (result.success) {
       setText('');
+      shouldScrollRef.current = true;
       await loadMessages();
     } else {
       alert(result.error || 'Ошибка отправки');

@@ -76,6 +76,25 @@ export function getCourseDay(startDateISO, tzOffsetMin = null, dayStartHour = DA
 }
 
 /**
+ * Возвращает true если курс полностью завершён (все дни прошли).
+ */
+export function isCourseFinished(startDateISO, tzOffsetMin = null, dayStartHour = DAY_START_HOUR, maxDays = DAYS_TOTAL) {
+  if (!startDateISO) return false;
+
+  const now = new Date();
+  const offsetMin = tzOffsetMin !== null ? tzOffsetMin : -(now.getTimezoneOffset());
+
+  const nowLocalMs = now.getTime() + offsetMin * 60 * 1000;
+  const startLocalMs = new Date(startDateISO).getTime() + offsetMin * 60 * 1000;
+
+  const shiftMs = dayStartHour * 60 * 60 * 1000;
+  const nowShifted = Math.floor((nowLocalMs - shiftMs) / (24 * 60 * 60 * 1000));
+  const startShifted = Math.floor((startLocalMs - shiftMs) / (24 * 60 * 60 * 1000));
+
+  return (nowShifted - startShifted + 1) > maxDays;
+}
+
+/**
  * Возвращает ISO дату начала курса (первый день в dayStartHour).
  */
 export function getDefaultStartDate(dayStartHour = DAY_START_HOUR) {

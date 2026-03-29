@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Layout from '../components/Layout';
 import { btnBack, glass } from '../styles/shared';
+import { getIconPath } from '../data/iconCatalog';
 import { sendMessage, getConversation, markMessagesRead, getCourseStaff, getUnreadByConversation } from '../lib/db';
 
 const GREEN = '#27ae60';
@@ -16,10 +17,10 @@ export default function AskCoachPage({ user, onBack, availableItems, activeItem,
   const [courseId, setCourseId] = useState(defaultCourseId);
   const [staff, setStaff] = useState([]);
   const [chatUserId, setChatUserId] = useState(null);
-  const [unreadMap, setUnreadMap] = useState({}); // { `courseId_senderId`: count }
+  const [unreadMap, setUnreadMap] = useState({});
   const [loading, setLoading] = useState(false);
+  const [courseDropdownOpen, setCourseDropdownOpen] = useState(false);
 
-  // Load unread map
   const loadUnread = useCallback(async () => {
     const data = await getUnreadByConversation();
     const map = {};
@@ -29,20 +30,16 @@ export default function AskCoachPage({ user, onBack, availableItems, activeItem,
 
   useEffect(() => { loadUnread(); }, [loadUnread]);
 
-  // Load staff when course changes
   useEffect(() => {
     if (!courseId) { setStaff([]); return; }
     setLoading(true);
     getCourseStaff(courseId).then(s => { setStaff(s); setLoading(false); });
   }, [courseId]);
 
-  // Check if course has any unread
-  const courseHasUnread = (cId) => {
-    return Object.keys(unreadMap).some(k => k.startsWith(cId + '_') && unreadMap[k] > 0);
-  };
-
+  const courseHasUnread = (cId) => Object.keys(unreadMap).some(k => k.startsWith(cId + '_') && unreadMap[k] > 0);
   const getRoleColor = (s) => s.is_owner ? OWNER_COLOR : s.role === 'trainer' ? ORANGE : s.role === 'curator' ? BLUE : GREEN;
   const getRoleLabel = (s) => s.is_owner ? 'Создатель' : (ROLE_LABELS[s.role] || s.role);
+  const selectedCourse = courses.find(c => c.id === courseId);
 
   if (courses.length === 0) {
     return (
@@ -72,24 +69,76 @@ export default function AskCoachPage({ user, onBack, availableItems, activeItem,
           <div style={{ width: 42 }} />
         </div>
 
-        {/* Course selector */}
-        <div style={{ marginBottom: 14, position: 'relative' }}>
-          <select value={courseId || ''} onChange={e => setCourseId(e.target.value)}
+        {/* Course dropdown */}
+        <div style={{ position: 'relative', marginBottom: 14 }}>
+          <button onClick={() => setCourseDropdownOpen(!courseDropdownOpen)}
             style={{
-              width: '100%', padding: '12px 14px', borderRadius: 12,
+              width: '100%', padding: '10px 14px', borderRadius: 12,
               border: '1.5px solid rgba(0,0,0,0.08)', background: 'rgba(255,255,255,0.7)',
-              fontSize: 14, color: '#1a1a2e', fontWeight: 600, cursor: 'pointer', outline: 'none',
-              appearance: 'none', paddingRight: 36,
+              fontSize: 14, color: '#1a1a2e', fontWeight: 600, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', gap: 10,
             }}>
-            {courses.map(c => (
-              <option key={c.id} value={c.id}>
-                {c.title}{courseHasUnread(c.id) ? ' ●' : ''}
-              </option>
-            ))}
-          </select>
-          <span style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', fontSize: 12, color: '#aaa', pointerEvents: 'none' }}>▼</span>
-          {courseHasUnread(courseId) && (
-            <div style={{ position: 'absolute', right: 30, top: 8, width: 8, height: 8, borderRadius: '50%', background: ORANGE }} />
+            {(() => {
+              const src = selectedCourse?.avatarCustom || (selectedCourse?.avatarIcon ? getIconPath(selectedCourse.avatarIcon) : null);
+              return (
+                <div style={{
+                  width: 32, height: 32, borderRadius: 8, flexShrink: 0,
+                  background: '#fafafa', border: `1.5px solid ${GREEN}30`,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
+                }}>
+                  {src
+                    ? <img src={src} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                    : <span style={{ fontSize: 16 }}>📚</span>}
+                </div>
+              );
+            })()}
+            <span style={{ flex: 1, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {selectedCourse?.title || 'Выберите курс'}
+            </span>
+            {courseHasUnread(courseId) && (
+              <div style={{ width: 8, height: 8, borderRadius: '50%', background: ORANGE, flexShrink: 0 }} />
+            )}
+            <span style={{ fontSize: 12, color: '#aaa', transition: 'transform 0.2s', transform: courseDropdownOpen ? 'rotate(180deg)' : 'none', flexShrink: 0 }}>▼</span>
+          </button>
+          {courseDropdownOpen && (
+            <>
+              <div onClick={() => setCourseDropdownOpen(false)} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9 }} />
+              <div style={{
+                position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 10, marginTop: 4,
+                background: '#fff', borderRadius: 12, border: '1px solid rgba(0,0,0,0.08)',
+                boxShadow: '0 8px 24px rgba(0,0,0,0.1)', overflow: 'hidden',
+              }}>
+                {courses.map(c => {
+                  const src = c.avatarCustom || (c.avatarIcon ? getIconPath(c.avatarIcon) : null);
+                  return (
+                    <button key={c.id}
+                      onClick={() => { setCourseId(c.id); setCourseDropdownOpen(false); }}
+                      style={{
+                        width: '100%', padding: '10px 14px', border: 'none',
+                        background: c.id === courseId ? 'rgba(39,174,96,0.06)' : '#fff',
+                        fontSize: 14, color: '#1a1a2e', fontWeight: c.id === courseId ? 600 : 400,
+                        cursor: 'pointer', textAlign: 'left',
+                        display: 'flex', alignItems: 'center', gap: 10,
+                        borderBottom: '1px solid rgba(0,0,0,0.04)',
+                      }}>
+                      <div style={{
+                        width: 28, height: 28, borderRadius: 7, flexShrink: 0,
+                        background: '#fafafa', border: c.id === courseId ? `1.5px solid ${GREEN}` : '1px solid rgba(0,0,0,0.06)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
+                      }}>
+                        {src
+                          ? <img src={src} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                          : <span style={{ fontSize: 14 }}>📚</span>}
+                      </div>
+                      <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.title}</span>
+                      {courseHasUnread(c.id) && (
+                        <div style={{ width: 8, height: 8, borderRadius: '50%', background: ORANGE, flexShrink: 0 }} />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </>
           )}
         </div>
 
@@ -112,9 +161,7 @@ export default function AskCoachPage({ user, onBack, availableItems, activeItem,
                     ...glass, borderRadius: 14, padding: '12px 14px', cursor: 'pointer',
                     display: 'flex', gap: 12, alignItems: 'center',
                     border: unread > 0 ? `1.5px solid ${ORANGE}40` : undefined,
-                    transition: 'transform 0.1s',
                   }}>
-                  {/* Avatar with unread dot */}
                   <div style={{ position: 'relative', flexShrink: 0 }}>
                     <div style={{
                       width: 44, height: 44, borderRadius: 12,
@@ -132,8 +179,6 @@ export default function AskCoachPage({ user, onBack, availableItems, activeItem,
                       }} />
                     )}
                   </div>
-
-                  {/* Info */}
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                       <span style={{ fontSize: 15, fontWeight: 600, color: '#1a1a2e', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -150,7 +195,6 @@ export default function AskCoachPage({ user, onBack, availableItems, activeItem,
                       {s.email}
                     </div>
                   </div>
-
                   <span style={{ fontSize: 14, color: '#ccc', flexShrink: 0 }}>›</span>
                 </div>
               );
@@ -159,7 +203,6 @@ export default function AskCoachPage({ user, onBack, availableItems, activeItem,
         )}
       </div>
 
-      {/* Chat modal */}
       {chatUserId && (
         <ChatModal
           courseId={courseId}
@@ -181,13 +224,14 @@ export default function AskCoachPage({ user, onBack, availableItems, activeItem,
   );
 }
 
-/* ── Chat modal (shared between AskCoach and TrainerCabinet) ── */
+/* ── Chat modal ── */
 function ChatModal({ courseId, userId, otherUserId, otherName, onClose, onRead }) {
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
   const chatRef = useRef(null);
+  const shouldScrollRef = useRef(true);
 
   const loadMessages = useCallback(async () => {
     const msgs = await getConversation(courseId, otherUserId);
@@ -197,10 +241,13 @@ function ChatModal({ courseId, userId, otherUserId, otherName, onClose, onRead }
     if (onRead) onRead();
   }, [courseId, otherUserId, onRead]);
 
-  useEffect(() => { loadMessages(); }, [loadMessages]);
+  useEffect(() => { shouldScrollRef.current = true; loadMessages(); }, [loadMessages]);
 
   useEffect(() => {
-    if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight;
+    if (shouldScrollRef.current && chatRef.current) {
+      chatRef.current.scrollTop = chatRef.current.scrollHeight;
+      shouldScrollRef.current = false;
+    }
   }, [messages]);
 
   const handleSend = async () => {
@@ -208,8 +255,11 @@ function ChatModal({ courseId, userId, otherUserId, otherName, onClose, onRead }
     setSending(true);
     const result = await sendMessage(courseId, otherUserId, text.trim());
     setSending(false);
-    if (result.success) { setText(''); await loadMessages(); }
-    else alert(result.error || 'Ошибка отправки');
+    if (result.success) {
+      setText('');
+      shouldScrollRef.current = true;
+      await loadMessages();
+    } else alert(result.error || 'Ошибка отправки');
   };
 
   const handleKeyDown = (e) => {

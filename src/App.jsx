@@ -16,7 +16,7 @@ import EditCoursePage from './pages/EditCourse';
 import EditTrackerPage from './pages/EditTracker';
 import TrainerCabinetPage from './pages/TrainerCabinet';
 import Layout from './components/Layout';
-import { DAY_START_HOUR, getCourseDay } from './data/constants';
+import { DAY_START_HOUR, getCourseDay, isCourseFinished } from './data/constants';
 import { supabase } from './lib/supabase';
 import {
   loadUserSettings, saveUserSettings,
@@ -108,6 +108,11 @@ export default function App() {
     const iv = setInterval(recalcDay, 30000);
     return () => clearInterval(iv);
   }, [recalcDay]);
+
+  // ─── Course finished check ───
+  const courseFinished = activeItem
+    ? isCourseFinished(activeItem.startDate || courseStartDate, tzOffsetMin, dayStartHour, activeItem.daysCount)
+    : false;
 
   // ─── Update elapsed when day changes ───
   useEffect(() => {
@@ -483,7 +488,7 @@ export default function App() {
         getElapsedForDay={getElapsedForDay} onStartTimer={handleStartTimer} onNavigate={setScreen}
         activeItem={activeItem} availableItems={availableItems} onSwitchContext={handleSwitchContext}
         exclusions={exclusions} customActivities={customActivities}
-        unreadCount={unreadCount} />
+        unreadCount={unreadCount} courseFinished={courseFinished} />
     );
   }
 }

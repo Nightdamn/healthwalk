@@ -52,7 +52,7 @@ export default function Dashboard({
   // New dynamic props
   activeItem, availableItems, onSwitchContext,
   exclusions = {}, customActivities = [],
-  unreadCount = 0,
+  unreadCount = 0, courseFinished = false,
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [switcherOpen, setSwitcherOpen] = useState(false);
@@ -329,109 +329,267 @@ export default function Dashboard({
               </div>
             </div>
 
-            {/* ── 2. День X ── */}
-            <div style={{ ...glass, borderRadius: 18, padding: '18px 20px', marginBottom: 12 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
-                <div>
-                  <div style={{ fontSize: 22, fontWeight: 800, color: '#1a1a2e' }}>День {activeDay}</div>
-                  <div style={{ fontSize: 13, color: '#999', fontWeight: 500, marginTop: 2 }}>{formatDayDate(dayDate)}</div>
+            {courseFinished ? (
+              <CourseCompleteView
+                progress={progress}
+                allActivities={allActivities}
+                daysTotal={daysTotal}
+                exclusions={exclusions}
+                isActivityOnDay={isActivityOnDay}
+                getElapsedForDay={getElapsedForDay}
+                elapsedTime={elapsedTime}
+                currentDay={currentDay}
+                courseName={activeItem?.title}
+              />
+            ) : (
+              <>
+                {/* ── 2. День X ── */}
+                <div style={{ ...glass, borderRadius: 18, padding: '18px 20px', marginBottom: 12 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
+                    <div>
+                      <div style={{ fontSize: 22, fontWeight: 800, color: '#1a1a2e' }}>День {activeDay}</div>
+                      <div style={{ fontSize: 13, color: '#999', fontWeight: 500, marginTop: 2 }}>{formatDayDate(dayDate)}</div>
+                    </div>
+                    <div style={{ fontSize: 13, color: '#888', fontWeight: 500, paddingTop: 4 }}>{completedCount} из {dayActivities.length}</div>
+                  </div>
+                  <div style={{ height: 8, background: 'rgba(0,0,0,0.04)', borderRadius: 4, overflow: 'hidden', marginTop: 14, marginBottom: 8 }}>
+                    <div style={{
+                      height: '100%', width: `${dayPct}%`,
+                      background: dayPct >= 100 ? 'linear-gradient(90deg, #27ae60, #2ecc71)' : 'linear-gradient(90deg, #1a1a2e, #3a3a5e)',
+                      borderRadius: 4, transition: 'width 0.3s linear',
+                    }} />
+                  </div>
+                  <div style={{ fontSize: 12, color: '#aaa', fontWeight: 500 }}>
+                    {dayPct >= 100 ? 'Все практики выполнены ✨' : `${Math.floor(elapsedSecDay / 60)} из ${Math.floor(totalSecDay / 60)} минут`}
+                  </div>
                 </div>
-                <div style={{ fontSize: 13, color: '#888', fontWeight: 500, paddingTop: 4 }}>{completedCount} из {dayActivities.length}</div>
-              </div>
-              <div style={{ height: 8, background: 'rgba(0,0,0,0.04)', borderRadius: 4, overflow: 'hidden', marginTop: 14, marginBottom: 8 }}>
-                <div style={{
-                  height: '100%', width: `${dayPct}%`,
-                  background: dayPct >= 100 ? 'linear-gradient(90deg, #27ae60, #2ecc71)' : 'linear-gradient(90deg, #1a1a2e, #3a3a5e)',
-                  borderRadius: 4, transition: 'width 0.3s linear',
-                }} />
-              </div>
-              <div style={{ fontSize: 12, color: '#aaa', fontWeight: 500 }}>
-                {dayPct >= 100 ? 'Все практики выполнены ✨' : `${Math.floor(elapsedSecDay / 60)} из ${Math.floor(totalSecDay / 60)} минут`}
-              </div>
-            </div>
 
-            {/* ── 3. Девиз дня ── */}
-            <div style={{ ...glass, background: 'rgba(255,255,255,0.5)', borderRadius: 14, padding: '14px 20px', marginBottom: 20, textAlign: 'center' }}>
-              <span style={{ fontSize: 13, color: '#888', fontWeight: 500, fontStyle: 'italic' }}>«{motto}»</span>
-            </div>
-
-            {/* ── 4. Activity cards (dynamic) ── */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {dayActivities.length === 0 ? (
-                <div style={{ ...glass, borderRadius: 18, padding: '24px 20px', textAlign: 'center', color: '#aaa', fontSize: 14 }}>
-                  Нет практик на этот день
+                {/* ── 3. Девиз дня ── */}
+                <div style={{ ...glass, background: 'rgba(255,255,255,0.5)', borderRadius: 14, padding: '14px 20px', marginBottom: 20, textAlign: 'center' }}>
+                  <span style={{ fontSize: 13, color: '#888', fontWeight: 500, fontStyle: 'italic' }}>«{motto}»</span>
                 </div>
-              ) : dayActivities.map(act => {
-                const done = todayProgress[act.id];
-                const elapsedSec = done ? act.durationMin * 60 : (dayElapsed[act.id] || 0);
-                const totalSec = act.durationMin * 60;
-                const pct = totalSec > 0 ? (elapsedSec / totalSec) * 100 : 0;
-                const elapsedMin = Math.floor(elapsedSec / 60);
-                const elapsedRemSec = elapsedSec % 60;
 
-                return (
-                  <div key={act.id} style={{
-                    ...glass, background: done ? 'rgba(26,26,46,0.04)' : 'rgba(255,255,255,0.65)',
-                    borderRadius: 18, padding: '18px 20px',
-                    border: done ? '1px solid rgba(26,26,46,0.08)' : '1px solid rgba(255,255,255,0.7)',
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                        <div style={{
-                          width: 48, height: 48, borderRadius: 14,
-                          background: done ? 'rgba(26,26,46,0.08)' : 'rgba(0,0,0,0.03)',
-                          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 6,
-                        }}>
-                          <img src={getIconPath(act.iconNum)} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                {/* ── 4. Activity cards (dynamic) ── */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  {dayActivities.length === 0 ? (
+                    <div style={{ ...glass, borderRadius: 18, padding: '24px 20px', textAlign: 'center', color: '#aaa', fontSize: 14 }}>
+                      Нет практик на этот день
+                    </div>
+                  ) : dayActivities.map(act => {
+                    const done = todayProgress[act.id];
+                    const elapsedSec = done ? act.durationMin * 60 : (dayElapsed[act.id] || 0);
+                    const totalSec = act.durationMin * 60;
+                    const pct = totalSec > 0 ? (elapsedSec / totalSec) * 100 : 0;
+                    const elapsedMin = Math.floor(elapsedSec / 60);
+                    const elapsedRemSec = elapsedSec % 60;
+
+                    return (
+                      <div key={act.id} style={{
+                        ...glass, background: done ? 'rgba(26,26,46,0.04)' : 'rgba(255,255,255,0.65)',
+                        borderRadius: 18, padding: '18px 20px',
+                        border: done ? '1px solid rgba(26,26,46,0.08)' : '1px solid rgba(255,255,255,0.7)',
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                            <div style={{
+                              width: 48, height: 48, borderRadius: 14,
+                              background: done ? 'rgba(26,26,46,0.08)' : 'rgba(0,0,0,0.03)',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 6,
+                            }}>
+                              <img src={getIconPath(act.iconNum)} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                            </div>
+                            <div>
+                              <div style={{ fontSize: 16, fontWeight: 600, color: '#1a1a2e' }}>{act.label}</div>
+                              <div style={{ fontSize: 12, color: '#999', fontWeight: 500, marginTop: 2 }}>{act.durationMin} минут</div>
+                            </div>
+                          </div>
+                          {done ? (
+                            <div style={{ width: 38, height: 38, borderRadius: '50%', background: '#27ae60', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                              <svg width="18" height="18" viewBox="0 0 16 16" fill="none"><polyline points="3,8.5 6.5,12 13,4" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="miter" fill="none" /></svg>
+                            </div>
+                          ) : isToday ? (
+                            <button onClick={() => onStartTimer({
+                              id: act.id,
+                              activityId: act.activityId,
+                              label: act.label,
+                              duration: act.durationMin,
+                              iconNum: act.iconNum,
+                            })} style={{
+                              padding: '10px 22px', background: '#1a1a2e', color: '#fff', border: 'none',
+                              borderRadius: 12, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                              boxShadow: '0 3px 10px rgba(26,26,46,0.15)',
+                            }}>
+                              {elapsedSec > 0 ? 'Продолжить' : 'Начать'}
+                            </button>
+                          ) : (
+                            <div style={{ fontSize: 12, color: '#bbb', fontWeight: 500 }}>Не выполнено</div>
+                          )}
                         </div>
-                        <div>
-                          <div style={{ fontSize: 16, fontWeight: 600, color: '#1a1a2e' }}>{act.label}</div>
-                          <div style={{ fontSize: 12, color: '#999', fontWeight: 500, marginTop: 2 }}>{act.durationMin} минут</div>
+                        <div style={{ height: 4, background: 'rgba(0,0,0,0.04)', borderRadius: 2, overflow: 'hidden' }}>
+                          <div style={{
+                            height: '100%', width: `${pct}%`,
+                            background: done ? 'linear-gradient(90deg, #27ae60, #2ecc71)' : 'linear-gradient(90deg, #1a1a2e, #4a4a6e)',
+                            borderRadius: 2, transition: 'width 0.3s linear',
+                          }} />
+                        </div>
+                        <div style={{ fontSize: 11, color: '#bbb', marginTop: 6, fontWeight: 500 }}>
+                          {done ? `${act.durationMin} из ${act.durationMin} мин • Выполнено`
+                            : elapsedSec > 0 ? `${elapsedMin}:${String(elapsedRemSec).padStart(2, '0')} из ${act.durationMin} мин`
+                            : `0 из ${act.durationMin} мин`}
                         </div>
                       </div>
-                      {done ? (
-                        <div style={{ width: 38, height: 38, borderRadius: '50%', background: '#27ae60', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                          <svg width="18" height="18" viewBox="0 0 16 16" fill="none"><polyline points="3,8.5 6.5,12 13,4" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="miter" fill="none" /></svg>
-                        </div>
-                      ) : isToday ? (
-                        <button onClick={() => onStartTimer({
-                          id: act.id,
-                          activityId: act.activityId,
-                          label: act.label,
-                          duration: act.durationMin,
-                          iconNum: act.iconNum,
-                        })} style={{
-                          padding: '10px 22px', background: '#1a1a2e', color: '#fff', border: 'none',
-                          borderRadius: 12, fontSize: 13, fontWeight: 600, cursor: 'pointer',
-                          boxShadow: '0 3px 10px rgba(26,26,46,0.15)',
-                        }}>
-                          {elapsedSec > 0 ? 'Продолжить' : 'Начать'}
-                        </button>
-                      ) : (
-                        <div style={{ fontSize: 12, color: '#bbb', fontWeight: 500 }}>Не выполнено</div>
-                      )}
-                    </div>
-                    <div style={{ height: 4, background: 'rgba(0,0,0,0.04)', borderRadius: 2, overflow: 'hidden' }}>
-                      <div style={{
-                        height: '100%', width: `${pct}%`,
-                        background: done ? 'linear-gradient(90deg, #27ae60, #2ecc71)' : 'linear-gradient(90deg, #1a1a2e, #4a4a6e)',
-                        borderRadius: 2, transition: 'width 0.3s linear',
-                      }} />
-                    </div>
-                    <div style={{ fontSize: 11, color: '#bbb', marginTop: 6, fontWeight: 500 }}>
-                      {done ? `${act.durationMin} из ${act.durationMin} мин • Выполнено`
-                        : elapsedSec > 0 ? `${elapsedMin}:${String(elapsedRemSec).padStart(2, '0')} из ${act.durationMin} мин`
-                        : `0 из ${act.durationMin} мин`}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+                    );
+                  })}
+                </div>
+              </>
+            )}
           </>
         )}
 
         <Footer />
       </div>
     </Layout>
+  );
+}
+
+/* ── Course completion view ── */
+function CourseCompleteView({ progress, allActivities, daysTotal, exclusions, isActivityOnDay, getElapsedForDay, elapsedTime, currentDay, courseName }) {
+  // Compute stats
+  let completedDays = 0;
+  let totalActiveDays = 0;
+  const activityStats = {}; // { actId: { label, iconNum, scheduled: 0, completed: 0, totalMinScheduled: 0 } }
+
+  for (let d = 1; d <= daysTotal; d++) {
+    const dayActs = allActivities.filter(a => isActivityOnDay(a, d));
+    if (dayActs.length === 0) continue;
+    totalActiveDays++;
+    const dp = progress[d] || {};
+    const allDone = dayActs.every(a => dp[a.id]?.completed || dp[a.id] === true);
+    if (allDone) completedDays++;
+
+    dayActs.forEach(a => {
+      if (!activityStats[a.id]) {
+        activityStats[a.id] = { label: a.label, iconNum: a.iconNum, scheduled: 0, completed: 0, totalMinScheduled: 0 };
+      }
+      activityStats[a.id].scheduled++;
+      activityStats[a.id].totalMinScheduled += (a.durationMin || 10);
+      if (dp[a.id]?.completed || dp[a.id] === true) activityStats[a.id].completed++;
+    });
+  }
+
+  const overallPct = totalActiveDays > 0 ? Math.round((completedDays / totalActiveDays) * 100) : 0;
+  const actList = Object.values(activityStats).sort((a, b) => b.scheduled - a.scheduled);
+
+  // Total time (approximate: completed activities * duration)
+  const totalMinutes = actList.reduce((s, a) => s + a.completed * (a.totalMinScheduled / a.scheduled), 0);
+  const totalHours = Math.floor(totalMinutes / 60);
+  const totalMins = Math.round(totalMinutes % 60);
+
+  // Ring chart params
+  const ringSize = 120, ringStroke = 10, ringR = (ringSize - ringStroke) / 2;
+  const ringCirc = 2 * Math.PI * ringR;
+  const ringOffset = ringCirc - (overallPct / 100) * ringCirc;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {/* Congratulations card */}
+      <div style={{
+        ...glass, borderRadius: 20, padding: '28px 20px', textAlign: 'center',
+        background: 'linear-gradient(135deg, rgba(39,174,96,0.08) 0%, rgba(46,204,113,0.04) 100%)',
+        border: '1.5px solid rgba(39,174,96,0.15)',
+      }}>
+        <div style={{ fontSize: 48, marginBottom: 8 }}>🎉</div>
+        <div style={{ fontSize: 22, fontWeight: 800, color: '#1a1a2e', marginBottom: 4 }}>Поздравляем!</div>
+        <div style={{ fontSize: 15, color: '#555', fontWeight: 500 }}>
+          Курс {courseName ? `«${courseName}»` : ''} окончен
+        </div>
+      </div>
+
+      {/* Ring chart + key stats */}
+      <div style={{
+        ...glass, borderRadius: 18, padding: '24px 20px',
+        display: 'flex', alignItems: 'center', gap: 20,
+      }}>
+        {/* Ring */}
+        <div style={{ flexShrink: 0, position: 'relative' }}>
+          <svg width={ringSize} height={ringSize} style={{ transform: 'rotate(-90deg)' }}>
+            <circle cx={ringSize / 2} cy={ringSize / 2} r={ringR}
+              fill="none" stroke="rgba(0,0,0,0.05)" strokeWidth={ringStroke} />
+            <circle cx={ringSize / 2} cy={ringSize / 2} r={ringR}
+              fill="none" stroke={overallPct >= 80 ? GREEN : overallPct >= 50 ? '#f39c12' : '#e74c3c'}
+              strokeWidth={ringStroke} strokeLinecap="round"
+              strokeDasharray={ringCirc} strokeDashoffset={ringOffset}
+              style={{ transition: 'stroke-dashoffset 1s ease' }} />
+          </svg>
+          <div style={{
+            position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
+            alignItems: 'center', justifyContent: 'center',
+          }}>
+            <span style={{ fontSize: 28, fontWeight: 800, color: '#1a1a2e' }}>{overallPct}%</span>
+          </div>
+        </div>
+
+        {/* Stats */}
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div>
+            <div style={{ fontSize: 11, color: '#999', fontWeight: 500, textTransform: 'uppercase', letterSpacing: 0.5 }}>Дней выполнено</div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: '#1a1a2e' }}>
+              {completedDays} <span style={{ fontSize: 14, fontWeight: 500, color: '#aaa' }}>из {totalActiveDays}</span>
+            </div>
+          </div>
+          <div>
+            <div style={{ fontSize: 11, color: '#999', fontWeight: 500, textTransform: 'uppercase', letterSpacing: 0.5 }}>Общее время</div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: '#1a1a2e' }}>
+              {totalHours > 0 && <>{totalHours} <span style={{ fontSize: 14, fontWeight: 500, color: '#aaa' }}>ч</span>{' '}</>}
+              {totalMins} <span style={{ fontSize: 14, fontWeight: 500, color: '#aaa' }}>мин</span>
+            </div>
+          </div>
+          <div>
+            <div style={{ fontSize: 11, color: '#999', fontWeight: 500, textTransform: 'uppercase', letterSpacing: 0.5 }}>Длительность</div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: '#1a1a2e' }}>
+              {daysTotal} <span style={{ fontSize: 14, fontWeight: 500, color: '#aaa' }}>дней</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Activity breakdown */}
+      {actList.length > 0 && (
+        <div style={{ ...glass, borderRadius: 18, padding: '18px 20px' }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 14 }}>
+            Результаты по активностям
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {actList.map(a => {
+              const pct = a.scheduled > 0 ? Math.round((a.completed / a.scheduled) * 100) : 0;
+              return (
+                <div key={a.label}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                    <img src={getIconPath(a.iconNum)} alt="" style={{ width: 24, height: 24, flexShrink: 0 }} />
+                    <span style={{ flex: 1, fontSize: 14, fontWeight: 600, color: '#1a1a2e' }}>{a.label}</span>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: pct >= 80 ? GREEN : pct >= 50 ? '#f39c12' : '#e74c3c' }}>
+                      {pct}%
+                    </span>
+                  </div>
+                  <div style={{ height: 8, borderRadius: 4, background: 'rgba(0,0,0,0.04)', overflow: 'hidden' }}>
+                    <div style={{
+                      height: '100%', width: `${pct}%`, borderRadius: 4,
+                      background: pct >= 80
+                        ? 'linear-gradient(90deg, #27ae60, #2ecc71)'
+                        : pct >= 50 ? 'linear-gradient(90deg, #f39c12, #f1c40f)'
+                        : 'linear-gradient(90deg, #e74c3c, #e67e22)',
+                      transition: 'width 0.5s ease',
+                    }} />
+                  </div>
+                  <div style={{ fontSize: 11, color: '#bbb', marginTop: 3, fontWeight: 500 }}>
+                    {a.completed} из {a.scheduled} занятий
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
