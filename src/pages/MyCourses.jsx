@@ -189,11 +189,12 @@ export default function MyCoursesPage({ user, userRole, onBack, onNavigate, onEd
 
                           <div style={{ marginTop: 12, fontSize: 13, color: '#888' }}>
                             <div style={{ marginBottom: 6 }}>Длительность: <span style={{ fontWeight: 600, color: '#555' }}>{days} дней</span></div>
+                            <div style={{ marginBottom: 6 }}>Ученики: <span style={{ fontWeight: 600, color: '#555' }}>{studentCount} чел.</span></div>
 
                             {acts.length > 0 && (
                               <>
                                 <div style={{ marginBottom: 4, fontWeight: 600, color: '#888' }}>Активности:</div>
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 6 }}>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                                   {acts.map(a => (
                                     <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                       <img src={getIconPath(a.iconNum || 'health/1')} alt="" style={{ width: 20, height: 20, flexShrink: 0 }} />
@@ -204,8 +205,6 @@ export default function MyCoursesPage({ user, userRole, onBack, onNavigate, onEd
                                 </div>
                               </>
                             )}
-
-                            <div>Ученики: <span style={{ fontWeight: 600, color: '#555' }}>{studentCount} чел.</span></div>
                           </div>
 
                           <button onClick={() => onTrainerCabinet(id)}
@@ -266,11 +265,12 @@ export default function MyCoursesPage({ user, userRole, onBack, onNavigate, onEd
 
                       <div style={{ marginTop: 12, fontSize: 13, color: '#888' }}>
                         <div style={{ marginBottom: 6 }}>Длительность: <span style={{ fontWeight: 600, color: '#555' }}>{item.daysCount} дней</span></div>
+                        <div style={{ marginBottom: 6 }}>Ученики: <span style={{ fontWeight: 600, color: '#555' }}>{studentCount} чел.</span></div>
 
                         {acts.length > 0 && (
                           <>
                             <div style={{ marginBottom: 4, fontWeight: 600, color: '#888' }}>Активности:</div>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 6 }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                               {acts.map(a => (
                                 <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                   <img src={getIconPath(a.iconNum || 'health/1')} alt="" style={{ width: 20, height: 20, flexShrink: 0 }} />
@@ -281,8 +281,6 @@ export default function MyCoursesPage({ user, userRole, onBack, onNavigate, onEd
                             </div>
                           </>
                         )}
-
-                        <div>Ученики: <span style={{ fontWeight: 600, color: '#555' }}>{studentCount} чел.</span></div>
                       </div>
 
                       {(item.enrollRole === 'trainer' || item.enrollRole === 'curator') && (

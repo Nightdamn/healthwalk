@@ -476,8 +476,10 @@ function StudentDetails({
   }
 
   const viewDay = selectedDay || (studentCurrentDay > 1 ? studentCurrentDay - 1 : 1);
-  const isFutureDay = viewDay >= studentCurrentDay;
+  const isCurrentDay = viewDay === studentCurrentDay;
+  const isFutureDay = viewDay > studentCurrentDay;
   const isPastDay = viewDay < studentCurrentDay;
+  const canEdit = viewDay >= studentCurrentDay; // текущий + будущий
 
   const handleToggleExcl = async (actId) => {
     setSaving(actId);
@@ -542,7 +544,7 @@ function StudentDetails({
         const activeDayActs = allDayActs.filter(a => !exclusions[`${a.id}_${viewDay}`]);
         const excludedDayActs = allDayActs.filter(a => exclusions[`${a.id}_${viewDay}`]);
 
-        if (allDayActs.length === 0 && !isFutureDay) return null;
+        if (allDayActs.length === 0 && isPastDay) return null;
 
         const dayComplete = activeDayActs.length > 0 && activeDayActs.every(a => progress[viewDay]?.[a.id]?.completed);
         const dayStarted = activeDayActs.some(a => (progress[viewDay]?.[a.id]?.elapsed || 0) > 0);
@@ -554,13 +556,23 @@ function StudentDetails({
                 <span style={{ fontSize: 13, fontWeight: 600, color: '#555' }}>
                   День {viewDay}
                 </span>
+                {isCurrentDay && (
+                  <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 6px', borderRadius: 5, background: `${GREEN}15`, color: GREEN }}>
+                    текущий
+                  </span>
+                )}
                 {isFutureDay && (
                   <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 6px', borderRadius: 5, background: `${BLUE}15`, color: BLUE }}>
                     будущий
                   </span>
                 )}
+                {isPastDay && (
+                  <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 6px', borderRadius: 5, background: 'rgba(0,0,0,0.05)', color: '#999' }}>
+                    прошедший
+                  </span>
+                )}
               </div>
-              {!isFutureDay && (
+              {isPastDay && (
                 <span style={{
                   fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 6,
                   background: dayComplete ? `${GREEN}15` : dayStarted ? `${ORANGE}15` : 'rgba(0,0,0,0.04)',
@@ -601,7 +613,7 @@ function StudentDetails({
                   </span>
                   <span style={{ fontSize: 10, color: '#bbb', flexShrink: 0 }}>/{target}м</span>
                   {/* Disable button for any activity on future days */}
-                  {isFutureDay && (
+                  {canEdit && (
                     <button onClick={() => handleToggleExcl(a.id)} disabled={isSaving}
                       title="Отключить для ученика"
                       style={{
@@ -628,7 +640,7 @@ function StudentDetails({
                     }}>
                       <img src={getIconPath(a.icon_num || 'health/1')} alt="" style={{ width: 18, height: 18, flexShrink: 0 }} />
                       <span style={{ flex: 1, fontSize: 12, color: '#999', textDecoration: 'line-through' }}>{a.label}</span>
-                      {isFutureDay && (
+                      {canEdit && (
                         <button onClick={() => handleToggleExcl(a.id)} disabled={isSaving}
                           title="Включить обратно"
                           style={{
@@ -638,7 +650,7 @@ function StudentDetails({
                             display: 'flex', alignItems: 'center', justifyContent: 'center',
                           }}>✓</button>
                       )}
-                      {isFutureDay && a._isCustom && (
+                      {canEdit && a._isCustom && (
                         <button onClick={async () => {
                           if (!confirm(`Удалить индивидуальную практику "${a.label}"?`)) return;
                           setSaving(a.id);
@@ -660,7 +672,7 @@ function StudentDetails({
             )}
 
             {/* Add practice button — only for future days */}
-            {isFutureDay && (
+            {canEdit && (
               <div style={{ marginTop: 8 }}>
                 {!showAddForm ? (
                   <button onClick={() => {
