@@ -224,14 +224,13 @@ export default function Dashboard({
         {/* ── Menu items ── */}
         {(() => {
           const items = [{ label: 'Профиль', icon: '👤', target: 'profile' }];
-          if (userRole === 'admin') items.push({ label: 'Назначить роль', icon: '🔑', target: 'assign_role' });
           items.push(
             { label: 'Мои курсы', icon: '📚', target: 'my_courses' },
             { label: 'Мои трекеры', icon: '🎯', target: 'my_trackers' },
-            { label: 'Детали прогресса', icon: '📊', target: 'details' },
             { label: 'Рекомендации', icon: '💡', target: 'recommendations' },
             { label: 'Вопрос тренеру', icon: '💬', target: 'ask' },
           );
+          if (userRole === 'admin') items.push({ label: 'Назначить роль', icon: '🔑', target: 'assign_role' });
           return items;
         })().map(item => (
           <button key={item.target} onClick={() => { setMenuOpen(false); onNavigate(item.target); }}
