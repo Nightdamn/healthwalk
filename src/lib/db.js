@@ -420,17 +420,44 @@ export async function declineInvitation(invitationId) {
 // MESSAGES
 // ═══════════════════════════════════════════════════════════
 
-export async function sendMessage(courseId, senderId, recipientId, body) {
-  const { error } = await supabase.from('messages').insert({ course_id: courseId, sender_id: senderId, recipient_id: recipientId, body });
-  if (error) return false;
-  return true;
+export async function sendMessage(courseId, recipientId, body) {
+  const { data, error } = await supabase.rpc('send_message', {
+    p_course_id: courseId, p_recipient_id: recipientId, p_body: body,
+  });
+  if (error) { console.error('[DB] Send message:', error); return { success: false, error: error.message }; }
+  return { success: true, id: data };
 }
 
-export async function getMessages(userId, courseId) {
-  const { data, error } = await supabase.from('messages').select('*')
-    .eq('course_id', courseId).or(`sender_id.eq.${userId},recipient_id.eq.${userId}`)
-    .order('created_at', { ascending: true });
-  if (error) return [];
+export async function getConversation(courseId, otherUserId) {
+  const { data, error } = await supabase.rpc('get_conversation', {
+    p_course_id: courseId, p_other_user_id: otherUserId,
+  });
+  if (error) { console.error('[DB] Get conversation:', error); return []; }
+  return data || [];
+}
+
+export async function markMessagesRead(courseId, senderId) {
+  const { error } = await supabase.rpc('mark_messages_read', {
+    p_course_id: courseId, p_sender_id: senderId,
+  });
+  if (error) console.error('[DB] Mark read:', error);
+}
+
+export async function getUnreadCount() {
+  const { data, error } = await supabase.rpc('get_unread_count');
+  if (error) { console.error('[DB] Unread count:', error); return 0; }
+  return data || 0;
+}
+
+export async function getCourseStaff(courseId) {
+  const { data, error } = await supabase.rpc('get_course_staff', { p_course_id: courseId });
+  if (error) { console.error('[DB] Get course staff:', error); return []; }
+  return data || [];
+}
+
+export async function getUnreadByConversation() {
+  const { data, error } = await supabase.rpc('get_unread_by_conversation');
+  if (error) { console.error('[DB] Unread by conv:', error); return []; }
   return data || [];
 }
 

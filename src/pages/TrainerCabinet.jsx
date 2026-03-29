@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Layout from '../components/Layout';
 import IconPicker from '../components/IconPicker';
 import { getIconPath } from '../data/iconCatalog';
@@ -10,6 +10,7 @@ import {
   changeStudentRole, loadCourseForEdit,
   trainerToggleExclusion, trainerAddStudentActivity, trainerDeleteStudentActivity,
   getCourseExclusions, getCourseCustomActivities,
+  getConversation, sendMessage, markMessagesRead, getUnreadByConversation,
 } from '../lib/db';
 
 const GREEN = '#27ae60';
@@ -29,6 +30,8 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState(null);
   const [actionId, setActionId] = useState(null);
+  const [chatUserId, setChatUserId] = useState(null); // open chat with this student
+  const [unreadMap, setUnreadMap] = useState({}); // { `courseId_senderId`: count }
 
   // Invite state
   const [showInvite, setShowInvite] = useState(false);
@@ -53,6 +56,11 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
     setAllExclusions(excl);
     setAllCustomActivities(custom);
     setLoading(false);
+    // Load unread messages
+    const unreadData = await getUnreadByConversation();
+    const map = {};
+    for (const u of unreadData) map[`${u.course_id}_${u.sender_id}`] = Number(u.unread_count);
+    setUnreadMap(map);
   }, [courseId]);
 
   useEffect(() => { loadData(); }, [loadData]);
@@ -416,11 +424,48 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
                         )}
                       </div>
                     )}
+
+                    {/* Chat button */}
+                    {!isSelf && (
+                      <button onClick={() => setChatUserId(st.user_id)}
+                        style={{
+                          width: '100%', marginTop: 8, padding: '10px 0', borderRadius: 10,
+                          border: `1.5px solid ${BLUE}40`, background: `${BLUE}08`,
+                          color: BLUE, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                          position: 'relative',
+                        }}>
+                        💬 Связь с учеником
+                        {(unreadMap[`${courseId}_${st.user_id}`] || 0) > 0 && (
+                          <div style={{
+                            width: 8, height: 8, borderRadius: '50%', background: ORANGE,
+                          }} />
+                        )}
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
             );
           })
+        )}
+
+        {/* Chat modal */}
+        {chatUserId && (
+          <TrainerChat
+            courseId={courseId}
+            trainerId={user.id}
+            studentId={chatUserId}
+            studentName={students.find(s => s.user_id === chatUserId)?.display_name || ''}
+            onClose={() => setChatUserId(null)}
+            onRead={() => {
+              setUnreadMap(prev => {
+                const next = { ...prev };
+                delete next[`${courseId}_${chatUserId}`];
+                return next;
+              });
+            }}
+          />
         )}
       </div>
     </Layout>
@@ -824,4 +869,137 @@ function studentWord(n) {
   if (n % 10 === 1 && n % 100 !== 11) return 'ученик';
   if ([2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100)) return 'ученика';
   return 'учеников';
+}
+
+/* ── Trainer ↔ Student chat modal ── */
+function TrainerChat({ courseId, trainerId, studentId, studentName, onClose, onRead }) {
+  const [messages, setMessages] = useState([]);
+  const [text, setText] = useState('');
+  const [sending, setSending] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const chatRef = useRef(null);
+
+  const loadMessages = useCallback(async () => {
+    const msgs = await getConversation(courseId, studentId);
+    setMessages(msgs);
+    setLoading(false);
+    await markMessagesRead(courseId, studentId);
+    if (onRead) onRead();
+  }, [courseId, studentId, onRead]);
+
+  useEffect(() => { loadMessages(); }, [loadMessages]);
+
+  useEffect(() => {
+    if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight;
+  }, [messages]);
+
+  const handleSend = async () => {
+    if (!text.trim()) return;
+    setSending(true);
+    const result = await sendMessage(courseId, studentId, text.trim());
+    setSending(false);
+    if (result.success) {
+      setText('');
+      await loadMessages();
+    } else {
+      alert(result.error || 'Ошибка отправки');
+    }
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
+  };
+
+  return (
+    <div style={{
+      position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 1000,
+      background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+    }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{
+        width: '100%', maxWidth: 500, maxHeight: '85vh',
+        background: '#fff', borderRadius: '20px 20px 0 0', padding: '16px 16px 12px',
+        display: 'flex', flexDirection: 'column',
+      }}>
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, paddingBottom: 10, borderBottom: '1px solid rgba(0,0,0,0.06)' }}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: '#1a1a2e' }}>
+            💬 {studentName}
+          </div>
+          <button onClick={onClose} style={{
+            width: 32, height: 32, borderRadius: 8, border: 'none', background: 'rgba(0,0,0,0.05)',
+            fontSize: 16, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>✕</button>
+        </div>
+
+        {/* Messages */}
+        <div ref={chatRef} style={{
+          flex: 1, overflowY: 'auto', minHeight: 200, maxHeight: '55vh',
+          display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12,
+          padding: '4px 0',
+        }}>
+          {loading ? (
+            <div style={{ textAlign: 'center', padding: 30, color: '#aaa', fontSize: 13 }}>Загрузка...</div>
+          ) : messages.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: 30, color: '#bbb', fontSize: 13 }}>
+              Нет сообщений
+            </div>
+          ) : (
+            messages.map(m => {
+              const isMine = m.sender_id === trainerId;
+              return (
+                <div key={m.id} style={{
+                  alignSelf: isMine ? 'flex-end' : 'flex-start',
+                  maxWidth: '80%',
+                  padding: '8px 12px',
+                  borderRadius: isMine ? '12px 12px 4px 12px' : '12px 12px 12px 4px',
+                  background: isMine ? '#1a1a2e' : 'rgba(0,0,0,0.04)',
+                  color: isMine ? '#fff' : '#1a1a2e',
+                  fontSize: 14, lineHeight: 1.4, wordBreak: 'break-word',
+                }}>
+                  <div>{m.body}</div>
+                  <div style={{
+                    fontSize: 10, marginTop: 4, textAlign: 'right',
+                    color: isMine ? 'rgba(255,255,255,0.5)' : '#bbb',
+                  }}>
+                    {new Date(m.created_at).toLocaleString('ru', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        {/* Input */}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+          <div style={{ flex: 1, position: 'relative' }}>
+            <textarea
+              value={text}
+              onChange={e => { if (e.target.value.length <= 500) setText(e.target.value); }}
+              onKeyDown={handleKeyDown}
+              placeholder="Ваш ответ..."
+              rows={2}
+              style={{
+                width: '100%', padding: '10px 14px', borderRadius: 12,
+                border: '1.5px solid rgba(0,0,0,0.08)', background: 'rgba(0,0,0,0.02)',
+                fontSize: 14, resize: 'none', fontFamily: 'inherit', boxSizing: 'border-box',
+                outline: 'none',
+              }}
+            />
+            <span style={{ position: 'absolute', right: 10, bottom: 6, fontSize: 10, color: text.length > 450 ? '#e67e22' : '#ccc' }}>
+              {text.length}/500
+            </span>
+          </div>
+          <button onClick={handleSend} disabled={sending || !text.trim()}
+            style={{
+              padding: '10px 18px', borderRadius: 12, border: 'none',
+              background: '#1a1a2e', color: '#fff', fontSize: 14, fontWeight: 600,
+              cursor: sending || !text.trim() ? 'default' : 'pointer',
+              opacity: sending || !text.trim() ? 0.5 : 1, flexShrink: 0, height: 44,
+            }}>
+            {sending ? '...' : '→'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }

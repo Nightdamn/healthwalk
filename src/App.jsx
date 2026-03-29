@@ -25,6 +25,7 @@ import {
   loadCourseProgress, saveCourseActivityProgress,
   loadTrackerProgress, saveTrackerActivityProgress,
   loadStudentExclusions, loadStudentCustomActivities,
+  getUnreadCount,
 } from './lib/db';
 
 function extractUser(session) {
@@ -64,6 +65,9 @@ export default function App() {
   const [elapsedTime, setElapsedTime] = useState({});  // { actId: seconds }
   const [exclusions, setExclusions] = useState({});    // { `actId_day`: true }
   const [customActivities, setCustomActivities] = useState([]); // student-specific activities
+
+  // Unread messages
+  const [unreadCount, setUnreadCount] = useState(0);
 
   // Timer
   const [activeActivity, setActiveActivity] = useState(null);
@@ -139,13 +143,15 @@ export default function App() {
 
     (async () => {
       try {
-        const [settings, items, role] = await Promise.all([
+        const [settings, items, role, unread] = await Promise.all([
           loadUserSettings(user.id),
           getAvailableItems(user.id),
           checkAndApplyPendingRole(user.id, user.email),
+          getUnreadCount(),
         ]);
         setUserRole(role);
         setAvailableItems(items);
+        setUnreadCount(unread);
 
         if (settings) {
           setCourseStartDate(settings.course_start_date);
@@ -347,6 +353,12 @@ export default function App() {
     return items;
   };
 
+  const refreshUnread = useCallback(async () => {
+    if (!user?.id) return;
+    const count = await getUnreadCount();
+    setUnreadCount(count);
+  }, [user?.id]);
+
   const refreshRole = async () => {
     if (!user?.id) return;
     const role = await getUserRole(user.id);
@@ -455,7 +467,7 @@ export default function App() {
         onBack={goMain} onLogout={handleLogout} activeItem={activeItem} />
     );
     case 'recommendations': return <RecommendationsPage onBack={goMain} />;
-    case 'ask': return <AskCoachPage user={user} onBack={goMain} />;
+    case 'ask': return <AskCoachPage user={user} onBack={goMain} availableItems={availableItems} activeItem={activeItem} onUnreadChange={refreshUnread} />;
     case 'assign_role': return <AssignRolePage onBack={goMain} onAssign={handleAssignRole} />;
     case 'my_courses': return <MyCoursesPage user={user} userRole={userRole} onBack={goMain} onNavigate={setScreen} onEditCourse={handleEditCourse} onTrainerCabinet={handleTrainerCabinet} onRefresh={refreshItems} availableItems={availableItems} />;
     case 'create_course': return <CreateCoursePage user={user} onBack={() => setScreen('my_courses')} onCreated={handleCourseCreated} />;
@@ -470,7 +482,8 @@ export default function App() {
         progress={progress} elapsedTime={elapsedTime} dayStartHour={dayStartHour}
         getElapsedForDay={getElapsedForDay} onStartTimer={handleStartTimer} onNavigate={setScreen}
         activeItem={activeItem} availableItems={availableItems} onSwitchContext={handleSwitchContext}
-        exclusions={exclusions} customActivities={customActivities} />
+        exclusions={exclusions} customActivities={customActivities}
+        unreadCount={unreadCount} />
     );
   }
 }

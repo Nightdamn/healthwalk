@@ -52,6 +52,7 @@ export default function Dashboard({
   // New dynamic props
   activeItem, availableItems, onSwitchContext,
   exclusions = {}, customActivities = [],
+  unreadCount = 0,
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [switcherOpen, setSwitcherOpen] = useState(false);
@@ -234,8 +235,13 @@ export default function Dashboard({
           return items;
         })().map(item => (
           <button key={item.target} onClick={() => { setMenuOpen(false); onNavigate(item.target); }}
-            style={{ display: 'flex', alignItems: 'center', gap: 14, width: '100%', padding: '14px 16px', border: 'none', background: 'transparent', borderRadius: 12, fontSize: 15, fontWeight: 500, color: '#1a1a2e', cursor: 'pointer', textAlign: 'left', marginBottom: 4 }}>
+            style={{ display: 'flex', alignItems: 'center', gap: 14, width: '100%', padding: '14px 16px', border: 'none', background: 'transparent', borderRadius: 12, fontSize: 15, fontWeight: 500, color: '#1a1a2e', cursor: 'pointer', textAlign: 'left', marginBottom: 4, position: 'relative' }}>
             <span style={{ fontSize: 20 }}>{item.icon}</span>{item.label}
+            {item.target === 'ask' && unreadCount > 0 && (
+              <div style={{
+                width: 8, height: 8, borderRadius: '50%', background: '#e67e22', marginLeft: 'auto',
+              }} />
+            )}
           </button>
         ))}
         <div style={{ flex: 1 }} />
@@ -258,12 +264,20 @@ export default function Dashboard({
               </div>
             )}
           </div>
-          <button onClick={() => setMenuOpen(true)}
-            style={{ width: 44, height: 44, borderRadius: 14, background: 'rgba(255,255,255,0.7)', backdropFilter: 'blur(12px)', border: '1px solid rgba(255,255,255,0.6)', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, boxShadow: '0 4px 12px rgba(0,0,0,0.04)' }}>
-            <div style={{ width: 18, height: 2, background: '#1a1a2e', borderRadius: 2 }} />
-            <div style={{ width: 14, height: 2, background: '#1a1a2e', borderRadius: 2 }} />
-            <div style={{ width: 18, height: 2, background: '#1a1a2e', borderRadius: 2 }} />
-          </button>
+          <div style={{ position: 'relative' }}>
+            <button onClick={() => setMenuOpen(true)}
+              style={{ width: 44, height: 44, borderRadius: 14, background: 'rgba(255,255,255,0.7)', backdropFilter: 'blur(12px)', border: '1px solid rgba(255,255,255,0.6)', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, boxShadow: '0 4px 12px rgba(0,0,0,0.04)' }}>
+              <div style={{ width: 18, height: 2, background: '#1a1a2e', borderRadius: 2 }} />
+              <div style={{ width: 14, height: 2, background: '#1a1a2e', borderRadius: 2 }} />
+              <div style={{ width: 18, height: 2, background: '#1a1a2e', borderRadius: 2 }} />
+            </button>
+            {unreadCount > 0 && (
+              <div style={{
+                position: 'absolute', top: -2, right: -2, width: 10, height: 10,
+                borderRadius: '50%', background: '#e67e22', border: '2px solid #fff',
+              }} />
+            )}
+          </div>
         </div>
 
         {/* No active item */}
