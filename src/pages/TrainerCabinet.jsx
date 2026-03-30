@@ -275,6 +275,7 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
                 ...glass, borderRadius: 16, padding: '14px 16px', marginBottom: 10,
                 border: st.paused ? '2px solid rgba(230,126,34,0.3)' : isOwner ? `2px solid ${OWNER_COLOR}30` : undefined,
                 opacity: st.paused ? 0.7 : 1,
+                position: 'relative', zIndex: roleDropdownId === st.enrollment_id ? 10 : 1,
               }}>
                 {/* Main row — clickable */}
                 <div
