@@ -184,41 +184,6 @@ export async function saveTrackerActivityProgress(userId, trackerId, practiceId,
   if (error) console.error('[DB] Save tracker progress:', error);
 }
 
-// ═══════════════════════════════════════════════════════════
-// LEGACY PROGRESS (old activity_progress table)
-// ═══════════════════════════════════════════════════════════
-
-export async function loadAllProgress(userId) {
-  const { data, error } = await supabase
-    .from('activity_progress')
-    .select('day, activity_id, elapsed_seconds, completed')
-    .eq('user_id', userId);
-  if (error) { console.error('[DB] Load progress:', error); return {}; }
-  const r = {};
-  for (const row of (data || [])) {
-    if (!r[row.day]) r[row.day] = {};
-    r[row.day][row.activity_id] = { elapsed: row.elapsed_seconds, completed: row.completed };
-  }
-  return r;
-}
-
-export async function saveActivityProgress(userId, day, activityId, elapsed, completed) {
-  const { error } = await supabase.from('activity_progress').upsert(
-    { user_id: userId, day, activity_id: activityId, elapsed_seconds: elapsed, completed, updated_at: new Date().toISOString() },
-    { onConflict: 'user_id,day,activity_id' }
-  );
-  if (error) console.error('[DB] Save progress:', error);
-}
-
-// ═══════════════════════════════════════════════════════════
-// QUESTIONS
-// ═══════════════════════════════════════════════════════════
-
-export async function submitQuestion(userId, questionText) {
-  const { error } = await supabase.from('questions').insert({ user_id: userId, question: questionText });
-  if (error) { console.error('[DB] Submit question:', error); return false; }
-  return true;
-}
 
 // ═══════════════════════════════════════════════════════════
 // USER ROLES
@@ -370,18 +335,6 @@ export async function getOwnCourses(ownerId) {
   return data || [];
 }
 
-export async function getEnrolledCourses(userId) {
-  const { data, error } = await supabase
-    .from('course_enrollments').select('*, courses(*)').eq('user_id', userId).order('joined_at', { ascending: false });
-  if (error) return [];
-  return data || [];
-}
-
-export async function getCourseStudents(courseId) {
-  const { data, error } = await supabase.from('course_enrollments').select('*').eq('course_id', courseId);
-  if (error) return [];
-  return data || [];
-}
 
 export async function inviteToCourse(courseId, email, role, invitedBy) {
   const { data, error } = await supabase.rpc('invite_to_course', {
@@ -421,6 +374,7 @@ export async function declineInvitation(invitationId) {
 // ═══════════════════════════════════════════════════════════
 
 export async function sendMessage(courseId, recipientId, body) {
+  if (!body || body.length > 500) return { success: false, error: 'Сообщение должно быть от 1 до 500 символов' };
   const { data, error } = await supabase.rpc('send_message', {
     p_course_id: courseId, p_recipient_id: recipientId, p_body: body,
   });

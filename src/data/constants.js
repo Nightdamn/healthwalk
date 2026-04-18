@@ -34,21 +34,6 @@ export const MOTTOS = [
   "Ты — это движение",
 ];
 
-export const ACTIVITIES = [
-  { id: "warmup", label: "Разминка", duration: 20 },
-  { id: "standing", label: "Стояние", duration: 10 },
-  { id: "sitting", label: "Сидение", duration: 10 },
-  { id: "walking", label: "Прогулка", duration: 30 },
-];
-
-export const defaultProgress = () => {
-  const p = {};
-  for (let d = 1; d <= DAYS_TOTAL; d++) {
-    p[d] = { warmup: false, standing: false, sitting: false, walking: false };
-  }
-  return p;
-};
-
 export const formatTime = (s) => {
   const m = Math.floor(s / 60);
   const sec = s % 60;
@@ -107,7 +92,3 @@ export function getDefaultStartDate(dayStartHour = DAY_START_HOUR) {
   return d.toISOString();
 }
 
-export function isDayComplete(dayProgress) {
-  if (!dayProgress) return false;
-  return dayProgress.warmup && dayProgress.standing && dayProgress.sitting && dayProgress.walking;
-}

@@ -48,7 +48,11 @@ export default function ProfilePage({ user, currentDay, progress, tzOffsetMin, d
   const activities = activeItem?.activities || [];
   const isDayDone = (day) => {
     const dp = progress[day] || {};
-    const acts = activities.filter(a => day >= a.firstDay && day <= a.lastDay);
+    const acts = activities.filter(a => {
+      if (day < a.firstDay || day > a.lastDay) return false;
+      const interval = a.intervalDays || 1;
+      return (day - a.firstDay) % interval === 0;
+    });
     return acts.length > 0 && acts.every(a => dp[a.id]);
   };
   const completedDays = Array.from({ length: daysTotal }, (_, i) => i + 1).filter(d => isDayDone(d)).length;

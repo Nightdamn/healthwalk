@@ -425,14 +425,11 @@ export default function App() {
   };
 
   const handleCourseDeleted = async () => {
-    // If the deleted course was active, reset context
-    if (activeItem?.type === 'course' && activeItem?.id === editCourseId) {
-      setActiveItem(null);
-    }
+    const wasActive = activeItem?.type === 'course' && activeItem?.id === editCourseId;
     const items = await refreshItems();
-    // If no active item, pick first available
-    if (activeItem?.type === 'course' && activeItem?.id === editCourseId && items?.length) {
-      handleSwitchContext(items[0]);
+    if (wasActive) {
+      if (items?.length) handleSwitchContext(items[0]);
+      else setActiveItem(null);
     }
     setEditCourseId(null);
     setScreen('my_courses');
