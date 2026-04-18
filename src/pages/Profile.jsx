@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Layout from '../components/Layout';
 import { btnBack, glass } from '../styles/shared';
+import { isNativeApp, checkForUpdate, startUpdate, APP_VERSION } from '../lib/updater';
 
 const TIMEZONES = [
   { label: "UTC−12 Бейкер", offset: -720 },
@@ -44,6 +45,21 @@ const selectStyle = {
 
 export default function ProfilePage({ user, currentDay, progress, tzOffsetMin, dayStartHour, onSetTimezone, onSetDayStartHour, onBack, onLogout, activeItem }) {
   const [loggingOut, setLoggingOut] = useState(false);
+  const [updateInfo, setUpdateInfo] = useState(null); // { available, version, apkUrl, releaseNotes, error }
+  const [updateChecking, setUpdateChecking] = useState(false);
+
+  const handleCheckUpdate = async () => {
+    setUpdateChecking(true);
+    const info = await checkForUpdate();
+    setUpdateInfo(info);
+    setUpdateChecking(false);
+  };
+
+  // Auto-check on mount in native app
+  useEffect(() => {
+    if (isNativeApp()) handleCheckUpdate();
+  }, []);
+
   const daysTotal = activeItem?.daysCount || 30;
   const activities = activeItem?.activities || [];
   const isDayDone = (day) => {
@@ -140,6 +156,68 @@ export default function ProfilePage({ user, currentDay, progress, tzOffsetMin, d
               <option key={tz.offset} value={tz.offset}>{tz.label}</option>
             ))}
           </select>
+        </div>
+
+        {/* ─── Обновление приложения ─── */}
+        <div style={{ ...glass, borderRadius: 16, padding: "18px 20px", marginTop: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: updateInfo?.available ? 12 : 0 }}>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: "#1a1a2e" }}>Версия приложения</div>
+              <div style={{ fontSize: 12, color: "#999", marginTop: 2 }}>v{APP_VERSION}</div>
+            </div>
+            <button onClick={handleCheckUpdate} disabled={updateChecking}
+              style={{
+                padding: '8px 16px', borderRadius: 10,
+                border: '1.5px solid rgba(39,174,96,0.2)', background: 'rgba(39,174,96,0.06)',
+                fontSize: 13, fontWeight: 600, color: '#27ae60',
+                cursor: updateChecking ? 'wait' : 'pointer',
+                opacity: updateChecking ? 0.6 : 1,
+              }}>
+              {updateChecking ? 'Проверка...' : 'Проверить'}
+            </button>
+          </div>
+
+          {updateInfo && !updateInfo.available && !updateInfo.error && (
+            <div style={{
+              padding: '10px 14px', borderRadius: 10, fontSize: 13, fontWeight: 500,
+              background: 'rgba(39,174,96,0.08)', color: '#27ae60', marginTop: 8,
+            }}>
+              У вас последняя версия
+            </div>
+          )}
+
+          {updateInfo?.error && (
+            <div style={{
+              padding: '10px 14px', borderRadius: 10, fontSize: 13, fontWeight: 500,
+              background: 'rgba(231,76,60,0.08)', color: '#e74c3c', marginTop: 8,
+            }}>
+              {updateInfo.error}
+            </div>
+          )}
+
+          {updateInfo?.available && (
+            <div style={{
+              padding: '14px', borderRadius: 12, background: 'rgba(39,174,96,0.06)',
+              border: '1.5px solid rgba(39,174,96,0.15)',
+            }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: '#1a1a2e', marginBottom: 4 }}>
+                Доступна версия {updateInfo.version}
+              </div>
+              {updateInfo.releaseNotes && (
+                <div style={{ fontSize: 12, color: '#666', marginBottom: 10, lineHeight: 1.4 }}>
+                  {updateInfo.releaseNotes}
+                </div>
+              )}
+              <button onClick={() => startUpdate(updateInfo.apkUrl)}
+                style={{
+                  width: '100%', padding: '12px', borderRadius: 10,
+                  border: 'none', background: '#27ae60', color: '#fff',
+                  fontSize: 14, fontWeight: 600, cursor: 'pointer',
+                }}>
+                Обновить
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Logout */}
