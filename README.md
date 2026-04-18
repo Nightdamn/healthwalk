@@ -1,123 +1,93 @@
-# Осознанная Походка
+# HealthWalk
 
-30-дневный курс осознанного движения. Веб-приложение на React + Vite, деплой на Cloudflare Pages.
+Платформа для ведения курсов осознанного движения и здоровья. Тренеры создают курсы с активностями, приглашают учеников, отслеживают прогресс и общаются через встроенный чат. Ученики выполняют ежедневные практики с таймером.
+
+## Стек
+
+- **Frontend:** React 18 + Vite (JSX, без TypeScript)
+- **Backend/БД:** Supabase (PostgreSQL + Auth + RLS)
+- **Хостинг:** Cloudflare Pages
+- **Дизайн:** Glassmorphism, мобильно-ориентированный UI
+
+## Быстрый старт
+
+```bash
+npm install
+cp .env.example .env   # заполнить VITE_SUPABASE_URL и VITE_SUPABASE_ANON_KEY
+npm run dev             # http://localhost:5173
+```
+
+## Деплой
+
+```bash
+npm run build
+npm run deploy          # Cloudflare Pages через wrangler
+```
+
+Или через GitHub: подключить репозиторий в Cloudflare Pages Dashboard, build command `npm run build`, output `dist`.
 
 ## Структура проекта
 
 ```
-osoznannaya-pohodka/
+healthwalk/
 ├── public/
 │   ├── favicon.svg
-│   └── _redirects          # SPA fallback для Cloudflare Pages
+│   ├── tracker-icons/        # SVG иконки по категориям (health, food, hobby...)
+│   └── _redirects             # SPA fallback для Cloudflare
 ├── src/
 │   ├── components/
-│   │   ├── Footer.jsx
-│   │   ├── Icons.jsx       # SVG-иконки (фигурки, логотип)
-│   │   └── Layout.jsx      # Общий layout с фоном
+│   │   ├── Footer.jsx         # Подвал
+│   │   ├── IconPicker.jsx     # Выбор иконки для активности
+│   │   ├── Icons.jsx          # SVG-компоненты (логотип, фигурки)
+│   │   └── Layout.jsx         # Общий layout с градиентным фоном
 │   ├── data/
-│   │   └── constants.js    # Активности, девизы, утилиты
+│   │   ├── constants.js       # Девизы, утилиты времени, getCourseDay()
+│   │   └── iconCatalog.js     # Каталог иконок по категориям
+│   ├── lib/
+│   │   ├── db.js              # Все запросы к Supabase (CRUD, RPC)
+│   │   └── supabase.js        # Инициализация клиента Supabase
 │   ├── pages/
-│   │   ├── Login.jsx       # Вход / регистрация
-│   │   ├── Dashboard.jsx   # Главный экран
-│   │   ├── Timer.jsx       # Таймер с видео
-│   │   ├── Details.jsx     # Детали прогресса (сетка 30 дней)
-│   │   ├── Profile.jsx
-│   │   ├── Recommendations.jsx
-│   │   └── AskCoach.jsx    # Вопрос тренеру
+│   │   ├── Login.jsx          # Авторизация (Google OAuth)
+│   │   ├── Dashboard.jsx      # Главный экран + экран завершения курса
+│   │   ├── Timer.jsx          # Таймер практики (круговой, с drag)
+│   │   ├── Details.jsx        # Детальный прогресс (сетка дней)
+│   │   ├── Profile.jsx        # Профиль, часовой пояс, биоритм
+│   │   ├── MyCourses.jsx      # Список курсов пользователя
+│   │   ├── CreateCourse.jsx   # Конструктор курса
+│   │   ├── EditCourse.jsx     # Редактирование курса
+│   │   ├── MyTrackers.jsx     # Личные трекеры
+│   │   ├── CreateTracker.jsx  # Создание трекера
+│   │   ├── EditTracker.jsx    # Редактирование трекера
+│   │   ├── TrainerCabinet.jsx # Кабинет тренера (управление учениками)
+│   │   ├── AskCoach.jsx       # Чат ученик ↔ тренер
+│   │   ├── InviteToCourse.jsx # Принятие приглашения в курс
+│   │   ├── AssignRole.jsx     # Назначение ролей (админ)
+│   │   └── Recommendations.jsx # Рекомендации
 │   ├── styles/
-│   │   └── shared.js       # Общие стили (glassmorphism)
-│   ├── App.jsx             # Роутинг + состояние
-│   ├── main.jsx            # Точка входа
-│   └── index.css           # Глобальные стили
-├── index.html
-├── package.json
-├── vite.config.js
-├── wrangler.toml           # Конфиг Cloudflare
-└── .gitignore
+│   │   └── shared.js          # Glassmorphism стили
+│   ├── App.jsx                # Роутинг, состояние, таймер
+│   ├── main.jsx               # Точка входа React
+│   └── index.css              # Глобальные стили
+├── supabase/                  # SQL миграции (v1-v13)
+├── docs/                      # Документация проекта
+│   ├── ARCHITECTURE.md
+│   └── DATABASE.md
+├── ROADMAP.md
+└── package.json
 ```
 
-## Локальный запуск
+## Ключевые возможности
 
-```bash
-npm install
-npm run dev
-```
+- **Курсы** — создание курсов с набором активностей, настройка длительности и интервалов
+- **Роли** — создатель, тренер, куратор, ученик; гибкая система прав
+- **Кабинет тренера** — просмотр прогресса учеников, индивидуальные практики, отключение активностей
+- **Таймер** — круговой таймер с drag-управлением, wake lock, автосохранение
+- **Чат** — двусторонние сообщения тренер ↔ ученик с уведомлениями
+- **Трекеры** — личные трекеры без тренера для самостоятельных практик
+- **Экран завершения** — поздравление с результатами и диаграммами по окончании курса
 
-Откроется на `http://localhost:5173`
+## Документация
 
-## Деплой на Cloudflare Pages
-
-### Вариант 1: Через GitHub (рекомендуется)
-
-1. Создайте репозиторий на GitHub и залейте код:
-
-```bash
-git init
-git add .
-git commit -m "Initial commit"
-git remote add origin https://github.com/YOUR_USER/osoznannaya-pohodka.git
-git push -u origin main
-```
-
-2. Зайдите в [Cloudflare Dashboard](https://dash.cloudflare.com) → Pages → Create a project
-3. Подключите GitHub-репозиторий
-4. Настройки сборки:
-   - **Framework preset:** None
-   - **Build command:** `npm run build`
-   - **Build output directory:** `dist`
-5. Нажмите Deploy
-
-### Вариант 2: Через CLI
-
-```bash
-npm run build
-npx wrangler pages deploy dist --project-name=osoznannaya-pohodka
-```
-
-## Подключение Supabase (следующий шаг)
-
-1. Создайте проект на [supabase.com](https://supabase.com)
-2. Включите Google Auth в Authentication → Providers
-3. Создайте таблицы:
-
-```sql
--- Профили пользователей
-CREATE TABLE profiles (
-  id UUID REFERENCES auth.users PRIMARY KEY,
-  name TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Прогресс по дням
-CREATE TABLE progress (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  user_id UUID REFERENCES auth.users NOT NULL,
-  day INTEGER NOT NULL CHECK (day BETWEEN 1 AND 30),
-  warmup BOOLEAN DEFAULT FALSE,
-  standing BOOLEAN DEFAULT FALSE,
-  sitting BOOLEAN DEFAULT FALSE,
-  walking BOOLEAN DEFAULT FALSE,
-  updated_at TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE(user_id, day)
-);
-
--- Вопросы тренеру
-CREATE TABLE questions (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  user_id UUID REFERENCES auth.users NOT NULL,
-  question TEXT NOT NULL,
-  answer TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-```
-
-4. Добавьте переменные окружения в Cloudflare Pages:
-   - `VITE_SUPABASE_URL`
-   - `VITE_SUPABASE_ANON_KEY`
-
-## Стек
-
-- **Frontend:** React 18 + Vite
-- **Хостинг:** Cloudflare Pages
-- **БД/Авторизация:** Supabase (готово к подключению)
-- **Дизайн:** Glassmorphism, белая тема
+- [Архитектура](docs/ARCHITECTURE.md)
+- [База данных](docs/DATABASE.md)
+- [Дорожная карта](ROADMAP.md)
