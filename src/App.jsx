@@ -399,7 +399,9 @@ export default function App() {
     const items = await refreshItems();
     const newItem = items?.find(i => i.type === 'course' && i.id === course.id);
     if (newItem) handleSwitchContext(newItem);
-    setScreen('my_courses');
+    // Open in edit mode so user can add videos right away
+    setEditCourseId(course.id);
+    setScreen('edit_course');
   };
 
   const handleEditCourse = (courseId) => {

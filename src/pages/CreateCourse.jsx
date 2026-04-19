@@ -253,6 +253,15 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon 
           <span style={{ fontSize: 13, color: '#888', whiteSpace: 'nowrap' }}>минут</span>
         </div>
       </div>
+
+      {/* Video hint */}
+      <div style={{
+        marginTop: 8, padding: '8px 10px', borderRadius: 8,
+        background: 'rgba(52,152,219,0.05)', border: '1px dashed rgba(52,152,219,0.2)',
+        fontSize: 11, color: '#999', lineHeight: 1.4,
+      }}>
+        Видео можно добавить после сохранения курса (в редактировании)
+      </div>
     </div>
   );
 }
