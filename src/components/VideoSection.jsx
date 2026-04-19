@@ -26,6 +26,7 @@ export default function VideoSection({ videos, courseId, activityId, maxDay, onU
   const [ytUrl, setYtUrl] = useState('');
   const [firstDay, setFirstDay] = useState(1);
   const [lastDay, setLastDay] = useState(1);
+  const [deletingId, setDeletingId] = useState(null);
   const fileRef = useRef();
 
   const actVideos = videos.filter(v => v.activity_id === activityId);
@@ -69,8 +70,10 @@ export default function VideoSection({ videos, courseId, activityId, maxDay, onU
           {actVideos.map(v => (
             <div key={v.id} style={{
               display: 'flex', alignItems: 'center', gap: 8,
-              padding: '6px 10px', marginBottom: 4, borderRadius: 8,
-              background: 'rgba(0,0,0,0.02)', fontSize: 12,
+              padding: '8px 10px', marginBottom: 4, borderRadius: 10,
+              background: deletingId === v.id ? 'rgba(231,76,60,0.06)' : 'rgba(0,0,0,0.02)',
+              border: deletingId === v.id ? '1px solid rgba(231,76,60,0.15)' : '1px solid transparent',
+              fontSize: 12, transition: 'all 0.2s',
             }}>
               <span style={{ fontSize: 14 }}>{v.video_type === 'youtube' ? '🔗' : '📹'}</span>
               <div style={{ flex: 1, minWidth: 0 }}>
@@ -85,10 +88,30 @@ export default function VideoSection({ videos, courseId, activityId, maxDay, onU
                   {v.duration_sec ? ` • ${Math.floor(v.duration_sec / 60)}:${String(v.duration_sec % 60).padStart(2, '0')}` : ''}
                 </div>
               </div>
-              <button onClick={() => onDelete(v.id, v.video_url, v.video_type)}
-                style={{ background: 'none', border: 'none', color: '#ccc', cursor: 'pointer', fontSize: 14, padding: 2 }}>
-                ✕
-              </button>
+              {deletingId === v.id ? (
+                <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                  <button onClick={async () => {
+                    await onDelete(v.id, v.video_url, v.video_type);
+                    setDeletingId(null);
+                  }} style={{
+                    padding: '4px 10px', borderRadius: 6, border: 'none',
+                    background: '#e74c3c', color: '#fff', fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                  }}>Да</button>
+                  <button onClick={() => setDeletingId(null)} style={{
+                    padding: '4px 8px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.1)',
+                    background: '#fff', color: '#888', fontSize: 11, cursor: 'pointer',
+                  }}>Нет</button>
+                </div>
+              ) : (
+                <button onClick={() => setDeletingId(v.id)}
+                  title="Удалить видео"
+                  style={{
+                    background: 'none', border: 'none', color: '#e74c3c', cursor: 'pointer',
+                    fontSize: 13, padding: '2px 4px', opacity: 0.5, flexShrink: 0,
+                  }}>
+                  Удалить
+                </button>
+              )}
             </div>
           ))}
         </div>
