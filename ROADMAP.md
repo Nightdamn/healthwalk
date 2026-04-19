@@ -87,14 +87,40 @@ Android-приложение на базе Capacitor (обёртка веб-пр
 
 ## Этап 4: Инфраструктура и масштабирование
 
-Переезд на полноценную инфраструктуру.
+Переезд на VPS (Aeza, 193.233.216.180 — общий сервер с AIDE). Подготовка в `backend/`.
 
-- [ ] Переезд на выделенный сервер / VPS (уход от Cloudflare Pages)
-- [ ] Собственный backend (Node.js / Fastify или Go)
+### Архитектура на VPS
+```
+Internet → Nginx (443/SSL) → Node.js Express (127.0.0.1:3000)
+                                 ├── /api/*    → API routes
+                                 ├── /assets/* → static (Vite build)
+                                 └── /*        → SPA fallback (index.html)
+```
+
+### Готово (подготовка)
+- [x] Express-сервер для SPA + API (`backend/server.js`)
+- [x] Nginx конфиг с SSL, gzip, кэш статики, WebSocket (`backend/nginx.conf`)
+- [x] Systemd сервис с security hardening (`backend/healthwalk.service`)
+- [x] Deploy-скрипт: build → scp → restart (`backend/scripts/deploy.sh`)
+- [x] Setup-скрипт первого запуска (`backend/scripts/setup-server.sh`)
+- [x] Environment конфигурация (`backend/.env.example`)
+
+### При переезде
+- [ ] Купить/привязать домен, настроить A-запись → 193.233.216.180
+- [ ] Запустить `setup-server.sh <domain>` на сервере
+- [ ] Создать `.env` с реальными ключами Supabase
+- [ ] Первый деплой через `deploy.sh`
+- [ ] SSL-сертификат через certbot
+- [ ] Переключить DNS с Cloudflare Pages на VPS
+- [ ] Обновить OAuth redirect URL в Supabase (Google Auth)
+
+### После переезда
 - [ ] CI/CD пайплайн (GitHub Actions → автосборка и деплой)
 - [ ] Мониторинг и логирование (Grafana, Sentry)
 - [ ] CDN для статики и иконок
 - [ ] Автоматические бэкапы БД
+- [ ] API для Daily.co webhooks (замена Edge Functions)
+- [ ] API для push-уведомлений (Web Push)
 
 ## Этап 5: Монетизация
 
