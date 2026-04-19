@@ -272,12 +272,14 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
           <div style={{
             width: "100%", borderRadius: 20, overflow: "hidden", marginBottom: 24,
             background: "#000", boxShadow: "0 8px 32px rgba(0,0,0,0.12)",
+            position: 'relative',
           }}>
             {isFileVideo && (
               <video
                 ref={videoRef}
                 src={videoUrl}
-                style={{ width: "100%", display: "block" }}
+                controls
+                style={{ width: "100%", display: "block", aspectRatio: "16/9", objectFit: "contain", background: "#000" }}
                 playsInline
                 preload="metadata"
                 onSeeked={handleVideoSeeked}
@@ -287,11 +289,11 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
               <video
                 ref={videoRef}
                 src={video.video_url}
-                style={{ width: "100%", display: "block" }}
+                controls
+                style={{ width: "100%", display: "block", aspectRatio: "16/9", objectFit: "contain", background: "#000" }}
                 playsInline
                 preload="metadata"
                 onSeeked={handleVideoSeeked}
-                crossOrigin="anonymous"
               />
             )}
             {isYoutube && (
