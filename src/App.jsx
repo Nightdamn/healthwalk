@@ -17,7 +17,7 @@ import EditTrackerPage from './pages/EditTracker';
 import TrainerCabinetPage from './pages/TrainerCabinet';
 import Layout from './components/Layout';
 import { DAY_START_HOUR, getCourseDay, isCourseFinished } from './data/constants';
-import { supabase } from './lib/supabase';
+import { isAuthenticated, getMe, signOut as authSignOut, checkOAuthCallback, setToken } from './lib/supabase';
 import {
   loadUserSettings, saveUserSettings,
   checkAndApplyPendingRole, getUserRole, assignRole as dbAssignRole,
@@ -29,15 +29,12 @@ import {
   getActivityVideos, getVideoForDay, getVideoSignedUrl, updateVideoDuration,
 } from './lib/db';
 
-function extractUser(session) {
-  if (!session?.user) return null;
-  const u = session.user;
-  const meta = u.user_metadata || {};
+function extractUser(userData) {
+  if (!userData) return null;
   return {
-    id: u.id, email: u.email || '',
-    name: meta.full_name || meta.name || meta.preferred_username ||
-      (u.email ? u.email.split('@')[0].charAt(0).toUpperCase() + u.email.split('@')[0].slice(1) : 'Пользователь'),
-    avatar: meta.avatar_url || meta.picture || null,
+    id: userData.id, email: userData.email || '',
+    name: userData.name || (userData.email ? userData.email.split('@')[0].charAt(0).toUpperCase() + userData.email.split('@')[0].slice(1) : 'Пользователь'),
+    avatar: userData.avatar || null,
   };
 }
 
@@ -130,21 +127,22 @@ export default function App() {
 
   // ─── Auth ───
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session: s } }) => {
-      if (s) { setSession(s); setUser(extractUser(s)); }
-      else setScreen('login');
-    });
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, s) => {
-      if (event === 'SIGNED_IN' && s) { setSession(s); setUser(extractUser(s)); dataLoadedRef.current = false; }
-      if (event === 'SIGNED_OUT') {
-        setSession(null); setUser(null); setUserRole('student');
-        setProgress({}); setRawProgress({}); setElapsedTime({});
-        setCourseStartDate(null); setActiveItem(null); setAvailableItems([]);
-        dataLoadedRef.current = false; setScreen('login');
-      }
-      if (event === 'TOKEN_REFRESHED' && s) setSession(s);
-    });
-    return () => subscription.unsubscribe();
+    // Check for OAuth callback token in URL hash
+    checkOAuthCallback();
+
+    if (isAuthenticated()) {
+      getMe().then(userData => {
+        if (userData) {
+          setSession({}); // dummy session object for compatibility
+          setUser(extractUser(userData));
+        } else {
+          setToken(null);
+          setScreen('login');
+        }
+      });
+    } else {
+      setScreen('login');
+    }
   }, []);
 
   // ─── Load data on login ───
@@ -327,8 +325,18 @@ export default function App() {
   }, [activeActivity, user?.id, currentDay, elapsedTime, progress, saveProgress]);
 
   // ─── Handlers ───
-  const handleLogin = (s) => { setSession(s); setUser(extractUser(s)); };
-  const handleLogout = async () => { await supabase.auth.signOut(); };
+  const handleLogin = (userData) => {
+    setSession({});
+    setUser(extractUser(userData));
+    dataLoadedRef.current = false;
+  };
+  const handleLogout = () => {
+    authSignOut();
+    setSession(null); setUser(null); setUserRole('student');
+    setProgress({}); setRawProgress({}); setElapsedTime({});
+    setCourseStartDate(null); setActiveItem(null); setAvailableItems([]);
+    dataLoadedRef.current = false; setScreen('login');
+  };
 
   const handleStartTimer = async (activity) => {
     // activity: { id, activityId, label, duration, iconNum }

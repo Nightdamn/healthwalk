@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import Layout from '../components/Layout';
 import { LogoFull } from '../components/Icons';
-import { supabase } from '../lib/supabase';
+import { signInWithPassword, signUp, signInWithGoogle } from '../lib/supabase';
 
 export default function LoginPage({ onLogin }) {
   const [email, setEmail] = useState("");
@@ -22,70 +22,31 @@ export default function LoginPage({ onLogin }) {
 
     try {
       if (mode === "register") {
-        const { data, error: signUpError } = await supabase.auth.signUp({
-          email: email.trim(),
-          password,
-          options: {
-            data: {
-              name: email.split("@")[0].charAt(0).toUpperCase() + email.split("@")[0].slice(1),
-            },
-          },
-        });
-        if (signUpError) throw signUpError;
-
-        // Supabase may require email confirmation
-        if (data?.user?.identities?.length === 0) {
-          setError("Пользователь с таким email уже существует");
-        } else if (data?.session) {
-          // Auto-confirmed, session available
-          onLogin(data.session);
-        } else {
-          setMessage("Проверьте почту — мы отправили ссылку для подтверждения");
+        const data = await signUp(email.trim(), password);
+        if (data.error) {
+          setError(data.error);
+        } else if (data.token) {
+          onLogin(data.user);
         }
       } else {
-        const { data, error: signInError } = await supabase.auth.signInWithPassword({
-          email: email.trim(),
-          password,
-        });
-        if (signInError) throw signInError;
-        if (data?.session) {
-          onLogin(data.session);
+        const data = await signInWithPassword(email.trim(), password);
+        if (data.error) {
+          setError(data.error);
+        } else if (data.token) {
+          onLogin(data.user);
         }
       }
     } catch (err) {
-      const msg = err?.message || "Произошла ошибка";
-      if (msg.includes("Invalid login")) {
-        setError("Неверный email или пароль");
-      } else if (msg.includes("Email not confirmed")) {
-        setError("Подтвердите email — проверьте почту");
-      } else if (msg.includes("already registered")) {
-        setError("Пользователь уже зарегистрирован");
-      } else if (msg.includes("least 6")) {
-        setError("Пароль должен быть не менее 6 символов");
-      } else {
-        setError(msg);
-      }
+      setError(err?.message || "Произошла ошибка");
     } finally {
       setLoading(false);
     }
   };
 
-  const handleGoogle = async () => {
+  const handleGoogle = () => {
     setLoading(true);
     setError("");
-    try {
-      const { error: googleError } = await supabase.auth.signInWithOAuth({
-        provider: "google",
-        options: {
-          redirectTo: window.location.origin,
-        },
-      });
-      if (googleError) throw googleError;
-      // Browser will redirect to Google — no need to do anything else
-    } catch (err) {
-      setError(err?.message || "Ошибка входа через Google");
-      setLoading(false);
-    }
+    signInWithGoogle();
   };
 
   const inputStyle = {
