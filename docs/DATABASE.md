@@ -201,6 +201,25 @@ UNIQUE(course_id, user_id, activity_id, day)
 
 Индексы: sender+course, recipient+unread, course+participants.
 
+### activity_videos
+Видеоинструкции к активностям курса с привязкой к интервалам дней.
+
+| Колонка | Тип | Описание |
+|---------|-----|----------|
+| id | UUID PK | |
+| course_id | UUID | FK → courses |
+| activity_id | TEXT | ID активности |
+| video_type | TEXT | 'file', 'youtube', 'drive', 'link' |
+| video_url | TEXT | Путь в Storage / URL |
+| file_size | BIGINT | Размер файла в байтах |
+| duration_sec | INT | Длительность в секундах |
+| first_day | INT | С какого дня показывать (default 1) |
+| last_day | INT | По какой день (default 1) |
+| sort_order | INT | Приоритет при пересечении (default 0) |
+| created_at | TIMESTAMPTZ | |
+
+UNIQUE(course_id, activity_id, first_day, last_day). Файлы хранятся в bucket `course-videos` (private), доступ через signed URL (TTL 1 час).
+
 ---
 
 ## RPC-функции
