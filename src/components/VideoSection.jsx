@@ -24,14 +24,28 @@ export function extractYoutubeId(url) {
 export function extractDriveId(url) {
   if (!url) return null;
   // https://drive.google.com/file/d/FILE_ID/view
+  // https://drive.google.com/file/d/FILE_ID/preview
   // https://drive.google.com/open?id=FILE_ID
-  const m = url.match(/drive\.google\.com\/(?:file\/d\/|open\?id=)([a-zA-Z0-9_-]+)/);
-  return m ? m[1] : null;
+  // https://drive.google.com/uc?id=FILE_ID&export=download
+  // https://drive.usercontent.google.com/download?id=FILE_ID
+  // https://docs.google.com/uc?id=FILE_ID
+  let m = url.match(/drive\.google\.com\/(?:file\/d\/|open\?id=|uc\?.*id=)([a-zA-Z0-9_-]+)/);
+  if (m) return m[1];
+  m = url.match(/docs\.google\.com\/uc\?.*id=([a-zA-Z0-9_-]+)/);
+  if (m) return m[1];
+  m = url.match(/drive\.usercontent\.google\.com\/.*[?&]id=([a-zA-Z0-9_-]+)/);
+  if (m) return m[1];
+  // Any google.com URL with /d/FILE_ID pattern
+  m = url.match(/google\.com\/.*\/d\/([a-zA-Z0-9_-]{20,})/);
+  if (m) return m[1];
+  return null;
 }
 
 export function detectVideoType(url) {
   if (extractYoutubeId(url)) return 'youtube';
   if (extractDriveId(url)) return 'drive';
+  // Check if it looks like a Google domain (catch-all)
+  if (/google\.com|googleapis\.com/.test(url)) return 'drive';
   return 'link';
 }
 

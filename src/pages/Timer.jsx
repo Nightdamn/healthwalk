@@ -22,13 +22,22 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
   const ytReadyRef = useRef(false);
   const syncingRef = useRef(false); // prevent sync loops
 
-  const isFileVideo = video?.video_type === 'file' && videoUrl;
-  const isYoutube = video?.video_type === 'youtube';
-  const isDrive = video?.video_type === 'drive';
-  const isDirectLink = video?.video_type === 'link';
-  const youtubeId = isYoutube ? extractYoutubeId(video.video_url) : null;
-  const driveId = isDrive ? extractDriveId(video.video_url) : null;
-  const hasVideo = isFileVideo || (isYoutube && youtubeId) || (isDrive && driveId) || isDirectLink;
+  // Re-detect video type: if saved as 'link' but URL is actually youtube/drive, treat accordingly
+  const savedType = video?.video_type;
+  const detectedYoutubeId = video ? extractYoutubeId(video.video_url) : null;
+  const detectedDriveId = video ? extractDriveId(video.video_url) : null;
+  const isGoogleUrl = video ? /google\.com|googleapis\.com/.test(video.video_url) : false;
+
+  const isFileVideo = savedType === 'file' && videoUrl;
+  const isYoutube = savedType === 'youtube' || (savedType === 'link' && !!detectedYoutubeId);
+  const isDrive = savedType === 'drive' || (savedType === 'link' && (!!detectedDriveId || isGoogleUrl));
+  const isDirectLink = savedType === 'link' && !isYoutube && !isDrive;
+  const youtubeId = isYoutube ? detectedYoutubeId : null;
+  const driveId = isDrive ? detectedDriveId : null;
+  const hasVideo = isFileVideo || (isYoutube && youtubeId) || isDrive || isDirectLink;
+
+  // Video load error state
+  const [videoError, setVideoError] = useState(false);
 
   // ─── YouTube Player setup ───
   const [ytLoaded, setYtLoaded] = useState(false);
@@ -274,7 +283,7 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
             background: "#000", boxShadow: "0 8px 32px rgba(0,0,0,0.12)",
             position: 'relative',
           }}>
-            {isFileVideo && (
+            {isFileVideo && !videoError && (
               <video
                 ref={videoRef}
                 src={videoUrl}
@@ -283,9 +292,10 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
                 playsInline
                 preload="metadata"
                 onSeeked={handleVideoSeeked}
+                onError={() => setVideoError(true)}
               />
             )}
-            {isDirectLink && (
+            {isDirectLink && !videoError && (
               <video
                 ref={videoRef}
                 src={video.video_url}
@@ -294,7 +304,20 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
                 playsInline
                 preload="metadata"
                 onSeeked={handleVideoSeeked}
+                onError={() => setVideoError(true)}
               />
+            )}
+            {videoError && (
+              <div style={{
+                width: '100%', aspectRatio: '16/9', display: 'flex', flexDirection: 'column',
+                alignItems: 'center', justifyContent: 'center', background: '#111', color: '#aaa', gap: 8,
+              }}>
+                <span style={{ fontSize: 14 }}>Не удалось загрузить видео</span>
+                <a href={video.video_url} target="_blank" rel="noopener noreferrer"
+                  style={{ color: '#3498db', fontSize: 13, textDecoration: 'underline' }}>
+                  Открыть ссылку
+                </a>
+              </div>
             )}
             {isYoutube && (
               <div style={{ position: 'relative', paddingBottom: '56.25%', height: 0 }}>
@@ -303,10 +326,13 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
                 }} />
               </div>
             )}
-            {isDrive && driveId && (
+            {isDrive && (
               <div style={{ position: 'relative', paddingBottom: '56.25%', height: 0 }}>
                 <iframe
-                  src={`https://drive.google.com/file/d/${driveId}/preview`}
+                  src={driveId
+                    ? `https://drive.google.com/file/d/${driveId}/preview`
+                    : video.video_url.replace(/\/view(\?.*)?$/, '/preview').replace(/\/edit(\?.*)?$/, '/preview')
+                  }
                   style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', border: 'none' }}
                   allow="autoplay; encrypted-media"
                   allowFullScreen
