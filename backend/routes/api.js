@@ -29,8 +29,9 @@ router.get('/settings', async (req, res) => {
 
 router.patch('/settings', async (req, res) => {
   try {
+    const allowedFields = ['course_start_date', 'tz_offset_min', 'day_start_hour', 'current_day', 'active_type', 'active_id'];
     const fields = req.body;
-    const keys = Object.keys(fields).filter(k => k !== 'user_id');
+    const keys = Object.keys(fields).filter(k => allowedFields.includes(k));
     if (!keys.length) return res.json({ ok: true });
     const sets = keys.map((k, i) => `${k} = $${i + 2}`).join(', ');
     await query(`UPDATE user_settings SET ${sets}, updated_at = NOW() WHERE user_id = $1`, [req.userId, ...keys.map(k => fields[k])]);
@@ -370,9 +371,11 @@ router.post('/invitations/:id/accept', async (req, res) => {
   try {
     const inv = await queryOne('SELECT * FROM pending_invitations WHERE id = $1', [req.params.id]);
     if (!inv) return res.json({ success: false, error: 'Приглашение не найдено' });
+    const user = await queryOne('SELECT email FROM users WHERE id = $1', [req.userId]);
+    if (!user || inv.email !== user.email) return res.json({ success: false, error: 'Нет прав' });
 
     await query(
-      'INSERT INTO course_enrollments (course_id, user_id, role, invited_by) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING',
+      'INSERT INTO course_enrollments (course_id, user_id, role, invited_by) VALUES ($1,$2,$3,$4) ON CONFLICT (course_id, user_id) DO NOTHING',
       [inv.course_id, req.userId, inv.role, inv.invited_by]
     );
     await query('DELETE FROM pending_invitations WHERE id = $1', [req.params.id]);
@@ -382,6 +385,10 @@ router.post('/invitations/:id/accept', async (req, res) => {
 
 router.post('/invitations/:id/decline', async (req, res) => {
   try {
+    const inv = await queryOne('SELECT * FROM pending_invitations WHERE id = $1', [req.params.id]);
+    if (!inv) return res.json({ success: true });
+    const user = await queryOne('SELECT email FROM users WHERE id = $1', [req.userId]);
+    if (!user || inv.email !== user.email) return res.json({ success: false, error: 'Нет прав' });
     await query('DELETE FROM pending_invitations WHERE id = $1', [req.params.id]);
     res.json({ success: true });
   } catch (err) { res.json({ success: false, error: err.message }); }
@@ -748,6 +755,7 @@ router.get('/videos/:courseId', async (req, res) => {
 router.post('/videos/link', async (req, res) => {
   try {
     const { courseId, activityId, url, videoType, firstDay, lastDay } = req.body;
+    if (!await isTrainer(req.userId, courseId)) return res.status(403).json({ error: 'Нет прав' });
     const v = await queryOne(
       `INSERT INTO activity_videos (course_id, activity_id, video_type, video_url, first_day, last_day)
        VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
@@ -761,11 +769,13 @@ router.delete('/videos/:id', async (req, res) => {
   try {
     const v = await queryOne('SELECT * FROM activity_videos WHERE id = $1', [req.params.id]);
     if (!v) return res.json({ error: 'Not found' });
+    if (!await isTrainer(req.userId, v.course_id)) return res.status(403).json({ error: 'Нет прав' });
     // Delete physical file if it's a file upload
     if (v.video_type === 'file' && v.video_url) {
       const { default: fs } = await import('fs/promises');
       const { default: path } = await import('path');
-      const filePath = path.join(process.cwd(), 'uploads', 'course-videos', v.video_url);
+      const safeBasename = path.basename(v.video_url);
+      const filePath = path.join(process.cwd(), 'uploads', 'course-videos', safeBasename);
       try { await fs.unlink(filePath); } catch {}
     }
     await query('DELETE FROM activity_videos WHERE id = $1', [req.params.id]);
@@ -776,6 +786,9 @@ router.delete('/videos/:id', async (req, res) => {
 router.patch('/videos/:id/duration', async (req, res) => {
   try {
     const { durationSec } = req.body;
+    const v = await queryOne('SELECT course_id FROM activity_videos WHERE id = $1', [req.params.id]);
+    if (!v) return res.json({ ok: false });
+    if (!await isTrainer(req.userId, v.course_id)) return res.status(403).json({ ok: false });
     await query('UPDATE activity_videos SET duration_sec = $1 WHERE id = $2', [durationSec, req.params.id]);
     res.json({ ok: true });
   } catch (err) { res.json({ ok: false }); }

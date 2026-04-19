@@ -339,7 +339,8 @@ export default function App() {
   };
 
   const handleStartTimer = async (activity) => {
-    // activity: { id, activityId, label, duration, iconNum }
+    // Normalize activity props
+    activity = { ...activity, practiceType: activity.practiceType || 'media', descriptionHtml: activity.descriptionHtml || null };
     // Find video for this activity and day
     const video = getVideoForDay(courseVideos, activity.id, currentDay);
     setActiveVideo(video);
