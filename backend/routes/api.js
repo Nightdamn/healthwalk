@@ -67,7 +67,8 @@ router.get('/items', async (req, res) => {
         enrollCount: parseInt(e.enroll_count),
         activities: acts.map(a => ({
           id: a.id, activityId: a.activity_id, label: a.label, durationMin: a.duration_min,
-          iconNum: a.icon_num || 'health/1', firstDay: a.first_day || 1,
+          iconNum: a.icon_num || 'health/1', practiceType: a.practice_type || 'media',
+          descriptionHtml: a.description_html || null, firstDay: a.first_day || 1,
           lastDay: a.last_day || e.days_count, intervalDays: a.interval_days || 1,
         })),
       });
@@ -87,7 +88,8 @@ router.get('/items', async (req, res) => {
         enrollCount: parseInt(cnt?.n || 0),
         activities: acts.map(a => ({
           id: a.id, activityId: a.activity_id, label: a.label, durationMin: a.duration_min,
-          iconNum: a.icon_num || 'health/1', firstDay: a.first_day || 1,
+          iconNum: a.icon_num || 'health/1', practiceType: a.practice_type || 'media',
+          descriptionHtml: a.description_html || null, firstDay: a.first_day || 1,
           lastDay: a.last_day || c.days_count, intervalDays: a.interval_days || 1,
         })),
       });
@@ -217,10 +219,11 @@ router.post('/courses', async (req, res) => {
       for (let i = 0; i < activities.length; i++) {
         const a = activities[i];
         await query(
-          `INSERT INTO course_activities (course_id, activity_id, label, duration_min, icon_num, first_day, last_day, sort_order, interval_days)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+          `INSERT INTO course_activities (course_id, activity_id, label, duration_min, icon_num, practice_type, description_html, first_day, last_day, sort_order, interval_days)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
           [course.id, a.activityId || `act_${Date.now()}_${i}`, a.label, a.durationMin || 10,
-           a.iconNum || 'health/1', a.firstDay || 1, a.lastDay || daysCount, i, a.intervalDays || 1]
+           a.iconNum || 'health/1', a.practiceType || 'media', a.descriptionHtml || null,
+           a.firstDay || 1, a.lastDay || daysCount, i, a.intervalDays || 1]
         );
       }
     }
@@ -260,14 +263,14 @@ router.put('/courses/:id', async (req, res) => {
         const a = activities[i];
         if (a.dbId) {
           await query(
-            'UPDATE course_activities SET label=$1, duration_min=$2, icon_num=$3, first_day=$4, last_day=$5, sort_order=$6, interval_days=$7 WHERE id=$8',
-            [a.label, a.durationMin, a.iconNum, a.firstDay, a.lastDay, i, a.intervalDays || 1, a.dbId]
+            'UPDATE course_activities SET label=$1, duration_min=$2, icon_num=$3, practice_type=$4, description_html=$5, first_day=$6, last_day=$7, sort_order=$8, interval_days=$9 WHERE id=$10',
+            [a.label, a.durationMin, a.iconNum, a.practiceType || 'media', a.descriptionHtml || null, a.firstDay, a.lastDay, i, a.intervalDays || 1, a.dbId]
           );
         } else {
           await query(
-            `INSERT INTO course_activities (course_id, activity_id, label, duration_min, icon_num, first_day, last_day, sort_order, interval_days)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-            [req.params.id, `act_${Date.now()}_${i}`, a.label, a.durationMin, a.iconNum, a.firstDay, a.lastDay, i, a.intervalDays || 1]
+            `INSERT INTO course_activities (course_id, activity_id, label, duration_min, icon_num, practice_type, description_html, first_day, last_day, sort_order, interval_days)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+            [req.params.id, `act_${Date.now()}_${i}`, a.label, a.durationMin, a.iconNum, a.practiceType || 'media', a.descriptionHtml || null, a.firstDay, a.lastDay, i, a.intervalDays || 1]
           );
         }
       }

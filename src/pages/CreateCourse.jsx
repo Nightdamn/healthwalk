@@ -19,7 +19,7 @@ const labelStyle = { fontSize: 13, fontWeight: 600, color: '#888', marginBottom:
 let _actCounter = 0;
 function emptyActivity(daysCount) {
   const id = `act_create_${Date.now()}_${_actCounter++}`;
-  return { activityId: id, label: '', iconNum: 'health/1', firstDay: 1, lastDay: daysCount, durationMin: 10, intervalDays: 1, _key: id, pendingLinks: [] };
+  return { activityId: id, label: '', iconNum: 'health/1', practiceType: 'media', descriptionHtml: '', firstDay: 1, lastDay: daysCount, durationMin: 10, intervalDays: 1, _key: id, pendingLinks: [] };
 }
 
 export default function CreateCoursePage({ user, onBack, onCreated }) {
@@ -75,9 +75,11 @@ export default function CreateCoursePage({ user, onBack, onCreated }) {
         activityId: a.activityId,
         label: a.label.trim(),
         iconNum: a.iconNum,
+        practiceType: a.practiceType || 'media',
+        descriptionHtml: a.descriptionHtml || null,
         firstDay: parseInt(a.firstDay) || 1,
         lastDay: Math.min(parseInt(a.lastDay) || days, days),
-        durationMin: Math.min(parseInt(a.durationMin) || 10, 1200),
+        durationMin: a.practiceType === 'theory' ? 1 : Math.min(parseInt(a.durationMin) || 10, 1200),
         intervalDays: Math.max(parseInt(a.intervalDays) || 1, 1),
       })),
     });
@@ -247,6 +249,28 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon,
           placeholder="Название активности" style={{ ...inputStyle, flex: 1 }} />
       </div>
 
+      {/* Practice type selector */}
+      <div style={{ marginBottom: 8 }}>
+        <label style={{ ...labelStyle, fontSize: 11 }}>Тип практики</label>
+        <select value={activity.practiceType || 'media'} onChange={e => onUpdate('practiceType', e.target.value)}
+          style={{ ...inputStyle, padding: '8px 10px', fontSize: 13, background: 'rgba(255,255,255,0.7)' }}>
+          <option value="media">Практика с медиа</option>
+          <option value="theory">Текстовая теория</option>
+          <option value="call">Онлайн с мастером</option>
+        </select>
+      </div>
+
+      {/* Description / theory text */}
+      {(activity.practiceType === 'theory' || activity.practiceType === 'call') && (
+        <div style={{ marginBottom: 8 }}>
+          <label style={{ ...labelStyle, fontSize: 11 }}>{activity.practiceType === 'theory' ? 'Текст теории' : 'Описание'}</label>
+          <textarea value={activity.descriptionHtml || ''} onChange={e => onUpdate('descriptionHtml', e.target.value)}
+            placeholder={activity.practiceType === 'theory' ? 'Содержание теоретического материала...' : 'Описание онлайн-практики...'}
+            rows={4}
+            style={{ ...inputStyle, resize: 'vertical', fontFamily: 'inherit', fontSize: 13 }} />
+        </div>
+      )}
+
       <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
         <div style={{ flex: 1 }}>
           <label style={{ ...labelStyle, fontSize: 11 }}>С дня</label>
@@ -273,18 +297,22 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon,
           </div>
         </div>
       </div>
-      <div>
-        <label style={{ ...labelStyle, fontSize: 11 }}>Длительность</label>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <input type="number" value={activity.durationMin}
-            onChange={numChange('durationMin')}
-            onBlur={clamp('durationMin', 1, 1200)}
-            style={{ ...inputStyle, padding: '8px 10px', fontSize: 14, width: 80 }} />
-          <span style={{ fontSize: 13, color: '#888', whiteSpace: 'nowrap' }}>минут</span>
+      {/* Duration (hidden for theory) */}
+      {activity.practiceType !== 'theory' && (
+        <div>
+          <label style={{ ...labelStyle, fontSize: 11 }}>Длительность</label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <input type="number" value={activity.durationMin}
+              onChange={numChange('durationMin')}
+              onBlur={clamp('durationMin', 1, 1200)}
+              style={{ ...inputStyle, padding: '8px 10px', fontSize: 14, width: 80 }} />
+            <span style={{ fontSize: 13, color: '#888', whiteSpace: 'nowrap' }}>минут</span>
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* Video links section */}
+      {/* Video links section (only for media type) */}
+      {activity.practiceType !== 'theory' && (
       <div style={{ marginTop: 8, borderTop: '1px solid rgba(0,0,0,0.05)', paddingTop: 8 }}>
         <div style={{ fontSize: 11, fontWeight: 600, color: '#aaa', marginBottom: 6, textTransform: 'uppercase' }}>
           Видео
@@ -362,6 +390,7 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon,
           Загрузка файлов доступна после сохранения курса
         </div>
       </div>
+      )}
     </div>
   );
 }

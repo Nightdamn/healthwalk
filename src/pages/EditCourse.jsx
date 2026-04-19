@@ -17,7 +17,7 @@ const inputStyle = {
 const labelStyle = { fontSize: 13, fontWeight: 600, color: '#888', marginBottom: 6, display: 'block' };
 
 function emptyActivity(daysCount) {
-  return { dbId: null, label: '', iconNum: 'health/1', firstDay: 1, lastDay: daysCount, durationMin: 10, intervalDays: 1, _key: Date.now() + Math.random() };
+  return { dbId: null, label: '', iconNum: 'health/1', practiceType: 'media', descriptionHtml: '', firstDay: 1, lastDay: daysCount, durationMin: 10, intervalDays: 1, _key: Date.now() + Math.random() };
 }
 
 export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted }) {
@@ -62,6 +62,8 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted })
           dbId: a.id,
           label: a.label,
           iconNum: a.icon_num || 'health/1',
+          practiceType: a.practice_type || 'media',
+          descriptionHtml: a.description_html || '',
           firstDay: a.first_day || 1,
           lastDay: a.last_day || course.days_count,
           durationMin: a.duration_min || 10,
@@ -145,9 +147,11 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted })
         dbId: a.dbId,
         label: a.label.trim(),
         iconNum: a.iconNum,
+        practiceType: a.practiceType || 'media',
+        descriptionHtml: a.descriptionHtml || null,
         firstDay: parseInt(a.firstDay) || 1,
         lastDay: Math.min(parseInt(a.lastDay) || days, days),
-        durationMin: Math.min(parseInt(a.durationMin) || 10, 1200),
+        durationMin: a.practiceType === 'theory' ? 1 : Math.min(parseInt(a.durationMin) || 10, 1200),
         intervalDays: Math.max(parseInt(a.intervalDays) || 1, 1),
       })),
     });
@@ -363,6 +367,28 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon,
           placeholder="Название активности" style={{ ...inputStyle, flex: 1 }} />
       </div>
 
+      {/* Practice type selector */}
+      <div style={{ marginBottom: 8 }}>
+        <label style={{ ...labelStyle, fontSize: 11 }}>Тип практики</label>
+        <select value={activity.practiceType || 'media'} onChange={e => onUpdate('practiceType', e.target.value)}
+          style={{ ...inputStyle, padding: '8px 10px', fontSize: 13, background: 'rgba(255,255,255,0.7)' }}>
+          <option value="media">Практика с медиа</option>
+          <option value="theory">Текстовая теория</option>
+          <option value="call">Онлайн с мастером</option>
+        </select>
+      </div>
+
+      {/* Description / theory text */}
+      {(activity.practiceType === 'theory' || activity.practiceType === 'call') && (
+        <div style={{ marginBottom: 8 }}>
+          <label style={{ ...labelStyle, fontSize: 11 }}>{activity.practiceType === 'theory' ? 'Текст теории' : 'Описание'}</label>
+          <textarea value={activity.descriptionHtml || ''} onChange={e => onUpdate('descriptionHtml', e.target.value)}
+            placeholder={activity.practiceType === 'theory' ? 'Содержание теоретического материала...' : 'Описание онлайн-практики...'}
+            rows={4}
+            style={{ ...inputStyle, resize: 'vertical', fontFamily: 'inherit', fontSize: 13 }} />
+        </div>
+      )}
+
       <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
         <div style={{ flex: 1 }}>
           <label style={{ ...labelStyle, fontSize: 11 }}>С дня</label>
@@ -389,6 +415,9 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon,
           </div>
         </div>
       </div>
+
+      {/* Duration (hidden for theory) */}
+      {activity.practiceType !== 'theory' && (
       <div>
         <label style={{ ...labelStyle, fontSize: 11 }}>Длительность</label>
         {hasDurationFromVideo ? (
@@ -411,9 +440,10 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon,
           </div>
         )}
       </div>
+      )}
 
-      {/* Video section — only for saved activities */}
-      {courseId && propActivityId && (
+      {/* Video section — only for saved activities with media/call type */}
+      {activity.practiceType !== 'theory' && courseId && propActivityId && (
         <VideoSection
           videos={videos}
           courseId={courseId}
