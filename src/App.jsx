@@ -26,7 +26,7 @@ import {
   loadTrackerProgress, saveTrackerActivityProgress,
   loadStudentExclusions, loadStudentCustomActivities,
   getUnreadCount,
-  getActivityVideos, getVideoForDay, getVideoSignedUrl,
+  getActivityVideos, getVideoForDay, getVideoSignedUrl, updateVideoDuration,
 } from './lib/db';
 
 function extractUser(session) {
@@ -366,6 +366,19 @@ export default function App() {
     setElapsedTime(p => ({ ...p, [activeActivity.id]: newElapsed }));
   };
 
+  const handleDurationDetected = async (videoId, durationSec) => {
+    // Update DB
+    await updateVideoDuration(videoId, durationSec);
+    // Update local video state
+    setActiveVideo(prev => prev ? { ...prev, duration_sec: durationSec } : prev);
+    setCourseVideos(prev => prev.map(v => v.id === videoId ? { ...v, duration_sec: durationSec } : v));
+    // Reset timer to new duration
+    if (activeActivity) {
+      const currentElapsed = elapsedTime[activeActivity.id] || 0;
+      setTimerSeconds(Math.max(0, durationSec - currentElapsed));
+    }
+  };
+
   const goMain = () => setScreen('main');
 
   const handleSetTimezone = (v) => { setTzOffsetMin(v); if (user?.id) saveUserSettings(user.id, { tz_offset_min: v }); };
@@ -500,7 +513,7 @@ export default function App() {
     case 'timer': return (
       <TimerPage activity={activeActivity} timerSeconds={timerSeconds} timerPaused={timerPaused}
         currentDay={currentDay} onPause={handleTimerPause} onBack={handleTimerBack} onDone={handleTimerDone} onSeek={handleTimerSeek}
-        video={activeVideo} videoUrl={activeVideoUrl} />
+        video={activeVideo} videoUrl={activeVideoUrl} onDurationDetected={handleDurationDetected} />
     );
     case 'details': return <DetailsPage progress={progress} currentDay={currentDay} elapsedTime={elapsedTime} getElapsedForDay={getElapsedForDay} onBack={goMain} activeItem={activeItem} exclusions={exclusions} customActivities={customActivities} />;
     case 'profile': return (

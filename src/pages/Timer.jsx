@@ -10,7 +10,7 @@ const BALL_R = 10;
 const GREEN = "#27ae60";
 const GREEN_PALE = "rgba(39,174,96,0.2)";
 
-export default function TimerPage({ activity, timerSeconds, timerPaused, currentDay, onPause, onBack, onDone, onSeek, video, videoUrl }) {
+export default function TimerPage({ activity, timerSeconds, timerPaused, currentDay, onPause, onBack, onDone, onSeek, video, videoUrl, onDurationDetected }) {
   const totalSec = video?.duration_sec || activity.duration * 60;
   const elapsed = totalSec - timerSeconds;
   const hasStarted = elapsed > 0;
@@ -21,6 +21,21 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
   const ytPlayerRef = useRef(null);
   const ytReadyRef = useRef(false);
   const syncingRef = useRef(false); // prevent sync loops
+  const durationReportedRef = useRef(false); // only report duration once
+
+  // Fullscreen state
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const videoContainerRef = useRef(null);
+
+  useEffect(() => {
+    const handler = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', handler);
+    document.addEventListener('webkitfullscreenchange', handler);
+    return () => {
+      document.removeEventListener('fullscreenchange', handler);
+      document.removeEventListener('webkitfullscreenchange', handler);
+    };
+  }, []);
 
   // Re-detect video type: if saved as 'link' but URL is actually youtube/drive, treat accordingly
   const savedType = video?.video_type;
@@ -83,9 +98,21 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
       if (!ytContainerRef.current || ytPlayerRef.current) return;
       ytPlayerRef.current = new window.YT.Player(ytContainerRef.current, {
         videoId: youtubeId,
-        playerVars: { controls: 1, modestbranding: 1, rel: 0, playsinline: 1 },
+        playerVars: { controls: 0, modestbranding: 1, rel: 0, playsinline: 1, disablekb: 1 },
         events: {
-          onReady: () => { ytReadyRef.current = true; setYtLoaded(true); },
+          onReady: () => {
+            ytReadyRef.current = true; setYtLoaded(true);
+            // Auto-detect duration from YouTube
+            if (!durationReportedRef.current && onDurationDetected && !video?.duration_sec) {
+              try {
+                const dur = ytPlayerRef.current.getDuration();
+                if (dur > 0) {
+                  durationReportedRef.current = true;
+                  onDurationDetected(video.id, Math.round(dur));
+                }
+              } catch (e) {}
+            }
+          },
           onStateChange: (e) => {
             if (syncingRef.current) return;
             // YT.PlayerState: PLAYING=1, PAUSED=2
@@ -173,6 +200,16 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
     onSeek(newRemaining);
     setTimeout(() => { syncingRef.current = false; }, 200);
   }, [totalSec, onSeek]);
+
+  // ─── Auto-detect duration from video metadata ───
+  const handleLoadedMetadata = useCallback(() => {
+    if (durationReportedRef.current || !videoRef.current || !onDurationDetected) return;
+    const dur = videoRef.current.duration;
+    if (dur > 0 && isFinite(dur) && !video?.duration_sec) {
+      durationReportedRef.current = true;
+      onDurationDetected(video.id, Math.round(dur));
+    }
+  }, [video, onDurationDetected]);
 
   // ─── Wake Lock: keep screen on while timer is running ───
   const wakeLockRef = useRef(null);
@@ -311,20 +348,20 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
 
         {/* Video player or placeholder */}
         {hasVideo ? (
-          <div style={{
-            width: "100%", borderRadius: 20, overflow: "hidden", marginBottom: 24,
-            background: "#000", boxShadow: "0 8px 32px rgba(0,0,0,0.12)",
+          <div ref={videoContainerRef} style={{
+            width: "100%", borderRadius: isFullscreen ? 0 : 20, overflow: "hidden", marginBottom: isFullscreen ? 0 : 24,
+            background: "#000", boxShadow: isFullscreen ? 'none' : "0 8px 32px rgba(0,0,0,0.12)",
             position: 'relative',
           }}>
             {isFileVideo && !videoError && (
               <video
                 ref={videoRef}
                 src={videoUrl}
-                controls
                 style={{ width: "100%", display: "block", aspectRatio: "16/9", objectFit: "contain", background: "#000" }}
                 playsInline
                 preload="metadata"
                 onSeeked={handleVideoSeeked}
+                onLoadedMetadata={handleLoadedMetadata}
                 onError={() => setVideoError(true)}
               />
             )}
@@ -332,11 +369,11 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
               <video
                 ref={videoRef}
                 src={video.video_url}
-                controls
                 style={{ width: "100%", display: "block", aspectRatio: "16/9", objectFit: "contain", background: "#000" }}
                 playsInline
                 preload="metadata"
                 onSeeked={handleVideoSeeked}
+                onLoadedMetadata={handleLoadedMetadata}
                 onError={() => setVideoError(true)}
               />
             )}
@@ -378,8 +415,40 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
               </div>
             )}
 
-            {/* Linear timer progress bar over video */}
-            {!isDone && (
+            {/* Tap overlay for play/pause + fullscreen button */}
+            {!isDrive && (
+              <div
+                onClick={onPause}
+                style={{
+                  position: 'absolute', top: 0, left: 0, right: 0, bottom: isFullscreen ? 36 : 0,
+                  zIndex: 5, cursor: 'pointer',
+                }}
+              />
+            )}
+            {!isDrive && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (document.fullscreenElement) {
+                    document.exitFullscreen().catch(() => {});
+                  } else {
+                    videoContainerRef.current?.requestFullscreen?.().catch(() => {});
+                  }
+                }}
+                style={{
+                  position: 'absolute', top: 8, right: 8, zIndex: 12,
+                  width: 32, height: 32, borderRadius: 8,
+                  background: 'rgba(0,0,0,0.5)', border: 'none',
+                  color: '#fff', fontSize: 16, cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}
+              >
+                {isFullscreen ? '⊠' : '⛶'}
+              </button>
+            )}
+
+            {/* Linear timer progress bar — only in fullscreen */}
+            {isFullscreen && !isDone && (
               <div
                 ref={linearBarRef}
                 onMouseDown={(e) => {
@@ -394,14 +463,14 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
                 }}
                 style={{
                   position: 'absolute', bottom: 0, left: 0, right: 0,
-                  height: 28, cursor: 'pointer', zIndex: 10,
+                  height: 36, cursor: 'pointer', zIndex: 10,
                   display: 'flex', alignItems: 'flex-end', touchAction: 'none',
-                  background: 'linear-gradient(transparent, rgba(0,0,0,0.4))',
+                  background: 'linear-gradient(transparent, rgba(0,0,0,0.6))',
                 }}
               >
                 {/* Track bg */}
                 <div style={{
-                  position: 'absolute', bottom: 6, left: 12, right: 12,
+                  position: 'absolute', bottom: 10, left: 16, right: 16,
                   height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.25)',
                 }}>
                   {/* Max progress (pale) */}
@@ -419,9 +488,9 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
                 {/* Ball */}
                 {hasStarted && (
                   <div style={{
-                    position: 'absolute', bottom: 2,
-                    left: `calc(12px + (100% - 24px) * ${currentPct / 100} - 6px)`,
-                    width: 12, height: 12, borderRadius: '50%',
+                    position: 'absolute', bottom: 5,
+                    left: `calc(16px + (100% - 32px) * ${currentPct / 100} - 7px)`,
+                    width: 14, height: 14, borderRadius: '50%',
                     background: GREEN, border: '2px solid #fff',
                     boxShadow: '0 1px 4px rgba(0,0,0,0.4)',
                     transition: linearDraggingRef.current ? 'none' : 'left 1s linear',
@@ -429,12 +498,21 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
                 )}
                 {/* Time label */}
                 <div style={{
-                  position: 'absolute', bottom: 14, right: 12,
-                  fontSize: 10, color: 'rgba(255,255,255,0.8)', fontWeight: 600,
+                  position: 'absolute', bottom: 18, right: 16,
+                  fontSize: 12, color: 'rgba(255,255,255,0.9)', fontWeight: 600,
                   fontVariantNumeric: 'tabular-nums',
                 }}>
                   {formatTime(timerSeconds)}
                 </div>
+                {/* Pause indicator */}
+                {timerPaused && hasStarted && (
+                  <div style={{
+                    position: 'absolute', bottom: 18, left: 16,
+                    fontSize: 11, color: 'rgba(255,255,255,0.7)', fontWeight: 500,
+                  }}>
+                    На паузе
+                  </div>
+                )}
               </div>
             )}
           </div>
