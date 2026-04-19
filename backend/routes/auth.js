@@ -5,8 +5,9 @@ import { signToken, requireAuth } from '../middleware.js';
 
 const router = Router();
 
-// ── POST /api/auth/register ──
+// ── POST /api/auth/register ── (временно отключена до реализации email confirmation + captcha)
 router.post('/register', async (req, res) => {
+  return res.status(403).json({ error: 'Регистрация временно отключена' });
   try {
     const { email, password, name } = req.body;
     if (!email || !password) return res.status(400).json({ error: 'Email и пароль обязательны' });
