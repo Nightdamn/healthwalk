@@ -414,12 +414,25 @@ export default function App() {
     setScreen('trainer_cabinet');
   };
 
+  const handleEditCourseBack = async () => {
+    // Reload videos in case they were added/deleted during editing
+    if (editCourseId && activeItem?.type === 'course' && activeItem?.id === editCourseId) {
+      const vids = await getActivityVideos(editCourseId);
+      setCourseVideos(vids || []);
+    }
+    setScreen('my_courses');
+  };
+
   const handleCourseSaved = async () => {
     await refreshItems();
-    // Reload active item if it's the edited course
+    // Reload active item and videos if it's the edited course
     if (activeItem?.type === 'course' && activeItem?.id === editCourseId) {
-      const items = await getAvailableItems(user.id);
+      const [items, vids] = await Promise.all([
+        getAvailableItems(user.id),
+        getActivityVideos(editCourseId),
+      ]);
       setAvailableItems(items);
+      setCourseVideos(vids || []);
       const updated = items.find(i => i.type === 'course' && i.id === editCourseId);
       if (updated) setActiveItem(updated);
     }
@@ -501,7 +514,7 @@ export default function App() {
     case 'assign_role': return <AssignRolePage onBack={goMain} onAssign={handleAssignRole} />;
     case 'my_courses': return <MyCoursesPage user={user} userRole={userRole} onBack={goMain} onNavigate={setScreen} onEditCourse={handleEditCourse} onTrainerCabinet={handleTrainerCabinet} onRefresh={refreshItems} availableItems={availableItems} />;
     case 'create_course': return <CreateCoursePage user={user} onBack={() => setScreen('my_courses')} onCreated={handleCourseCreated} />;
-    case 'edit_course': return <EditCoursePage courseId={editCourseId} onBack={() => setScreen('my_courses')} onSaved={handleCourseSaved} onDeleted={handleCourseDeleted} />;
+    case 'edit_course': return <EditCoursePage courseId={editCourseId} onBack={handleEditCourseBack} onSaved={handleCourseSaved} onDeleted={handleCourseDeleted} />;
     case 'trainer_cabinet': return <TrainerCabinetPage courseId={trainerCourseId} user={user} onBack={() => setScreen('my_courses')} onRefreshRole={refreshRole} onEditCourse={handleEditCourse} />;
     case 'invite': return <InvitePage user={user} onBack={() => setScreen('my_courses')} />;
     case 'my_trackers': return <MyTrackersPage user={user} onBack={goMain} onNavigate={setScreen} onEditTracker={handleEditTracker} />;
