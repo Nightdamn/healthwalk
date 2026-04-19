@@ -107,7 +107,7 @@ export default function Dashboard({
     return acts.length > 0 && acts.every(a => dp[a.id]);
   };
 
-  const elapsedDays = Math.max(0, currentDay - 1); // days that have fully passed
+  const elapsedDays = courseFinished ? daysTotal : Math.max(0, currentDay - 1);
 
   const totalSecDay = dayActivities.reduce((s, a) => s + a.durationMin * 60, 0);
   const elapsedSecDay = dayActivities.reduce((s, a) => {
@@ -306,14 +306,14 @@ export default function Dashboard({
                 {Array.from({ length: daysTotal }, (_, i) => {
                   const day = i + 1;
                   const allDone = isDayComplete(day);
-                  const isCurrent = day === currentDay;
-                  const isFuture = day > currentDay;
+                  const isCurrent = !courseFinished && day === currentDay;
+                  const isFuture = !courseFinished && day > currentDay;
                   const isPast = !isCurrent && !isFuture;
                   const isClickable = !isFuture;
                   const practiceFrac = getPracticeFraction(day);
                   const showLine = day > 1;
                   const prevDay = day - 1;
-                  const lineGreen = prevDay < currentDay || (prevDay === currentDay && isDayComplete(prevDay));
+                  const lineGreen = courseFinished || prevDay < currentDay || (prevDay === currentDay && isDayComplete(prevDay));
 
                   return (
                     <React.Fragment key={day}>
