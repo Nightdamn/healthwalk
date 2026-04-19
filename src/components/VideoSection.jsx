@@ -84,7 +84,9 @@ export default function VideoSection({ videos, courseId, activityId, maxDay, onU
   const [deletingId, setDeletingId] = useState(null);
   const fileRef = useRef();
 
-  const actVideos = videos.filter(v => v.activity_id === activityId);
+  const actVideos = videos
+    .filter(v => v.activity_id === activityId)
+    .sort((a, b) => a.first_day - b.first_day || a.last_day - b.last_day);
 
   const handleFileSelect = (e) => {
     const file = e.target.files?.[0];
@@ -132,7 +134,15 @@ export default function VideoSection({ videos, courseId, activityId, maxDay, onU
               border: deletingId === v.id ? '1px solid rgba(231,76,60,0.15)' : '1px solid transparent',
               fontSize: 12, transition: 'all 0.2s',
             }}>
-              <span style={{ fontSize: 14 }}>{videoTypeIcon(v.video_type)}</span>
+              {v.video_type === 'youtube' && extractYoutubeId(v.video_url) ? (
+                <img
+                  src={`https://img.youtube.com/vi/${extractYoutubeId(v.video_url)}/mqdefault.jpg`}
+                  alt=""
+                  style={{ width: 48, height: 36, borderRadius: 4, objectFit: 'cover', flexShrink: 0 }}
+                />
+              ) : (
+                <span style={{ fontSize: 14, width: 48, textAlign: 'center', flexShrink: 0 }}>{videoTypeIcon(v.video_type)}</span>
+              )}
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ color: '#555', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {videoDisplayName(v)}

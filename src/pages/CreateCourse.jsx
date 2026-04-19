@@ -3,7 +3,8 @@ import Layout from '../components/Layout';
 import IconPicker from '../components/IconPicker';
 import { getIconPath } from '../data/iconCatalog';
 import { btnBack, glass, pageWrapper, topBar, topBarTitle } from '../styles/shared';
-import { createCourseWithActivities } from '../lib/db';
+import { createCourseWithActivities, addVideoLink } from '../lib/db';
+import { detectVideoType } from '../components/VideoSection';
 
 const GREEN = '#27ae60';
 
@@ -15,8 +16,10 @@ const inputStyle = {
 
 const labelStyle = { fontSize: 13, fontWeight: 600, color: '#888', marginBottom: 6, display: 'block' };
 
+let _actCounter = 0;
 function emptyActivity(daysCount) {
-  return { label: '', iconNum: 'health/1', firstDay: 1, lastDay: daysCount, durationMin: 10, intervalDays: 1, _key: Date.now() + Math.random() };
+  const id = `act_create_${Date.now()}_${_actCounter++}`;
+  return { activityId: id, label: '', iconNum: 'health/1', firstDay: 1, lastDay: daysCount, durationMin: 10, intervalDays: 1, _key: id, pendingLinks: [] };
 }
 
 export default function CreateCoursePage({ user, onBack, onCreated }) {
@@ -69,6 +72,7 @@ export default function CreateCoursePage({ user, onBack, onCreated }) {
       avatarCustom,
       daysCount: days,
       activities: valid.map(a => ({
+        activityId: a.activityId,
         label: a.label.trim(),
         iconNum: a.iconNum,
         firstDay: parseInt(a.firstDay) || 1,
@@ -77,11 +81,20 @@ export default function CreateCoursePage({ user, onBack, onCreated }) {
         intervalDays: Math.max(parseInt(a.intervalDays) || 1, 1),
       })),
     });
-    setLoading(false);
 
-    if (course?.error) setError(course.error);
-    else if (course?.id) onCreated(course);
-    else setError('Не удалось создать курс');
+    if (course?.error) { setLoading(false); setError(course.error); return; }
+    if (!course?.id) { setLoading(false); setError('Не удалось создать курс'); return; }
+
+    // Add pending video links after course is created
+    const allLinks = valid.flatMap(a =>
+      (a.pendingLinks || []).map(l => ({ ...l, activityId: a.activityId }))
+    );
+    for (const link of allLinks) {
+      await addVideoLink(course.id, link.activityId, link.url, link.type, link.firstDay, link.lastDay);
+    }
+
+    setLoading(false);
+    onCreated(course);
   };
 
   const avatarSrc = avatarCustom || (avatarIcon ? getIconPath(avatarIcon) : null);
@@ -150,7 +163,19 @@ export default function CreateCoursePage({ user, onBack, onCreated }) {
           <ActivityCard key={a._key} activity={a} index={idx} maxDay={daysCount}
             onUpdate={(f, v) => updateActivity(idx, f, v)}
             onRemove={() => removeActivity(idx)}
-            onPickIcon={() => setPickerTarget(idx)} />
+            onPickIcon={() => setPickerTarget(idx)}
+            onAddPendingLink={(link) => {
+              setActivities(prev => prev.map((act, i) => i === idx
+                ? { ...act, pendingLinks: [...(act.pendingLinks || []), link] }
+                : act
+              ));
+            }}
+            onRemovePendingLink={(linkIdx) => {
+              setActivities(prev => prev.map((act, i) => i === idx
+                ? { ...act, pendingLinks: (act.pendingLinks || []).filter((_, li) => li !== linkIdx) }
+                : act
+              ));
+            }} />
         ))}
 
         <button onClick={addActivity} style={{
@@ -185,7 +210,12 @@ export default function CreateCoursePage({ user, onBack, onCreated }) {
   );
 }
 
-function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon }) {
+function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon, onAddPendingLink, onRemovePendingLink }) {
+  const [showLinkInput, setShowLinkInput] = useState(false);
+  const [linkUrl, setLinkUrl] = useState('');
+  const [linkFirstDay, setLinkFirstDay] = useState(1);
+  const [linkLastDay, setLinkLastDay] = useState(1);
+
   const numChange = (field) => (e) => {
     const raw = e.target.value;
     if (raw === '') { onUpdate(field, ''); return; }
@@ -254,13 +284,83 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon 
         </div>
       </div>
 
-      {/* Video hint */}
-      <div style={{
-        marginTop: 8, padding: '8px 10px', borderRadius: 8,
-        background: 'rgba(52,152,219,0.05)', border: '1px dashed rgba(52,152,219,0.2)',
-        fontSize: 11, color: '#999', lineHeight: 1.4,
-      }}>
-        Видео можно добавить после сохранения курса (в редактировании)
+      {/* Video links section */}
+      <div style={{ marginTop: 8, borderTop: '1px solid rgba(0,0,0,0.05)', paddingTop: 8 }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: '#aaa', marginBottom: 6, textTransform: 'uppercase' }}>
+          Видео
+        </div>
+
+        {/* Pending links list */}
+        {(activity.pendingLinks || []).map((l, li) => (
+          <div key={li} style={{
+            display: 'flex', alignItems: 'center', gap: 6, padding: '6px 8px',
+            marginBottom: 3, borderRadius: 8, background: 'rgba(0,0,0,0.02)', fontSize: 12,
+          }}>
+            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#555' }}>
+              {l.url}
+            </span>
+            <span style={{ color: '#999', fontSize: 10, flexShrink: 0 }}>День {l.firstDay}–{l.lastDay}</span>
+            <button onClick={() => onRemovePendingLink(li)} style={{
+              background: 'none', border: 'none', color: '#e74c3c', cursor: 'pointer', fontSize: 11, padding: '0 4px',
+            }}>✕</button>
+          </div>
+        ))}
+
+        {/* Link input */}
+        {showLinkInput ? (
+          <div style={{ marginBottom: 6 }}>
+            <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
+              <input value={linkUrl} onChange={e => setLinkUrl(e.target.value)}
+                placeholder="YouTube, Google Drive или ссылка"
+                style={{ ...inputStyle, flex: 1, padding: '6px 10px', fontSize: 12 }}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') {
+                    const url = linkUrl.trim();
+                    if (!url) return;
+                    try { new URL(url); } catch { return; }
+                    onAddPendingLink({ url, type: detectVideoType(url), firstDay: linkFirstDay, lastDay: linkLastDay });
+                    setLinkUrl(''); setShowLinkInput(false);
+                  }
+                }} />
+              <button onClick={() => {
+                const url = linkUrl.trim();
+                if (!url) return;
+                try { new URL(url); } catch { return; }
+                onAddPendingLink({ url, type: detectVideoType(url), firstDay: linkFirstDay, lastDay: linkLastDay });
+                setLinkUrl(''); setShowLinkInput(false);
+              }} style={{
+                padding: '6px 10px', borderRadius: 8, border: 'none',
+                background: '#27ae60', color: '#fff', fontSize: 11, fontWeight: 600, cursor: 'pointer',
+              }}>OK</button>
+              <button onClick={() => { setShowLinkInput(false); setLinkUrl(''); }} style={{
+                padding: '6px 8px', borderRadius: 8, border: 'none',
+                background: 'rgba(0,0,0,0.05)', color: '#999', fontSize: 11, cursor: 'pointer',
+              }}>✕</button>
+            </div>
+            <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+              <span style={{ fontSize: 10, color: '#999' }}>С дня:</span>
+              <input type="number" value={linkFirstDay} min={1} max={maxDay}
+                onChange={e => { const n = parseInt(e.target.value); if (!isNaN(n) && n > 0) setLinkFirstDay(n); }}
+                style={{ ...inputStyle, width: 50, padding: '4px 6px', fontSize: 11 }} />
+              <span style={{ fontSize: 10, color: '#999' }}>По:</span>
+              <input type="number" value={linkLastDay} min={1} max={maxDay}
+                onChange={e => { const n = parseInt(e.target.value); if (!isNaN(n) && n > 0) setLinkLastDay(n); }}
+                style={{ ...inputStyle, width: 50, padding: '4px 6px', fontSize: 11 }} />
+            </div>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button onClick={() => setShowLinkInput(true)} style={{
+              flex: 1, padding: '7px 10px', borderRadius: 8,
+              border: '1px dashed rgba(52,152,219,0.3)', background: 'rgba(52,152,219,0.04)',
+              color: '#3498db', fontSize: 11, fontWeight: 600, cursor: 'pointer',
+            }}>+ Ссылка на видео</button>
+          </div>
+        )}
+
+        <div style={{ fontSize: 10, color: '#bbb', marginTop: 4 }}>
+          Загрузка файлов доступна после сохранения курса
+        </div>
       </div>
     </div>
   );

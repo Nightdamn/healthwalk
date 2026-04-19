@@ -39,6 +39,39 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
   // Video load error state
   const [videoError, setVideoError] = useState(false);
 
+  // Linear progress bar drag (over video)
+  const linearBarRef = useRef(null);
+  const linearDraggingRef = useRef(false);
+
+  const applyLinearDrag = useCallback((clientX) => {
+    if (!linearBarRef.current || !onSeek) return;
+    const rect = linearBarRef.current.getBoundingClientRect();
+    const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    const newElapsed = Math.round(pct * totalSec);
+    const clamped = Math.min(newElapsed, maxElapsedRef.current);
+    onSeek(Math.max(0, totalSec - clamped));
+  }, [totalSec, onSeek]);
+
+  useEffect(() => {
+    const move = (e) => {
+      if (!linearDraggingRef.current) return;
+      if (e.cancelable) e.preventDefault();
+      const x = e.touches ? e.touches[0].clientX : e.clientX;
+      applyLinearDrag(x);
+    };
+    const end = () => { linearDraggingRef.current = false; };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', end);
+    window.addEventListener('touchmove', move, { passive: false });
+    window.addEventListener('touchend', end);
+    return () => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', end);
+      window.removeEventListener('touchmove', move);
+      window.removeEventListener('touchend', end);
+    };
+  }, [applyLinearDrag]);
+
   // ─── YouTube Player setup ───
   const [ytLoaded, setYtLoaded] = useState(false);
   const ytContainerRef = useRef(null);
@@ -342,6 +375,66 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
                   position: 'absolute', top: 0, right: 0, width: 48, height: 48,
                   background: '#000', zIndex: 2,
                 }} />
+              </div>
+            )}
+
+            {/* Linear timer progress bar over video */}
+            {!isDone && (
+              <div
+                ref={linearBarRef}
+                onMouseDown={(e) => {
+                  if (elapsed <= 0) return;
+                  linearDraggingRef.current = true;
+                  applyLinearDrag(e.clientX);
+                }}
+                onTouchStart={(e) => {
+                  if (elapsed <= 0) return;
+                  linearDraggingRef.current = true;
+                  applyLinearDrag(e.touches[0].clientX);
+                }}
+                style={{
+                  position: 'absolute', bottom: 0, left: 0, right: 0,
+                  height: 28, cursor: 'pointer', zIndex: 10,
+                  display: 'flex', alignItems: 'flex-end', touchAction: 'none',
+                  background: 'linear-gradient(transparent, rgba(0,0,0,0.4))',
+                }}
+              >
+                {/* Track bg */}
+                <div style={{
+                  position: 'absolute', bottom: 6, left: 12, right: 12,
+                  height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.25)',
+                }}>
+                  {/* Max progress (pale) */}
+                  <div style={{
+                    position: 'absolute', left: 0, top: 0, height: '100%', borderRadius: 2,
+                    background: GREEN_PALE, width: `${maxPct}%`,
+                  }} />
+                  {/* Current progress */}
+                  <div style={{
+                    position: 'absolute', left: 0, top: 0, height: '100%', borderRadius: 2,
+                    background: GREEN, width: `${currentPct}%`,
+                    transition: linearDraggingRef.current ? 'none' : 'width 1s linear',
+                  }} />
+                </div>
+                {/* Ball */}
+                {hasStarted && (
+                  <div style={{
+                    position: 'absolute', bottom: 2,
+                    left: `calc(12px + (100% - 24px) * ${currentPct / 100} - 6px)`,
+                    width: 12, height: 12, borderRadius: '50%',
+                    background: GREEN, border: '2px solid #fff',
+                    boxShadow: '0 1px 4px rgba(0,0,0,0.4)',
+                    transition: linearDraggingRef.current ? 'none' : 'left 1s linear',
+                  }} />
+                )}
+                {/* Time label */}
+                <div style={{
+                  position: 'absolute', bottom: 14, right: 12,
+                  fontSize: 10, color: 'rgba(255,255,255,0.8)', fontWeight: 600,
+                  fontVariantNumeric: 'tabular-nums',
+                }}>
+                  {formatTime(timerSeconds)}
+                </div>
               </div>
             )}
           </div>

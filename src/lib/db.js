@@ -627,10 +627,31 @@ export async function loadStudentExclusions(userId, courseId) {
 // ACTIVITY VIDEOS
 // ═══════════════════════════════════════════════════════════
 
+// Extract video duration from file metadata
+function getVideoDuration(file) {
+  return new Promise((resolve) => {
+    const video = document.createElement('video');
+    video.preload = 'metadata';
+    video.onloadedmetadata = () => {
+      const dur = Math.round(video.duration);
+      URL.revokeObjectURL(video.src);
+      resolve(dur > 0 && isFinite(dur) ? dur : null);
+    };
+    video.onerror = () => {
+      URL.revokeObjectURL(video.src);
+      resolve(null);
+    };
+    video.src = URL.createObjectURL(file);
+  });
+}
+
 export async function uploadActivityVideo(courseId, activityId, file, firstDay, lastDay, onProgress) {
   const ext = file.name.split('.').pop().toLowerCase();
   const fileName = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
   const filePath = `${courseId}/${activityId}/${fileName}`;
+
+  // Get duration from video metadata before upload
+  const durationSec = await getVideoDuration(file);
 
   // Upload via XHR for progress tracking
   const session = await supabase.auth.getSession();
@@ -664,14 +685,13 @@ export async function uploadActivityVideo(courseId, activityId, file, firstDay, 
     return { error: uploadErr };
   }
 
-  // Get duration from video metadata (will be set client-side before calling)
   const { data, error } = await supabase.from('activity_videos').insert({
     course_id: courseId,
     activity_id: activityId,
     video_type: 'file',
     video_url: filePath,
     file_size: file.size,
-    duration_sec: null,
+    duration_sec: durationSec,
     first_day: firstDay,
     last_day: lastDay,
   }).select().single();

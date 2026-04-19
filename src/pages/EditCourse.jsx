@@ -339,6 +339,11 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon,
 
   const activityId = activity.dbId || activity._key;
 
+  // Check if any video has duration_sec — if so, duration is set by video
+  const actVideos = videos.filter(v => v.activity_id === activityId);
+  const videoDuration = actVideos.find(v => v.duration_sec)?.duration_sec;
+  const hasDurationFromVideo = !!videoDuration;
+
   return (
     <div style={{ ...glass, borderRadius: 16, padding: '14px 14px', marginBottom: 10 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
@@ -386,13 +391,25 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon,
       </div>
       <div>
         <label style={{ ...labelStyle, fontSize: 11 }}>Длительность</label>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <input type="number" value={activity.durationMin}
-            onChange={numChange('durationMin')}
-            onBlur={clamp('durationMin', 1, 1200)}
-            style={{ ...inputStyle, padding: '8px 10px', fontSize: 14, width: 80 }} />
-          <span style={{ fontSize: 13, color: '#888', whiteSpace: 'nowrap' }}>минут</span>
-        </div>
+        {hasDurationFromVideo ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={{
+              ...inputStyle, padding: '8px 10px', fontSize: 14, width: 80,
+              background: 'rgba(39,174,96,0.06)', color: '#27ae60', fontWeight: 600,
+            }}>
+              {Math.ceil(videoDuration / 60)}
+            </div>
+            <span style={{ fontSize: 13, color: '#888', whiteSpace: 'nowrap' }}>мин (из видео)</span>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <input type="number" value={activity.durationMin}
+              onChange={numChange('durationMin')}
+              onBlur={clamp('durationMin', 1, 1200)}
+              style={{ ...inputStyle, padding: '8px 10px', fontSize: 14, width: 80 }} />
+            <span style={{ fontSize: 13, color: '#888', whiteSpace: 'nowrap' }}>минут</span>
+          </div>
+        )}
       </div>
 
       {/* Video section — only for saved activities */}
