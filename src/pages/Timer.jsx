@@ -327,7 +327,7 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
               </div>
             )}
             {isDrive && (
-              <div style={{ position: 'relative', paddingBottom: '56.25%', height: 0 }}>
+              <div style={{ position: 'relative', paddingBottom: '56.25%', height: 0, overflow: 'hidden' }}>
                 <iframe
                   src={driveId
                     ? `https://drive.google.com/file/d/${driveId}/preview`
@@ -337,6 +337,11 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
                   allow="autoplay; encrypted-media"
                   allowFullScreen
                 />
+                {/* Cover the "pop-out" button in top-right corner */}
+                <div style={{
+                  position: 'absolute', top: 0, right: 0, width: 48, height: 48,
+                  background: '#000', zIndex: 2,
+                }} />
               </div>
             )}
           </div>
@@ -349,6 +354,12 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
           }}>
             <div style={{ color: "#bbb", fontSize: 40 }}>▶</div>
             <span style={{ color: "#aaa", fontSize: 13, fontWeight: 500 }}>Видеоурок дня {currentDay}</span>
+          </div>
+        )}
+
+        {isDrive && (
+          <div style={{ fontSize: 11, color: '#999', textAlign: 'center', marginTop: -16, marginBottom: 8 }}>
+            Google Drive: управляйте видео в плеере отдельно от таймера
           </div>
         )}
 

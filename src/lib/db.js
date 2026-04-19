@@ -627,18 +627,41 @@ export async function loadStudentExclusions(userId, courseId) {
 // ACTIVITY VIDEOS
 // ═══════════════════════════════════════════════════════════
 
-export async function uploadActivityVideo(courseId, activityId, file, firstDay, lastDay) {
+export async function uploadActivityVideo(courseId, activityId, file, firstDay, lastDay, onProgress) {
   const ext = file.name.split('.').pop().toLowerCase();
   const fileName = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
   const filePath = `${courseId}/${activityId}/${fileName}`;
 
-  const { error: uploadErr } = await supabase.storage
-    .from('course-videos')
-    .upload(filePath, file, { contentType: file.type, upsert: false });
+  // Upload via XHR for progress tracking
+  const session = await supabase.auth.getSession();
+  const token = session?.data?.session?.access_token;
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+
+  const uploadErr = await new Promise((resolve) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${supabaseUrl}/storage/v1/object/course-videos/${filePath}`);
+    xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    xhr.setRequestHeader('Content-Type', file.type);
+    xhr.setRequestHeader('x-upsert', 'false');
+    if (onProgress) {
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+      };
+    }
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) resolve(null);
+      else {
+        try { resolve(JSON.parse(xhr.responseText)?.message || `HTTP ${xhr.status}`); }
+        catch { resolve(`HTTP ${xhr.status}`); }
+      }
+    };
+    xhr.onerror = () => resolve('Ошибка сети');
+    xhr.send(file);
+  });
 
   if (uploadErr) {
     console.error('[DB] Upload video:', uploadErr);
-    return { error: uploadErr.message };
+    return { error: uploadErr };
   }
 
   // Get duration from video metadata (will be set client-side before calling)

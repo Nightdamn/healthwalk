@@ -76,7 +76,7 @@ function videoDisplayName(v) {
   return v.video_url.split('/').pop();
 }
 
-export default function VideoSection({ videos, courseId, activityId, maxDay, onUpload, onAddLink, onDelete, uploading }) {
+export default function VideoSection({ videos, courseId, activityId, maxDay, onUpload, onAddLink, onDelete, uploading, uploadProgress, globalUploading }) {
   const [showLinkInput, setShowLinkInput] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
   const [firstDay, setFirstDay] = useState(1);
@@ -211,22 +211,41 @@ export default function VideoSection({ videos, courseId, activityId, maxDay, onU
         </div>
       )}
 
+      {/* Upload progress bar */}
+      {uploading && (
+        <div style={{ marginBottom: 6 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
+            <span style={{ fontSize: 11, color: GREEN, fontWeight: 600 }}>Загрузка видео...</span>
+            <span style={{ fontSize: 11, color: '#888' }}>{uploadProgress || 0}%</span>
+          </div>
+          <div style={{ width: '100%', height: 4, borderRadius: 2, background: 'rgba(0,0,0,0.06)' }}>
+            <div style={{
+              width: `${uploadProgress || 0}%`, height: '100%', borderRadius: 2,
+              background: GREEN, transition: 'width 0.3s ease',
+            }} />
+          </div>
+        </div>
+      )}
+
       {/* Action buttons */}
       <div style={{ display: 'flex', gap: 6 }}>
-        <button onClick={() => fileRef.current?.click()} disabled={uploading}
+        <button onClick={() => fileRef.current?.click()} disabled={globalUploading}
           style={{
             flex: 1, padding: '7px 10px', borderRadius: 8,
             border: `1px dashed rgba(39,174,96,0.3)`, background: 'rgba(39,174,96,0.04)',
-            color: GREEN, fontSize: 11, fontWeight: 600, cursor: uploading ? 'wait' : 'pointer',
-            opacity: uploading ? 0.5 : 1,
+            color: GREEN, fontSize: 11, fontWeight: 600,
+            cursor: globalUploading ? 'not-allowed' : 'pointer',
+            opacity: globalUploading ? 0.4 : 1,
           }}>
-          {uploading ? 'Загрузка...' : '+ Файл'}
+          {uploading ? `Загрузка ${uploadProgress || 0}%` : '+ Файл'}
         </button>
-        <button onClick={() => setShowLinkInput(true)} disabled={uploading}
+        <button onClick={() => setShowLinkInput(true)} disabled={globalUploading}
           style={{
             flex: 1, padding: '7px 10px', borderRadius: 8,
             border: '1px dashed rgba(52,152,219,0.3)', background: 'rgba(52,152,219,0.04)',
-            color: '#3498db', fontSize: 11, fontWeight: 600, cursor: 'pointer',
+            color: '#3498db', fontSize: 11, fontWeight: 600,
+            cursor: globalUploading ? 'not-allowed' : 'pointer',
+            opacity: globalUploading ? 0.4 : 1,
           }}>
           + Ссылка
         </button>

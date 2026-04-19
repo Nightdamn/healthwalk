@@ -34,7 +34,8 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted })
   const [error, setError] = useState('');
   const [pickerTarget, setPickerTarget] = useState(null);
   const [videos, setVideos] = useState([]);
-  const [videoUploading, setVideoUploading] = useState(false);
+  const [videoUploadingId, setVideoUploadingId] = useState(null);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const fileRef = useRef();
 
   // Load course data
@@ -73,9 +74,13 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted })
   }, [courseId]);
 
   const handleVideoUpload = async (activityId, file, firstDay, lastDay) => {
-    setVideoUploading(true);
-    const result = await uploadActivityVideo(courseId, activityId, file, firstDay, lastDay);
-    setVideoUploading(false);
+    setVideoUploadingId(activityId);
+    setUploadProgress(0);
+    const result = await uploadActivityVideo(courseId, activityId, file, firstDay, lastDay, (pct) => {
+      setUploadProgress(pct);
+    });
+    setVideoUploadingId(null);
+    setUploadProgress(0);
     if (result.error) { setError(`Ошибка загрузки видео: ${result.error}`); return; }
     setVideos(prev => [...prev, result.data]);
   };
@@ -257,7 +262,9 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted })
             onRemove={() => removeActivity(idx)}
             onPickIcon={() => setPickerTarget(idx)}
             videos={videos} courseId={courseId}
-            videoUploading={videoUploading}
+            videoUploadingId={videoUploadingId}
+            uploadProgress={uploadProgress}
+            activityId={a.dbId || a._key}
             onVideoUpload={(file, fd, ld) => handleVideoUpload(a.dbId || a._key, file, fd, ld)}
             onAddLink={(url, type, fd, ld) => handleAddLink(a.dbId || a._key, url, type, fd, ld)}
             onDeleteVideo={handleDeleteVideo} />
@@ -317,7 +324,7 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted })
   );
 }
 
-function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon, videos, courseId, videoUploading, onVideoUpload, onAddLink, onDeleteVideo }) {
+function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon, videos, courseId, videoUploadingId, uploadProgress, activityId: propActivityId, onVideoUpload, onAddLink, onDeleteVideo }) {
   const numChange = (field) => (e) => {
     const raw = e.target.value;
     if (raw === '') { onUpdate(field, ''); return; }
@@ -389,16 +396,18 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon,
       </div>
 
       {/* Video section — only for saved activities */}
-      {courseId && activityId && (
+      {courseId && propActivityId && (
         <VideoSection
           videos={videos}
           courseId={courseId}
-          activityId={activityId}
+          activityId={propActivityId}
           maxDay={maxDay}
           onUpload={onVideoUpload}
           onAddLink={onAddLink}
           onDelete={onDeleteVideo}
-          uploading={videoUploading}
+          uploading={videoUploadingId === propActivityId}
+          uploadProgress={videoUploadingId === propActivityId ? uploadProgress : 0}
+          globalUploading={!!videoUploadingId}
         />
       )}
     </div>
