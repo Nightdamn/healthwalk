@@ -2,18 +2,13 @@ import React, { useRef, useCallback, useEffect, useState } from 'react';
 import Layout from '../components/Layout';
 import { formatTime } from '../data/constants';
 import { btnBack } from '../styles/shared';
+import { extractYoutubeId, extractDriveId } from '../components/VideoSection';
 
 const CX = 100, CY = 100, R = 90;
 const CIRCUMFERENCE = 2 * Math.PI * R;
 const BALL_R = 10;
 const GREEN = "#27ae60";
 const GREEN_PALE = "rgba(39,174,96,0.2)";
-
-function extractYoutubeId(url) {
-  if (!url) return null;
-  const m = url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([^&?\s]+)/);
-  return m ? m[1] : null;
-}
 
 export default function TimerPage({ activity, timerSeconds, timerPaused, currentDay, onPause, onBack, onDone, onSeek, video, videoUrl }) {
   const totalSec = video?.duration_sec || activity.duration * 60;
@@ -29,8 +24,11 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
 
   const isFileVideo = video?.video_type === 'file' && videoUrl;
   const isYoutube = video?.video_type === 'youtube';
+  const isDrive = video?.video_type === 'drive';
+  const isDirectLink = video?.video_type === 'link';
   const youtubeId = isYoutube ? extractYoutubeId(video.video_url) : null;
-  const hasVideo = isFileVideo || (isYoutube && youtubeId);
+  const driveId = isDrive ? extractDriveId(video.video_url) : null;
+  const hasVideo = isFileVideo || (isYoutube && youtubeId) || (isDrive && driveId) || isDirectLink;
 
   // ─── YouTube Player setup ───
   const [ytLoaded, setYtLoaded] = useState(false);
@@ -82,7 +80,8 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
     if (!hasVideo) return;
     syncingRef.current = true;
 
-    if (isFileVideo && videoRef.current) {
+    // HTML5 video: file uploads and direct links
+    if ((isFileVideo || isDirectLink) && videoRef.current) {
       if (timerPaused || isDone) {
         videoRef.current.pause();
       } else {
@@ -99,6 +98,7 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
         }
       } catch (e) {}
     }
+    // Drive iframe — no sync control available
 
     setTimeout(() => { syncingRef.current = false; }, 100);
   }, [timerPaused, isDone, hasVideo]);
@@ -111,7 +111,7 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
     // Only sync on large jumps (drag seek), not on normal 1-sec ticks
     if (diff > 2) {
       syncingRef.current = true;
-      if (isFileVideo && videoRef.current) {
+      if ((isFileVideo || isDirectLink) && videoRef.current) {
         videoRef.current.currentTime = elapsed;
       }
       if (isYoutube && ytReadyRef.current && ytPlayerRef.current) {
@@ -283,11 +283,32 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
                 onSeeked={handleVideoSeeked}
               />
             )}
+            {isDirectLink && (
+              <video
+                ref={videoRef}
+                src={video.video_url}
+                style={{ width: "100%", display: "block" }}
+                playsInline
+                preload="metadata"
+                onSeeked={handleVideoSeeked}
+                crossOrigin="anonymous"
+              />
+            )}
             {isYoutube && (
               <div style={{ position: 'relative', paddingBottom: '56.25%', height: 0 }}>
                 <div ref={ytContainerRef} style={{
                   position: 'absolute', top: 0, left: 0, width: '100%', height: '100%',
                 }} />
+              </div>
+            )}
+            {isDrive && driveId && (
+              <div style={{ position: 'relative', paddingBottom: '56.25%', height: 0 }}>
+                <iframe
+                  src={`https://drive.google.com/file/d/${driveId}/preview`}
+                  style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', border: 'none' }}
+                  allow="autoplay; encrypted-media"
+                  allowFullScreen
+                />
               </div>
             )}
           </div>

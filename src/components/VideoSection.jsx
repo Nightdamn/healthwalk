@@ -15,15 +15,56 @@ function formatFileSize(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function extractYoutubeId(url) {
+export function extractYoutubeId(url) {
   if (!url) return null;
   const m = url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([^&?\s]+)/);
   return m ? m[1] : null;
 }
 
-export default function VideoSection({ videos, courseId, activityId, maxDay, onUpload, onAddYoutube, onDelete, uploading }) {
-  const [showYtInput, setShowYtInput] = useState(false);
-  const [ytUrl, setYtUrl] = useState('');
+export function extractDriveId(url) {
+  if (!url) return null;
+  // https://drive.google.com/file/d/FILE_ID/view
+  // https://drive.google.com/open?id=FILE_ID
+  const m = url.match(/drive\.google\.com\/(?:file\/d\/|open\?id=)([a-zA-Z0-9_-]+)/);
+  return m ? m[1] : null;
+}
+
+export function detectVideoType(url) {
+  if (extractYoutubeId(url)) return 'youtube';
+  if (extractDriveId(url)) return 'drive';
+  return 'link';
+}
+
+function videoTypeLabel(type) {
+  if (type === 'youtube') return 'YouTube';
+  if (type === 'drive') return 'Google Drive';
+  if (type === 'link') return 'Ссылка';
+  return 'Файл';
+}
+
+function videoTypeIcon(type) {
+  if (type === 'youtube') return '▶';
+  if (type === 'drive') return '☁';
+  if (type === 'link') return '🔗';
+  return '📹';
+}
+
+function videoDisplayName(v) {
+  if (v.video_type === 'youtube') {
+    return `YouTube: ${extractYoutubeId(v.video_url) || v.video_url}`;
+  }
+  if (v.video_type === 'drive') {
+    return `Drive: ${extractDriveId(v.video_url) || v.video_url}`;
+  }
+  if (v.video_type === 'link') {
+    try { return new URL(v.video_url).hostname + '/...'; } catch { return v.video_url; }
+  }
+  return v.video_url.split('/').pop();
+}
+
+export default function VideoSection({ videos, courseId, activityId, maxDay, onUpload, onAddLink, onDelete, uploading }) {
+  const [showLinkInput, setShowLinkInput] = useState(false);
+  const [linkUrl, setLinkUrl] = useState('');
   const [firstDay, setFirstDay] = useState(1);
   const [lastDay, setLastDay] = useState(1);
   const [deletingId, setDeletingId] = useState(null);
@@ -47,15 +88,17 @@ export default function VideoSection({ videos, courseId, activityId, maxDay, onU
     e.target.value = '';
   };
 
-  const handleAddYoutube = () => {
-    if (!ytUrl.trim()) return;
-    if (!extractYoutubeId(ytUrl)) {
-      alert('Неверная ссылка YouTube');
+  const handleAddLink = () => {
+    const url = linkUrl.trim();
+    if (!url) return;
+    try { new URL(url); } catch {
+      alert('Введите корректную ссылку');
       return;
     }
-    onAddYoutube(ytUrl.trim(), firstDay, lastDay);
-    setYtUrl('');
-    setShowYtInput(false);
+    const type = detectVideoType(url);
+    onAddLink(url, type, firstDay, lastDay);
+    setLinkUrl('');
+    setShowLinkInput(false);
   };
 
   return (
@@ -75,12 +118,10 @@ export default function VideoSection({ videos, courseId, activityId, maxDay, onU
               border: deletingId === v.id ? '1px solid rgba(231,76,60,0.15)' : '1px solid transparent',
               fontSize: 12, transition: 'all 0.2s',
             }}>
-              <span style={{ fontSize: 14 }}>{v.video_type === 'youtube' ? '🔗' : '📹'}</span>
+              <span style={{ fontSize: 14 }}>{videoTypeIcon(v.video_type)}</span>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ color: '#555', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {v.video_type === 'youtube'
-                    ? `YouTube: ${extractYoutubeId(v.video_url) || v.video_url}`
-                    : v.video_url.split('/').pop()}
+                  {videoDisplayName(v)}
                 </div>
                 <div style={{ color: '#999', fontSize: 11 }}>
                   День {v.first_day}–{v.last_day}
@@ -131,21 +172,28 @@ export default function VideoSection({ videos, courseId, activityId, maxDay, onU
           style={smallInput} />
       </div>
 
-      {/* YouTube input */}
-      {showYtInput && (
-        <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
-          <input value={ytUrl} onChange={e => setYtUrl(e.target.value)}
-            placeholder="https://youtube.com/watch?v=..."
-            style={{ ...smallInput, flex: 1, width: 'auto' }}
-            onKeyDown={e => e.key === 'Enter' && handleAddYoutube()} />
-          <button onClick={handleAddYoutube} style={{
-            padding: '6px 12px', borderRadius: 8, border: 'none',
-            background: GREEN, color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer',
-          }}>OK</button>
-          <button onClick={() => { setShowYtInput(false); setYtUrl(''); }} style={{
-            padding: '6px 8px', borderRadius: 8, border: 'none',
-            background: 'rgba(0,0,0,0.05)', color: '#999', fontSize: 12, cursor: 'pointer',
-          }}>✕</button>
+      {/* Link input */}
+      {showLinkInput && (
+        <div style={{ marginBottom: 6 }}>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <input value={linkUrl} onChange={e => setLinkUrl(e.target.value)}
+              placeholder="YouTube, Google Drive или прямая ссылка"
+              style={{ ...smallInput, flex: 1, width: 'auto' }}
+              onKeyDown={e => e.key === 'Enter' && handleAddLink()} />
+            <button onClick={handleAddLink} style={{
+              padding: '6px 12px', borderRadius: 8, border: 'none',
+              background: GREEN, color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+            }}>OK</button>
+            <button onClick={() => { setShowLinkInput(false); setLinkUrl(''); }} style={{
+              padding: '6px 8px', borderRadius: 8, border: 'none',
+              background: 'rgba(0,0,0,0.05)', color: '#999', fontSize: 12, cursor: 'pointer',
+            }}>✕</button>
+          </div>
+          {linkUrl.trim() && (
+            <div style={{ fontSize: 10, color: '#999', marginTop: 3 }}>
+              Тип: {videoTypeLabel(detectVideoType(linkUrl.trim()))}
+            </div>
+          )}
         </div>
       )}
 
@@ -158,15 +206,15 @@ export default function VideoSection({ videos, courseId, activityId, maxDay, onU
             color: GREEN, fontSize: 11, fontWeight: 600, cursor: uploading ? 'wait' : 'pointer',
             opacity: uploading ? 0.5 : 1,
           }}>
-          {uploading ? 'Загрузка...' : '+ Видео файл'}
+          {uploading ? 'Загрузка...' : '+ Файл'}
         </button>
-        <button onClick={() => setShowYtInput(true)} disabled={uploading}
+        <button onClick={() => setShowLinkInput(true)} disabled={uploading}
           style={{
             flex: 1, padding: '7px 10px', borderRadius: 8,
-            border: '1px dashed rgba(231,76,60,0.3)', background: 'rgba(231,76,60,0.04)',
-            color: '#e74c3c', fontSize: 11, fontWeight: 600, cursor: 'pointer',
+            border: '1px dashed rgba(52,152,219,0.3)', background: 'rgba(52,152,219,0.04)',
+            color: '#3498db', fontSize: 11, fontWeight: 600, cursor: 'pointer',
           }}>
-          + YouTube
+          + Ссылка
         </button>
       </div>
       <input ref={fileRef} type="file" accept="video/mp4,video/webm,video/quicktime"

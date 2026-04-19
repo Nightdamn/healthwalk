@@ -6,7 +6,7 @@ CREATE TABLE activity_videos (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   course_id UUID NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
   activity_id TEXT NOT NULL,
-  video_type TEXT NOT NULL CHECK (video_type IN ('file', 'youtube')),
+  video_type TEXT NOT NULL CHECK (video_type IN ('file', 'youtube', 'drive', 'link')),
   video_url TEXT NOT NULL,
   file_size BIGINT,
   duration_sec INT,

@@ -661,19 +661,18 @@ export async function uploadActivityVideo(courseId, activityId, file, firstDay, 
   return { data };
 }
 
-export async function addYoutubeVideo(courseId, activityId, youtubeUrl, durationSec, firstDay, lastDay) {
+export async function addVideoLink(courseId, activityId, url, videoType, firstDay, lastDay) {
   const { data, error } = await supabase.from('activity_videos').insert({
     course_id: courseId,
     activity_id: activityId,
-    video_type: 'youtube',
-    video_url: youtubeUrl,
-    duration_sec: durationSec || null,
+    video_type: videoType,
+    video_url: url,
     first_day: firstDay,
     last_day: lastDay,
   }).select().single();
 
   if (error) {
-    console.error('[DB] Add YouTube video:', error);
+    console.error('[DB] Add video link:', error);
     return { error: error.message };
   }
   return { data };

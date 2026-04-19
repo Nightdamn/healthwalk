@@ -3,7 +3,7 @@ import Layout from '../components/Layout';
 import IconPicker from '../components/IconPicker';
 import { getIconPath } from '../data/iconCatalog';
 import { btnBack, glass, pageWrapper, topBar, topBarTitle } from '../styles/shared';
-import { loadCourseForEdit, updateCourseWithActivities, canDeleteCourse, deleteCourse, getActivityVideos, uploadActivityVideo, addYoutubeVideo, deleteActivityVideo } from '../lib/db';
+import { loadCourseForEdit, updateCourseWithActivities, canDeleteCourse, deleteCourse, getActivityVideos, uploadActivityVideo, addVideoLink, deleteActivityVideo } from '../lib/db';
 import VideoSection from '../components/VideoSection';
 
 const GREEN = '#27ae60';
@@ -80,9 +80,9 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted })
     setVideos(prev => [...prev, result.data]);
   };
 
-  const handleAddYoutube = async (activityId, ytUrl, firstDay, lastDay) => {
-    const result = await addYoutubeVideo(courseId, activityId, ytUrl, null, firstDay, lastDay);
-    if (result.error) { setError(`Ошибка добавления YouTube: ${result.error}`); return; }
+  const handleAddLink = async (activityId, url, videoType, firstDay, lastDay) => {
+    const result = await addVideoLink(courseId, activityId, url, videoType, firstDay, lastDay);
+    if (result.error) { setError(`Ошибка добавления ссылки: ${result.error}`); return; }
     setVideos(prev => [...prev, result.data]);
   };
 
@@ -259,7 +259,7 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted })
             videos={videos} courseId={courseId}
             videoUploading={videoUploading}
             onVideoUpload={(file, fd, ld) => handleVideoUpload(a.dbId || a._key, file, fd, ld)}
-            onAddYoutube={(url, fd, ld) => handleAddYoutube(a.dbId || a._key, url, fd, ld)}
+            onAddLink={(url, type, fd, ld) => handleAddLink(a.dbId || a._key, url, type, fd, ld)}
             onDeleteVideo={handleDeleteVideo} />
         ))}
 
@@ -317,7 +317,7 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted })
   );
 }
 
-function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon, videos, courseId, videoUploading, onVideoUpload, onAddYoutube, onDeleteVideo }) {
+function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon, videos, courseId, videoUploading, onVideoUpload, onAddLink, onDeleteVideo }) {
   const numChange = (field) => (e) => {
     const raw = e.target.value;
     if (raw === '') { onUpdate(field, ''); return; }
@@ -396,7 +396,7 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon,
           activityId={activityId}
           maxDay={maxDay}
           onUpload={onVideoUpload}
-          onAddYoutube={onAddYoutube}
+          onAddLink={onAddLink}
           onDelete={onDeleteVideo}
           uploading={videoUploading}
         />
