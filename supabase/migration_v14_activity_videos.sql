@@ -64,7 +64,7 @@ CREATE POLICY "Enrolled users can view videos"
 -- Run in Supabase Dashboard > Storage > Create bucket:
 --   Name: course-videos
 --   Public: false
---   File size limit: 104857600 (100MB)
+--   File size limit: 524288000 (500MB)
 --   Allowed MIME types: video/mp4, video/webm, video/quicktime
 
 -- Storage policies (run in SQL Editor):

@@ -257,7 +257,7 @@ activity_videos
 
 - Bucket: `course-videos` (private, доступ через RLS)
 - Путь: `{course_id}/{activity_id}/{filename}`
-- Лимит размера файла: 100 МБ (настраивается в Storage политиках)
+- Лимит размера файла: 500 МБ (настраивается в Storage политиках)
 - Допустимые форматы: mp4, webm, mov
 - Подписанные URL для доступа учеников (signed URL, TTL = 1 час)
 

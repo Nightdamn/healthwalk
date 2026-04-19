@@ -39,8 +39,8 @@ export default function VideoSection({ videos, courseId, activityId, maxDay, onU
       alert('Поддерживаемые форматы: MP4, WebM, MOV');
       return;
     }
-    if (file.size > 100 * 1024 * 1024) {
-      alert('Максимальный размер файла: 100 МБ');
+    if (file.size > 500 * 1024 * 1024) {
+      alert('Максимальный размер файла: 500 МБ');
       return;
     }
     onUpload(file, firstDay, lastDay);
