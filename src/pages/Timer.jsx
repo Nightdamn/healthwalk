@@ -3,6 +3,7 @@ import Layout from '../components/Layout';
 import { formatTime } from '../data/constants';
 import { btnBack } from '../styles/shared';
 import { extractYoutubeId, extractDriveId } from '../components/VideoSection';
+import { TheoryContent } from '../components/RichTextEditor';
 
 const CX = 100, CY = 100, R = 90;
 const CIRCUMFERENCE = 2 * Math.PI * R;
@@ -335,6 +336,54 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
       window.removeEventListener('touchend', endHandler);
     };
   }, [applyDrag]);
+
+  // ─── Theory practice type: show text content + "Изучено" button ───
+  if (activity.practiceType === 'theory') {
+    return (
+      <Layout>
+        <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", padding: "0 24px", position: "relative", zIndex: 1 }}>
+          {/* Top bar */}
+          <div style={{ width: "100%", display: "flex", alignItems: "center", paddingTop: 52, marginBottom: 20 }}>
+            <button onClick={onBack} style={btnBack}>←</button>
+            <h2 style={{ flex: 1, textAlign: "center", fontSize: 18, fontWeight: 600, color: "#1a1a2e", margin: 0 }}>{activity.label}</h2>
+            <div style={{ width: 42 }} />
+          </div>
+
+          {/* Theory content */}
+          <div style={{
+            flex: 1, background: 'rgba(255,255,255,0.7)', backdropFilter: 'blur(20px)',
+            borderRadius: 20, padding: '20px 18px', marginBottom: 24,
+            border: '1px solid rgba(255,255,255,0.7)', boxShadow: '0 4px 24px rgba(0,0,0,0.04)',
+            overflowY: 'auto',
+          }}>
+            {activity.descriptionHtml ? (
+              <TheoryContent html={activity.descriptionHtml} />
+            ) : (
+              <div style={{ textAlign: 'center', color: '#aaa', fontSize: 14, padding: '40px 0' }}>
+                Содержание не добавлено
+              </div>
+            )}
+          </div>
+
+          {/* "Изучено" button */}
+          <div style={{ display: 'flex', justifyContent: 'center', paddingBottom: 40 }}>
+            <button onClick={onDone}
+              style={{
+                padding: "16px 44px", background: "#1a1a2e", color: "#fff",
+                border: "none", borderRadius: 16, fontSize: 16, fontWeight: 600,
+                cursor: "pointer", boxShadow: "0 4px 20px rgba(26,26,46,0.2)", minWidth: 180,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+              }}>
+              <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
+                <polyline points="3,8.5 6.5,12 13,4" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="miter" fill="none"/>
+              </svg>
+              Изучено
+            </button>
+          </div>
+        </div>
+      </Layout>
+    );
+  }
 
   return (
     <Layout>

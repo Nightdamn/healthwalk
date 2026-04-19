@@ -501,3 +501,24 @@ export async function getVideoSignedUrl(filePath) {
   const apiUrl = import.meta.env.VITE_API_URL || '';
   return `${apiUrl}/api/files/video/${filePath}?token=${token}`;
 }
+
+// ═══════════════════════════════════════════════════════════
+// ACTIVITY CALLS
+// ═══════════════════════════════════════════════════════════
+
+export async function getActivityCalls(courseId) {
+  const res = await apiGet(`/api/calls/${courseId}`);
+  return res || [];
+}
+
+export async function createActivityCall(courseId, activityId, day, scheduledAt, durationMin) {
+  return await apiPost('/api/calls', { courseId, activityId, day, scheduledAt, durationMin });
+}
+
+export async function updateActivityCall(callId, updates) {
+  return await apiPut(`/api/calls/${callId}`, updates);
+}
+
+export async function deleteActivityCall(callId) {
+  return await apiDelete(`/api/calls/${callId}`);
+}

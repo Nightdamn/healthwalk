@@ -467,6 +467,8 @@ export default function Dashboard({
                               label: act.label,
                               duration: act.durationMin,
                               iconNum: act.iconNum,
+                              practiceType: act.practiceType,
+                              descriptionHtml: act.descriptionHtml,
                             })} style={{
                               padding: '10px 22px', background: '#1a1a2e', color: '#fff', border: 'none',
                               borderRadius: 12, fontSize: 13, fontWeight: 600, cursor: 'pointer',
@@ -738,7 +740,7 @@ function CourseMapView({ progress, allActivities, daysTotal, isActivityOnDay, cu
 
                   return (
                     <div key={act.id}
-                      onClick={() => { if (canStart && !done) onStartTimer({ id: act.id, activityId: act.activityId, label: act.label, duration: act.durationMin, iconNum: act.iconNum }); }}
+                      onClick={() => { if (canStart && !done) onStartTimer({ id: act.id, activityId: act.activityId, label: act.label, duration: act.durationMin, iconNum: act.iconNum, practiceType: act.practiceType, descriptionHtml: act.descriptionHtml }); }}
                       style={{
                         padding: '10px 12px', borderRadius: 12,
                         background: done ? 'rgba(39,174,96,0.06)' : 'rgba(0,0,0,0.02)',

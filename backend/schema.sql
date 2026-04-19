@@ -256,6 +256,40 @@ CREATE INDEX IF NOT EXISTS idx_activity_videos_course ON activity_videos(course_
 CREATE INDEX IF NOT EXISTS idx_activity_videos_lookup ON activity_videos(course_id, activity_id, first_day, last_day);
 
 -- ═══════════════════════════════════════════════════════════
+-- ACTIVITY CALLS (online sessions with master)
+-- ═══════════════════════════════════════════════════════════
+
+CREATE TABLE IF NOT EXISTS activity_calls (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  course_id UUID NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+  activity_id TEXT NOT NULL,
+  day INTEGER NOT NULL CHECK (day >= 1),
+  scheduled_at TIMESTAMPTZ NOT NULL,
+  duration_min INTEGER NOT NULL DEFAULT 30,
+  room_url TEXT,                       -- Daily.co room URL (set when API key available)
+  status TEXT NOT NULL DEFAULT 'scheduled' CHECK (status IN ('scheduled', 'active', 'completed', 'cancelled')),
+  created_by UUID NOT NULL REFERENCES users(id),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_activity_calls_course ON activity_calls(course_id, activity_id);
+CREATE INDEX IF NOT EXISTS idx_activity_calls_day ON activity_calls(course_id, day);
+
+CREATE TABLE IF NOT EXISTS call_attendance (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  call_id UUID NOT NULL REFERENCES activity_calls(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  joined_at TIMESTAMPTZ,
+  left_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(call_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_call_attendance_call ON call_attendance(call_id);
+CREATE INDEX IF NOT EXISTS idx_call_attendance_user ON call_attendance(user_id);
+
+-- ═══════════════════════════════════════════════════════════
 -- LEGACY (original single-course progress, kept for compat)
 -- ═══════════════════════════════════════════════════════════
 

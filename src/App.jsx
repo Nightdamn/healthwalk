@@ -364,7 +364,19 @@ export default function App() {
     setTimerPaused(prev => { if (!prev) saveCurrentProgress(); return !prev; });
   };
   const handleTimerBack = () => { setTimerRunning(false); setTimerPaused(false); saveCurrentProgress(); setScreen('main'); };
-  const handleTimerDone = () => { setTimerRunning(false); setTimerPaused(false); setScreen('main'); };
+  const handleTimerDone = () => {
+    // For theory type, mark as completed immediately (timer doesn't tick)
+    if (activeActivity?.practiceType === 'theory') {
+      const t = activeActivity.duration * 60 || 60;
+      setElapsedTime(p => ({ ...p, [activeActivity.id]: t }));
+      setProgress(p => ({ ...p, [currentDay]: { ...p[currentDay], [activeActivity.id]: true } }));
+      setRawProgress(p => ({
+        ...p, [currentDay]: { ...p[currentDay], [activeActivity.id]: { elapsed: t, completed: true } }
+      }));
+      saveProgress(activeActivity.id, t, true);
+    }
+    setTimerRunning(false); setTimerPaused(false); setScreen('main');
+  };
 
   const handleTimerSeek = (newRemainingSec) => {
     if (!activeActivity) return;

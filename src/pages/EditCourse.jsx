@@ -3,8 +3,9 @@ import Layout from '../components/Layout';
 import IconPicker from '../components/IconPicker';
 import { getIconPath } from '../data/iconCatalog';
 import { btnBack, glass, pageWrapper, topBar, topBarTitle } from '../styles/shared';
-import { loadCourseForEdit, updateCourseWithActivities, canDeleteCourse, deleteCourse, getActivityVideos, uploadActivityVideo, addVideoLink, deleteActivityVideo } from '../lib/db';
+import { loadCourseForEdit, updateCourseWithActivities, canDeleteCourse, deleteCourse, getActivityVideos, uploadActivityVideo, addVideoLink, deleteActivityVideo, getActivityCalls, createActivityCall, deleteActivityCall } from '../lib/db';
 import VideoSection from '../components/VideoSection';
+import RichTextEditor from '../components/RichTextEditor';
 
 const GREEN = '#27ae60';
 
@@ -34,6 +35,7 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted })
   const [error, setError] = useState('');
   const [pickerTarget, setPickerTarget] = useState(null);
   const [videos, setVideos] = useState([]);
+  const [calls, setCalls] = useState([]);
   const [videoUploadingId, setVideoUploadingId] = useState(null);
   const [uploadProgress, setUploadProgress] = useState(0);
   const fileRef = useRef();
@@ -43,9 +45,10 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted })
     if (!courseId) return;
     (async () => {
       setLoading(true);
-      const [course, vids] = await Promise.all([
+      const [course, vids, callsData] = await Promise.all([
         loadCourseForEdit(courseId),
         getActivityVideos(courseId),
+        getActivityCalls(courseId),
       ]);
       if (!course) { setError('Не удалось загрузить курс'); setLoading(false); return; }
 
@@ -55,6 +58,7 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted })
       setAvatarIcon(course.avatar_icon || 'health/1');
       setAvatarCustom(course.avatar_custom || null);
       setVideos(vids);
+      setCalls(callsData || []);
 
       const acts = (course.course_activities || [])
         .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
@@ -97,6 +101,18 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted })
     const result = await deleteActivityVideo(videoId, videoUrl, videoType);
     if (result.error) { setError(`Ошибка удаления видео: ${result.error}`); return; }
     setVideos(prev => prev.filter(v => v.id !== videoId));
+  };
+
+  const handleCreateCall = async (activityId, day, scheduledAt, durationMin) => {
+    const result = await createActivityCall(courseId, activityId, day, scheduledAt, durationMin);
+    if (result.error) { setError(`Ошибка: ${result.error}`); return; }
+    if (result.data) setCalls(prev => [...prev, result.data]);
+  };
+
+  const handleDeleteCall = async (callId) => {
+    const result = await deleteActivityCall(callId);
+    if (result.error) { setError(`Ошибка: ${result.error}`); return; }
+    setCalls(prev => prev.filter(c => c.id !== callId));
   };
 
   const updateActivity = (idx, field, val) => {
@@ -271,7 +287,10 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted })
             activityId={a.dbId || a._key}
             onVideoUpload={(file, fd, ld) => handleVideoUpload(a.dbId || a._key, file, fd, ld)}
             onAddLink={(url, type, fd, ld) => handleAddLink(a.dbId || a._key, url, type, fd, ld)}
-            onDeleteVideo={handleDeleteVideo} />
+            onDeleteVideo={handleDeleteVideo}
+            calls={calls}
+            onCreateCall={handleCreateCall}
+            onDeleteCall={handleDeleteCall} />
         ))}
 
         <button onClick={addActivity} style={{
@@ -328,7 +347,12 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted })
   );
 }
 
-function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon, videos, courseId, videoUploadingId, uploadProgress, activityId: propActivityId, onVideoUpload, onAddLink, onDeleteVideo }) {
+function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon, videos, courseId, videoUploadingId, uploadProgress, activityId: propActivityId, onVideoUpload, onAddLink, onDeleteVideo, calls, onCreateCall, onDeleteCall }) {
+  const [showCallForm, setShowCallForm] = useState(false);
+  const [callDay, setCallDay] = useState(1);
+  const [callDate, setCallDate] = useState('');
+  const [callTime, setCallTime] = useState('10:00');
+  const [callDuration, setCallDuration] = useState(30);
   const numChange = (field) => (e) => {
     const raw = e.target.value;
     if (raw === '') { onUpdate(field, ''); return; }
@@ -382,10 +406,10 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon,
       {(activity.practiceType === 'theory' || activity.practiceType === 'call') && (
         <div style={{ marginBottom: 8 }}>
           <label style={{ ...labelStyle, fontSize: 11 }}>{activity.practiceType === 'theory' ? 'Текст теории' : 'Описание'}</label>
-          <textarea value={activity.descriptionHtml || ''} onChange={e => onUpdate('descriptionHtml', e.target.value)}
-            placeholder={activity.practiceType === 'theory' ? 'Содержание теоретического материала...' : 'Описание онлайн-практики...'}
-            rows={4}
-            style={{ ...inputStyle, resize: 'vertical', fontFamily: 'inherit', fontSize: 13 }} />
+          <RichTextEditor
+            content={activity.descriptionHtml || ''}
+            onChange={val => onUpdate('descriptionHtml', val)}
+            placeholder={activity.practiceType === 'theory' ? 'Содержание теоретического материала...' : 'Описание онлайн-практики...'} />
         </div>
       )}
 
@@ -457,6 +481,96 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon,
           globalUploading={!!videoUploadingId}
         />
       )}
+
+      {/* Call scheduling — only for call type with saved activity */}
+      {activity.practiceType === 'call' && courseId && propActivityId && (() => {
+        const actCalls = (calls || []).filter(c => c.activity_id === (activity.dbId ? activity.dbId.toString() : propActivityId.toString()) ||
+          c.activity_id === propActivityId);
+        return (
+          <div style={{ marginTop: 8, borderTop: '1px solid rgba(0,0,0,0.05)', paddingTop: 8 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: '#aaa', marginBottom: 6, textTransform: 'uppercase' }}>
+              Расписание звонков
+            </div>
+
+            {actCalls.map(c => (
+              <div key={c.id} style={{
+                display: 'flex', alignItems: 'center', gap: 6, padding: '6px 8px',
+                marginBottom: 3, borderRadius: 8, background: 'rgba(155,89,182,0.06)', fontSize: 12,
+              }}>
+                <span style={{ fontSize: 14 }}>📞</span>
+                <span style={{ flex: 1, color: '#555' }}>
+                  День {c.day} — {new Date(c.scheduled_at).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                  {' '}({c.duration_min} мин)
+                </span>
+                <span style={{
+                  fontSize: 10, padding: '2px 6px', borderRadius: 4,
+                  background: c.status === 'scheduled' ? 'rgba(39,174,96,0.1)' : 'rgba(0,0,0,0.05)',
+                  color: c.status === 'scheduled' ? '#27ae60' : '#999',
+                }}>{c.status === 'scheduled' ? 'Запланирован' : c.status}</span>
+                <button onClick={() => onDeleteCall(c.id)} style={{
+                  background: 'none', border: 'none', color: '#e74c3c', cursor: 'pointer', fontSize: 11, padding: '0 4px',
+                }}>✕</button>
+              </div>
+            ))}
+
+            {showCallForm ? (
+              <div style={{ marginBottom: 6 }}>
+                <div style={{ display: 'flex', gap: 4, marginBottom: 4, flexWrap: 'wrap' }}>
+                  <div>
+                    <span style={{ fontSize: 10, color: '#999' }}>День:</span>
+                    <input type="number" value={callDay} min={1} max={maxDay}
+                      onChange={e => setCallDay(parseInt(e.target.value) || 1)}
+                      style={{ ...inputStyle, width: 50, padding: '4px 6px', fontSize: 11 }} />
+                  </div>
+                  <div>
+                    <span style={{ fontSize: 10, color: '#999' }}>Дата:</span>
+                    <input type="date" value={callDate}
+                      onChange={e => setCallDate(e.target.value)}
+                      style={{ ...inputStyle, width: 130, padding: '4px 6px', fontSize: 11 }} />
+                  </div>
+                  <div>
+                    <span style={{ fontSize: 10, color: '#999' }}>Время:</span>
+                    <input type="time" value={callTime}
+                      onChange={e => setCallTime(e.target.value)}
+                      style={{ ...inputStyle, width: 80, padding: '4px 6px', fontSize: 11 }} />
+                  </div>
+                  <div>
+                    <span style={{ fontSize: 10, color: '#999' }}>Мин:</span>
+                    <input type="number" value={callDuration} min={5} max={180}
+                      onChange={e => setCallDuration(parseInt(e.target.value) || 30)}
+                      style={{ ...inputStyle, width: 50, padding: '4px 6px', fontSize: 11 }} />
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 4 }}>
+                  <button onClick={() => {
+                    if (!callDate) return;
+                    const scheduledAt = new Date(`${callDate}T${callTime}:00`).toISOString();
+                    onCreateCall(propActivityId, callDay, scheduledAt, callDuration);
+                    setShowCallForm(false);
+                  }} style={{
+                    padding: '6px 10px', borderRadius: 8, border: 'none',
+                    background: '#9b59b6', color: '#fff', fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                  }}>Создать</button>
+                  <button onClick={() => setShowCallForm(false)} style={{
+                    padding: '6px 8px', borderRadius: 8, border: 'none',
+                    background: 'rgba(0,0,0,0.05)', color: '#999', fontSize: 11, cursor: 'pointer',
+                  }}>Отмена</button>
+                </div>
+              </div>
+            ) : (
+              <button onClick={() => setShowCallForm(true)} style={{
+                width: '100%', padding: '7px 10px', borderRadius: 8,
+                border: '1px dashed rgba(155,89,182,0.3)', background: 'rgba(155,89,182,0.04)',
+                color: '#9b59b6', fontSize: 11, fontWeight: 600, cursor: 'pointer',
+              }}>+ Запланировать звонок</button>
+            )}
+
+            <div style={{ fontSize: 10, color: '#bbb', marginTop: 4 }}>
+              Комната для звонка будет создана после подключения Daily.co
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

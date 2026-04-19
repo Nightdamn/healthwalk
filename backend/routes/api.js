@@ -781,4 +781,54 @@ router.patch('/videos/:id/duration', async (req, res) => {
   } catch (err) { res.json({ ok: false }); }
 });
 
+// ═══════════════════════════════════════════════════════════
+// ACTIVITY CALLS (online sessions)
+// ═══════════════════════════════════════════════════════════
+
+router.get('/calls/:courseId', async (req, res) => {
+  try {
+    const rows = await query(
+      'SELECT * FROM activity_calls WHERE course_id = $1 ORDER BY scheduled_at',
+      [req.params.courseId]
+    );
+    res.json(rows);
+  } catch (err) { res.json([]); }
+});
+
+router.post('/calls', async (req, res) => {
+  try {
+    const { courseId, activityId, day, scheduledAt, durationMin } = req.body;
+    if (!await isTrainer(req.userId, courseId)) return res.status(403).json({ error: 'Нет прав' });
+    const call = await queryOne(
+      `INSERT INTO activity_calls (course_id, activity_id, day, scheduled_at, duration_min, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+      [courseId, activityId, day, scheduledAt, durationMin || 30, req.userId]
+    );
+    res.json({ data: call });
+  } catch (err) { console.error(err); res.json({ error: err.message }); }
+});
+
+router.put('/calls/:id', async (req, res) => {
+  try {
+    const call = await queryOne('SELECT * FROM activity_calls WHERE id = $1', [req.params.id]);
+    if (!call || !await isTrainer(req.userId, call.course_id)) return res.status(403).json({ error: 'Нет прав' });
+    const { scheduledAt, durationMin, status } = req.body;
+    const updated = await queryOne(
+      `UPDATE activity_calls SET scheduled_at = COALESCE($1, scheduled_at), duration_min = COALESCE($2, duration_min),
+       status = COALESCE($3, status), updated_at = NOW() WHERE id = $4 RETURNING *`,
+      [scheduledAt || null, durationMin || null, status || null, req.params.id]
+    );
+    res.json({ data: updated });
+  } catch (err) { res.json({ error: err.message }); }
+});
+
+router.delete('/calls/:id', async (req, res) => {
+  try {
+    const call = await queryOne('SELECT * FROM activity_calls WHERE id = $1', [req.params.id]);
+    if (!call || !await isTrainer(req.userId, call.course_id)) return res.status(403).json({ error: 'Нет прав' });
+    await query('DELETE FROM activity_calls WHERE id = $1', [req.params.id]);
+    res.json({ success: true });
+  } catch (err) { res.json({ error: err.message }); }
+});
+
 export default router;

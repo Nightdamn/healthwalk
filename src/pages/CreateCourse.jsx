@@ -5,6 +5,7 @@ import { getIconPath } from '../data/iconCatalog';
 import { btnBack, glass, pageWrapper, topBar, topBarTitle } from '../styles/shared';
 import { createCourseWithActivities, addVideoLink } from '../lib/db';
 import { detectVideoType } from '../components/VideoSection';
+import RichTextEditor from '../components/RichTextEditor';
 
 const GREEN = '#27ae60';
 
@@ -264,10 +265,10 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon,
       {(activity.practiceType === 'theory' || activity.practiceType === 'call') && (
         <div style={{ marginBottom: 8 }}>
           <label style={{ ...labelStyle, fontSize: 11 }}>{activity.practiceType === 'theory' ? 'Текст теории' : 'Описание'}</label>
-          <textarea value={activity.descriptionHtml || ''} onChange={e => onUpdate('descriptionHtml', e.target.value)}
-            placeholder={activity.practiceType === 'theory' ? 'Содержание теоретического материала...' : 'Описание онлайн-практики...'}
-            rows={4}
-            style={{ ...inputStyle, resize: 'vertical', fontFamily: 'inherit', fontSize: 13 }} />
+          <RichTextEditor
+            content={activity.descriptionHtml || ''}
+            onChange={val => onUpdate('descriptionHtml', val)}
+            placeholder={activity.practiceType === 'theory' ? 'Содержание теоретического материала...' : 'Описание онлайн-практики...'} />
         </div>
       )}
 
