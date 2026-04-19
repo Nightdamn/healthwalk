@@ -1,4 +1,4 @@
-import React, { useRef, useCallback, useEffect } from 'react';
+import React, { useRef, useCallback, useEffect, useState } from 'react';
 import Layout from '../components/Layout';
 import { formatTime } from '../data/constants';
 import { btnBack } from '../styles/shared';
@@ -9,11 +9,128 @@ const BALL_R = 10;
 const GREEN = "#27ae60";
 const GREEN_PALE = "rgba(39,174,96,0.2)";
 
-export default function TimerPage({ activity, timerSeconds, timerPaused, currentDay, onPause, onBack, onDone, onSeek }) {
-  const totalSec = activity.duration * 60;
+function extractYoutubeId(url) {
+  if (!url) return null;
+  const m = url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([^&?\s]+)/);
+  return m ? m[1] : null;
+}
+
+export default function TimerPage({ activity, timerSeconds, timerPaused, currentDay, onPause, onBack, onDone, onSeek, video, videoUrl }) {
+  const totalSec = video?.duration_sec || activity.duration * 60;
   const elapsed = totalSec - timerSeconds;
   const hasStarted = elapsed > 0;
   const isDone = timerSeconds === 0;
+
+  // Video refs
+  const videoRef = useRef(null);
+  const ytPlayerRef = useRef(null);
+  const ytReadyRef = useRef(false);
+  const syncingRef = useRef(false); // prevent sync loops
+
+  const isFileVideo = video?.video_type === 'file' && videoUrl;
+  const isYoutube = video?.video_type === 'youtube';
+  const youtubeId = isYoutube ? extractYoutubeId(video.video_url) : null;
+  const hasVideo = isFileVideo || (isYoutube && youtubeId);
+
+  // ─── YouTube Player setup ───
+  const [ytLoaded, setYtLoaded] = useState(false);
+  const ytContainerRef = useRef(null);
+
+  useEffect(() => {
+    if (!isYoutube || !youtubeId) return;
+
+    const initPlayer = () => {
+      if (!ytContainerRef.current || ytPlayerRef.current) return;
+      ytPlayerRef.current = new window.YT.Player(ytContainerRef.current, {
+        videoId: youtubeId,
+        playerVars: { controls: 1, modestbranding: 1, rel: 0, playsinline: 1 },
+        events: {
+          onReady: () => { ytReadyRef.current = true; setYtLoaded(true); },
+          onStateChange: (e) => {
+            if (syncingRef.current) return;
+            // YT.PlayerState: PLAYING=1, PAUSED=2
+            if (e.data === 1 && timerPaused) onPause();
+            if (e.data === 2 && !timerPaused) onPause();
+          },
+        },
+      });
+    };
+
+    if (window.YT?.Player) {
+      initPlayer();
+    } else {
+      // Load YouTube IFrame API
+      if (!document.querySelector('script[src*="youtube.com/iframe_api"]')) {
+        const tag = document.createElement('script');
+        tag.src = 'https://www.youtube.com/iframe_api';
+        document.head.appendChild(tag);
+      }
+      window.onYouTubeIframeAPIReady = initPlayer;
+    }
+
+    return () => {
+      if (ytPlayerRef.current?.destroy) {
+        try { ytPlayerRef.current.destroy(); } catch (e) {}
+      }
+      ytPlayerRef.current = null;
+      ytReadyRef.current = false;
+    };
+  }, [youtubeId]);
+
+  // ─── Sync video with timer play/pause ───
+  useEffect(() => {
+    if (!hasVideo) return;
+    syncingRef.current = true;
+
+    if (isFileVideo && videoRef.current) {
+      if (timerPaused || isDone) {
+        videoRef.current.pause();
+      } else {
+        videoRef.current.play().catch(() => {});
+      }
+    }
+
+    if (isYoutube && ytReadyRef.current && ytPlayerRef.current) {
+      try {
+        if (timerPaused || isDone) {
+          ytPlayerRef.current.pauseVideo();
+        } else {
+          ytPlayerRef.current.playVideo();
+        }
+      } catch (e) {}
+    }
+
+    setTimeout(() => { syncingRef.current = false; }, 100);
+  }, [timerPaused, isDone, hasVideo]);
+
+  // ─── Sync timer seek → video seek ───
+  const lastSyncedElapsed = useRef(elapsed);
+  useEffect(() => {
+    if (!hasVideo || syncingRef.current) return;
+    const diff = Math.abs(elapsed - lastSyncedElapsed.current);
+    // Only sync on large jumps (drag seek), not on normal 1-sec ticks
+    if (diff > 2) {
+      syncingRef.current = true;
+      if (isFileVideo && videoRef.current) {
+        videoRef.current.currentTime = elapsed;
+      }
+      if (isYoutube && ytReadyRef.current && ytPlayerRef.current) {
+        try { ytPlayerRef.current.seekTo(elapsed, true); } catch (e) {}
+      }
+      setTimeout(() => { syncingRef.current = false; }, 200);
+    }
+    lastSyncedElapsed.current = elapsed;
+  }, [elapsed, hasVideo]);
+
+  // ─── HTML5 video event: user seeks video → update timer ───
+  const handleVideoSeeked = useCallback(() => {
+    if (syncingRef.current || !videoRef.current || !onSeek) return;
+    syncingRef.current = true;
+    const videoTime = videoRef.current.currentTime;
+    const newRemaining = Math.max(0, totalSec - Math.round(videoTime));
+    onSeek(newRemaining);
+    setTimeout(() => { syncingRef.current = false; }, 200);
+  }, [totalSec, onSeek]);
 
   // ─── Wake Lock: keep screen on while timer is running ───
   const wakeLockRef = useRef(null);
@@ -28,9 +145,7 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
         wakeLockRef.current.addEventListener('release', () => {
           if (active) wakeLockRef.current = null;
         });
-      } catch (e) {
-        // Wake Lock request failed (e.g. low battery, tab hidden)
-      }
+      } catch (e) {}
     };
 
     const releaseWakeLock = async () => {
@@ -46,7 +161,6 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
       releaseWakeLock();
     }
 
-    // Re-acquire wake lock when tab becomes visible again
     const onVisibilityChange = () => {
       if (document.visibilityState === 'visible' && !timerPaused && !isDone) {
         requestWakeLock();
@@ -77,12 +191,12 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
   const currentOffset = CIRCUMFERENCE - (currentPct / 100) * CIRCUMFERENCE;
   const maxOffset = CIRCUMFERENCE - (maxPct / 100) * CIRCUMFERENCE;
 
-  // ─── Ball position (screen coords: 0% = top/12 o'clock, clockwise) ───
+  // ─── Ball position ───
   const angleRad = (currentPct / 100) * 2 * Math.PI;
   const ballScreenX = CX + R * Math.sin(angleRad);
   const ballScreenY = CY - R * Math.cos(angleRad);
 
-  // ─── Drag logic: angle-based, clamped to [0, maxElapsed] ───
+  // ─── Drag logic ───
   const draggingRef = useRef(false);
 
   const pointerToElapsed = useCallback((clientX, clientY, container) => {
@@ -92,14 +206,12 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
     const dx = clientX - cx;
     const dy = clientY - cy;
 
-    // Angle from 12 o'clock, clockwise (0..2π)
     let angle = Math.atan2(dx, -dy);
     if (angle < 0) angle += 2 * Math.PI;
 
     const pct = angle / (2 * Math.PI);
     const sec = Math.round(pct * totalSec);
 
-    // Clamp to [0, maxElapsed]
     return Math.max(0, Math.min(sec, maxElapsedRef.current));
   }, [totalSec]);
 
@@ -123,7 +235,6 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
     draggingRef.current = true;
   }, [isDone, elapsed]);
 
-  // Global listeners
   useEffect(() => {
     const moveHandler = (e) => {
       if (!draggingRef.current) return;
@@ -156,25 +267,48 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
           <div style={{ width: 42 }} />
         </div>
 
-        {/* Video placeholder */}
-        <div style={{
-          width: "100%", aspectRatio: "16/9", background: "rgba(255,255,255,0.6)", backdropFilter: "blur(20px)",
-          borderRadius: 20, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 36,
-          border: "1px solid rgba(255,255,255,0.7)", boxShadow: "0 8px 32px rgba(0,0,0,0.04)",
-          flexDirection: "column", gap: 8, overflow: "hidden",
-        }}>
-          <div style={{ color: "#bbb", fontSize: 40 }}>▶</div>
-          <span style={{ color: "#aaa", fontSize: 13, fontWeight: 500 }}>Видеоурок дня {currentDay}</span>
-        </div>
+        {/* Video player or placeholder */}
+        {hasVideo ? (
+          <div style={{
+            width: "100%", borderRadius: 20, overflow: "hidden", marginBottom: 24,
+            background: "#000", boxShadow: "0 8px 32px rgba(0,0,0,0.12)",
+          }}>
+            {isFileVideo && (
+              <video
+                ref={videoRef}
+                src={videoUrl}
+                style={{ width: "100%", display: "block" }}
+                playsInline
+                preload="metadata"
+                onSeeked={handleVideoSeeked}
+              />
+            )}
+            {isYoutube && (
+              <div style={{ position: 'relative', paddingBottom: '56.25%', height: 0 }}>
+                <div ref={ytContainerRef} style={{
+                  position: 'absolute', top: 0, left: 0, width: '100%', height: '100%',
+                }} />
+              </div>
+            )}
+          </div>
+        ) : (
+          <div style={{
+            width: "100%", aspectRatio: "16/9", background: "rgba(255,255,255,0.6)", backdropFilter: "blur(20px)",
+            borderRadius: 20, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 24,
+            border: "1px solid rgba(255,255,255,0.7)", boxShadow: "0 8px 32px rgba(0,0,0,0.04)",
+            flexDirection: "column", gap: 8, overflow: "hidden",
+          }}>
+            <div style={{ color: "#bbb", fontSize: 40 }}>▶</div>
+            <span style={{ color: "#aaa", fontSize: 13, fontWeight: 500 }}>Видеоурок дня {currentDay}</span>
+          </div>
+        )}
 
         {/* Timer circle */}
         <div ref={containerRef}
           style={{ position: "relative", width: 200, height: 200, marginBottom: 36, touchAction: "none" }}>
           <svg width="200" height="200" style={{ transform: "rotate(-90deg)" }}>
-            {/* Track (background) */}
             <circle cx={CX} cy={CY} r={R} fill="none" stroke="rgba(0,0,0,0.04)" strokeWidth="6" />
 
-            {/* Pale green arc: max progress reached */}
             {maxPct > 0 && (
               <circle cx={CX} cy={CY} r={R} fill="none"
                 stroke={GREEN_PALE}
@@ -184,7 +318,6 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
               />
             )}
 
-            {/* Bright green arc: current position */}
             {currentPct > 0 && (
               <circle cx={CX} cy={CY} r={R} fill="none"
                 stroke={GREEN}
@@ -196,7 +329,6 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
             )}
           </svg>
 
-          {/* Scrubber ball (HTML div for reliable touch) */}
           {!isDone && hasStarted && (
             <div
               onMouseDown={startDrag}
@@ -218,7 +350,6 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
             />
           )}
 
-          {/* Center text */}
           <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", pointerEvents: "none" }}>
             {isDone ? (
               <>

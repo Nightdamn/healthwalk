@@ -623,6 +623,106 @@ export async function loadStudentExclusions(userId, courseId) {
   return result;
 }
 
+// ═══════════════════════════════════════════════════════════
+// ACTIVITY VIDEOS
+// ═══════════════════════════════════════════════════════════
+
+export async function uploadActivityVideo(courseId, activityId, file, firstDay, lastDay) {
+  const ext = file.name.split('.').pop().toLowerCase();
+  const fileName = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  const filePath = `${courseId}/${activityId}/${fileName}`;
+
+  const { error: uploadErr } = await supabase.storage
+    .from('course-videos')
+    .upload(filePath, file, { contentType: file.type, upsert: false });
+
+  if (uploadErr) {
+    console.error('[DB] Upload video:', uploadErr);
+    return { error: uploadErr.message };
+  }
+
+  // Get duration from video metadata (will be set client-side before calling)
+  const { data, error } = await supabase.from('activity_videos').insert({
+    course_id: courseId,
+    activity_id: activityId,
+    video_type: 'file',
+    video_url: filePath,
+    file_size: file.size,
+    duration_sec: null,
+    first_day: firstDay,
+    last_day: lastDay,
+  }).select().single();
+
+  if (error) {
+    console.error('[DB] Insert video record:', error);
+    await supabase.storage.from('course-videos').remove([filePath]);
+    return { error: error.message };
+  }
+  return { data };
+}
+
+export async function addYoutubeVideo(courseId, activityId, youtubeUrl, durationSec, firstDay, lastDay) {
+  const { data, error } = await supabase.from('activity_videos').insert({
+    course_id: courseId,
+    activity_id: activityId,
+    video_type: 'youtube',
+    video_url: youtubeUrl,
+    duration_sec: durationSec || null,
+    first_day: firstDay,
+    last_day: lastDay,
+  }).select().single();
+
+  if (error) {
+    console.error('[DB] Add YouTube video:', error);
+    return { error: error.message };
+  }
+  return { data };
+}
+
+export async function deleteActivityVideo(videoId, videoUrl, videoType) {
+  if (videoType === 'file' && videoUrl) {
+    await supabase.storage.from('course-videos').remove([videoUrl]);
+  }
+  const { error } = await supabase.from('activity_videos').delete().eq('id', videoId);
+  if (error) {
+    console.error('[DB] Delete video:', error);
+    return { error: error.message };
+  }
+  return { success: true };
+}
+
+export async function updateVideoDuration(videoId, durationSec) {
+  const { error } = await supabase.from('activity_videos')
+    .update({ duration_sec: durationSec })
+    .eq('id', videoId);
+  if (error) console.error('[DB] Update video duration:', error);
+}
+
+export async function getActivityVideos(courseId) {
+  const { data, error } = await supabase
+    .from('activity_videos')
+    .select('*')
+    .eq('course_id', courseId)
+    .order('sort_order', { ascending: true });
+  if (error) { console.error('[DB] Get activity videos:', error); return []; }
+  return data || [];
+}
+
+export function getVideoForDay(videos, activityId, day) {
+  const matching = videos
+    .filter(v => v.activity_id === activityId && day >= v.first_day && day <= v.last_day)
+    .sort((a, b) => b.sort_order - a.sort_order);
+  return matching[0] || null;
+}
+
+export async function getVideoSignedUrl(filePath) {
+  const { data, error } = await supabase.storage
+    .from('course-videos')
+    .createSignedUrl(filePath, 3600);
+  if (error) { console.error('[DB] Signed URL:', error); return null; }
+  return data?.signedUrl || null;
+}
+
 export async function loadStudentCustomActivities(userId, courseId) {
   const { data, error } = await supabase
     .from('student_custom_activities')

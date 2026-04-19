@@ -26,6 +26,7 @@ import {
   loadTrackerProgress, saveTrackerActivityProgress,
   loadStudentExclusions, loadStudentCustomActivities,
   getUnreadCount,
+  getActivityVideos, getVideoForDay, getVideoSignedUrl,
 } from './lib/db';
 
 function extractUser(session) {
@@ -68,6 +69,11 @@ export default function App() {
 
   // Unread messages
   const [unreadCount, setUnreadCount] = useState(0);
+
+  // Videos
+  const [courseVideos, setCourseVideos] = useState([]);
+  const [activeVideo, setActiveVideo] = useState(null);
+  const [activeVideoUrl, setActiveVideoUrl] = useState(null);
 
   // Timer
   const [activeActivity, setActiveActivity] = useState(null);
@@ -182,16 +188,19 @@ export default function App() {
             loadPromises.push(
               loadStudentExclusions(user.id, active.id),
               loadStudentCustomActivities(user.id, active.id),
+              getActivityVideos(active.id),
             );
           }
-          const [raw, excl, custom] = await Promise.all(loadPromises);
+          const [raw, excl, custom, vids] = await Promise.all(loadPromises);
           setRawProgress(raw);
           if (active.type === 'course') {
             setExclusions(excl || {});
             setCustomActivities(custom || []);
+            setCourseVideos(vids || []);
           } else {
             setExclusions({});
             setCustomActivities([]);
+            setCourseVideos([]);
           }
 
           // Calculate current day from start date
@@ -226,16 +235,19 @@ export default function App() {
       loadPromises.push(
         loadStudentExclusions(user.id, item.id),
         loadStudentCustomActivities(user.id, item.id),
+        getActivityVideos(item.id),
       );
     }
-    const [raw, excl, custom] = await Promise.all(loadPromises);
+    const [raw, excl, custom, vids] = await Promise.all(loadPromises);
     setRawProgress(raw);
     if (item.type === 'course') {
       setExclusions(excl || {});
       setCustomActivities(custom || []);
+      setCourseVideos(vids || []);
     } else {
       setExclusions({});
       setCustomActivities([]);
+      setCourseVideos([]);
     }
 
     // Calculate day based on item's own start date
@@ -279,7 +291,7 @@ export default function App() {
     if (timerSeconds === 0 && timerRunning) {
       setTimerRunning(false);
       if (activeActivity) {
-        const t = activeActivity.duration * 60;
+        const t = activeVideo?.duration_sec || activeActivity.duration * 60;
         setElapsedTime(p => ({ ...p, [activeActivity.id]: t }));
         setProgress(p => ({ ...p, [currentDay]: { ...p[currentDay], [activeActivity.id]: true } }));
         setRawProgress(p => ({
@@ -318,9 +330,22 @@ export default function App() {
   const handleLogin = (s) => { setSession(s); setUser(extractUser(s)); };
   const handleLogout = async () => { await supabase.auth.signOut(); };
 
-  const handleStartTimer = (activity) => {
+  const handleStartTimer = async (activity) => {
     // activity: { id, activityId, label, duration, iconNum }
-    const remaining = Math.max(0, activity.duration * 60 - (elapsedTime[activity.id] || 0));
+    // Find video for this activity and day
+    const video = getVideoForDay(courseVideos, activity.id, currentDay);
+    setActiveVideo(video);
+
+    // Get signed URL for file videos
+    if (video?.video_type === 'file' && video?.video_url) {
+      const url = await getVideoSignedUrl(video.video_url);
+      setActiveVideoUrl(url);
+    } else {
+      setActiveVideoUrl(null);
+    }
+
+    const duration = video?.duration_sec ? video.duration_sec / 60 : activity.duration;
+    const remaining = Math.max(0, duration * 60 - (elapsedTime[activity.id] || 0));
     setActiveActivity(activity);
     setTimerSeconds(remaining);
     setTimerRunning(true); setTimerPaused(true);
@@ -335,7 +360,7 @@ export default function App() {
 
   const handleTimerSeek = (newRemainingSec) => {
     if (!activeActivity) return;
-    const totalSec = activeActivity.duration * 60;
+    const totalSec = activeVideo?.duration_sec || activeActivity.duration * 60;
     const newElapsed = totalSec - newRemainingSec;
     setTimerSeconds(newRemainingSec);
     setElapsedTime(p => ({ ...p, [activeActivity.id]: newElapsed }));
@@ -459,7 +484,8 @@ export default function App() {
     case 'login': return <LoginPage onLogin={handleLogin} />;
     case 'timer': return (
       <TimerPage activity={activeActivity} timerSeconds={timerSeconds} timerPaused={timerPaused}
-        currentDay={currentDay} onPause={handleTimerPause} onBack={handleTimerBack} onDone={handleTimerDone} onSeek={handleTimerSeek} />
+        currentDay={currentDay} onPause={handleTimerPause} onBack={handleTimerBack} onDone={handleTimerDone} onSeek={handleTimerSeek}
+        video={activeVideo} videoUrl={activeVideoUrl} />
     );
     case 'details': return <DetailsPage progress={progress} currentDay={currentDay} elapsedTime={elapsedTime} getElapsedForDay={getElapsedForDay} onBack={goMain} activeItem={activeItem} exclusions={exclusions} customActivities={customActivities} />;
     case 'profile': return (

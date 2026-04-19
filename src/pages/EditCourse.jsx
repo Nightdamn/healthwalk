@@ -3,7 +3,8 @@ import Layout from '../components/Layout';
 import IconPicker from '../components/IconPicker';
 import { getIconPath } from '../data/iconCatalog';
 import { btnBack, glass, pageWrapper, topBar, topBarTitle } from '../styles/shared';
-import { loadCourseForEdit, updateCourseWithActivities, canDeleteCourse, deleteCourse } from '../lib/db';
+import { loadCourseForEdit, updateCourseWithActivities, canDeleteCourse, deleteCourse, getActivityVideos, uploadActivityVideo, addYoutubeVideo, deleteActivityVideo } from '../lib/db';
+import VideoSection from '../components/VideoSection';
 
 const GREEN = '#27ae60';
 
@@ -32,6 +33,8 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted })
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState('');
   const [pickerTarget, setPickerTarget] = useState(null);
+  const [videos, setVideos] = useState([]);
+  const [videoUploading, setVideoUploading] = useState(false);
   const fileRef = useRef();
 
   // Load course data
@@ -39,7 +42,10 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted })
     if (!courseId) return;
     (async () => {
       setLoading(true);
-      const course = await loadCourseForEdit(courseId);
+      const [course, vids] = await Promise.all([
+        loadCourseForEdit(courseId),
+        getActivityVideos(courseId),
+      ]);
       if (!course) { setError('Не удалось загрузить курс'); setLoading(false); return; }
 
       setTitle(course.title || '');
@@ -47,6 +53,7 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted })
       setDaysCount(course.days_count || 30);
       setAvatarIcon(course.avatar_icon || 'health/1');
       setAvatarCustom(course.avatar_custom || null);
+      setVideos(vids);
 
       const acts = (course.course_activities || [])
         .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
@@ -64,6 +71,26 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted })
       setLoading(false);
     })();
   }, [courseId]);
+
+  const handleVideoUpload = async (activityId, file, firstDay, lastDay) => {
+    setVideoUploading(true);
+    const result = await uploadActivityVideo(courseId, activityId, file, firstDay, lastDay);
+    setVideoUploading(false);
+    if (result.error) { setError(`Ошибка загрузки видео: ${result.error}`); return; }
+    setVideos(prev => [...prev, result.data]);
+  };
+
+  const handleAddYoutube = async (activityId, ytUrl, firstDay, lastDay) => {
+    const result = await addYoutubeVideo(courseId, activityId, ytUrl, null, firstDay, lastDay);
+    if (result.error) { setError(`Ошибка добавления YouTube: ${result.error}`); return; }
+    setVideos(prev => [...prev, result.data]);
+  };
+
+  const handleDeleteVideo = async (videoId, videoUrl, videoType) => {
+    const result = await deleteActivityVideo(videoId, videoUrl, videoType);
+    if (result.error) { setError(`Ошибка удаления видео: ${result.error}`); return; }
+    setVideos(prev => prev.filter(v => v.id !== videoId));
+  };
 
   const updateActivity = (idx, field, val) => {
     setActivities(prev => prev.map((a, i) => i === idx ? { ...a, [field]: val } : a));
@@ -228,7 +255,12 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted })
           <ActivityCard key={a._key} activity={a} index={idx} maxDay={daysCount}
             onUpdate={(f, v) => updateActivity(idx, f, v)}
             onRemove={() => removeActivity(idx)}
-            onPickIcon={() => setPickerTarget(idx)} />
+            onPickIcon={() => setPickerTarget(idx)}
+            videos={videos} courseId={courseId}
+            videoUploading={videoUploading}
+            onVideoUpload={(file, fd, ld) => handleVideoUpload(a.dbId || a._key, file, fd, ld)}
+            onAddYoutube={(url, fd, ld) => handleAddYoutube(a.dbId || a._key, url, fd, ld)}
+            onDeleteVideo={handleDeleteVideo} />
         ))}
 
         <button onClick={addActivity} style={{
@@ -285,7 +317,7 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted })
   );
 }
 
-function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon }) {
+function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon, videos, courseId, videoUploading, onVideoUpload, onAddYoutube, onDeleteVideo }) {
   const numChange = (field) => (e) => {
     const raw = e.target.value;
     if (raw === '') { onUpdate(field, ''); return; }
@@ -297,6 +329,8 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon 
     const v = parseInt(activity[field]);
     onUpdate(field, isNaN(v) || v < min ? min : Math.min(v, max));
   };
+
+  const activityId = activity.dbId || activity._key;
 
   return (
     <div style={{ ...glass, borderRadius: 16, padding: '14px 14px', marginBottom: 10 }}>
@@ -353,6 +387,20 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon 
           <span style={{ fontSize: 13, color: '#888', whiteSpace: 'nowrap' }}>минут</span>
         </div>
       </div>
+
+      {/* Video section — only for saved activities */}
+      {courseId && activityId && (
+        <VideoSection
+          videos={videos}
+          courseId={courseId}
+          activityId={activityId}
+          maxDay={maxDay}
+          onUpload={onVideoUpload}
+          onAddYoutube={onAddYoutube}
+          onDelete={onDeleteVideo}
+          uploading={videoUploading}
+        />
+      )}
     </div>
   );
 }
