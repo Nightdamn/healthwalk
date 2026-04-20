@@ -453,7 +453,7 @@ export default function Dashboard({
                             </div>
                             <div>
                               <div style={{ fontSize: 16, fontWeight: 600, color: '#1a1a2e' }}>{act.label}</div>
-                              <div style={{ fontSize: 12, color: '#999', fontWeight: 500, marginTop: 2 }}>{act.durationMin} минут</div>
+                              <div style={{ fontSize: 12, color: '#999', fontWeight: 500, marginTop: 2 }}>{act.practiceType === 'theory' ? 'Теория' : act.practiceType === 'call' ? 'Онлайн' : `${act.durationMin} минут`}</div>
                             </div>
                           </div>
                           {done ? (

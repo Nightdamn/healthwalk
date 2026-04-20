@@ -64,6 +64,7 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted })
         .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
         .map(a => ({
           dbId: a.id,
+          activityId: a.activity_id,
           label: a.label,
           iconNum: a.icon_num || 'health/1',
           practiceType: a.practice_type || 'media',
@@ -484,8 +485,8 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon,
 
       {/* Call scheduling — only for call type with saved activity */}
       {activity.practiceType === 'call' && courseId && propActivityId && (() => {
-        const actCalls = (calls || []).filter(c => c.activity_id === (activity.dbId ? activity.dbId.toString() : propActivityId.toString()) ||
-          c.activity_id === propActivityId);
+        const actId = activity.activityId || propActivityId;
+        const actCalls = (calls || []).filter(c => c.activity_id === actId);
         return (
           <div style={{ marginTop: 8, borderTop: '1px solid rgba(0,0,0,0.05)', paddingTop: 8 }}>
             <div style={{ fontSize: 11, fontWeight: 600, color: '#aaa', marginBottom: 6, textTransform: 'uppercase' }}>
@@ -545,7 +546,7 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon,
                   <button onClick={() => {
                     if (!callDate) return;
                     const scheduledAt = new Date(`${callDate}T${callTime}:00`).toISOString();
-                    onCreateCall(propActivityId, callDay, scheduledAt, callDuration);
+                    onCreateCall(activity.activityId || propActivityId, callDay, scheduledAt, callDuration);
                     setShowCallForm(false);
                   }} style={{
                     padding: '6px 10px', borderRadius: 8, border: 'none',

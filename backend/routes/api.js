@@ -800,6 +800,13 @@ router.patch('/videos/:id/duration', async (req, res) => {
 
 router.get('/calls/:courseId', async (req, res) => {
   try {
+    // Verify user has access to this course (enrolled or owner)
+    const course = await queryOne('SELECT owner_id FROM courses WHERE id = $1', [req.params.courseId]);
+    if (!course) return res.json([]);
+    if (course.owner_id !== req.userId) {
+      const enroll = await queryOne('SELECT id FROM course_enrollments WHERE course_id = $1 AND user_id = $2', [req.params.courseId, req.userId]);
+      if (!enroll) return res.json([]);
+    }
     const rows = await query(
       'SELECT * FROM activity_calls WHERE course_id = $1 ORDER BY scheduled_at',
       [req.params.courseId]

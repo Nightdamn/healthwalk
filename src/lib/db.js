@@ -515,10 +515,6 @@ export async function createActivityCall(courseId, activityId, day, scheduledAt,
   return await apiPost('/api/calls', { courseId, activityId, day, scheduledAt, durationMin });
 }
 
-export async function updateActivityCall(callId, updates) {
-  return await apiPut(`/api/calls/${callId}`, updates);
-}
-
 export async function deleteActivityCall(callId) {
   return await apiDelete(`/api/calls/${callId}`);
 }

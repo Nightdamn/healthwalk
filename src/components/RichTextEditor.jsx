@@ -1,10 +1,11 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Underline from '@tiptap/extension-underline';
 import Link from '@tiptap/extension-link';
 import Image from '@tiptap/extension-image';
 import Placeholder from '@tiptap/extension-placeholder';
+import DOMPurify from 'dompurify';
 
 const btnStyle = (active) => ({
   padding: '4px 8px', border: 'none', borderRadius: 6,
@@ -70,6 +71,16 @@ export default function RichTextEditor({ content, onChange, placeholder = 'На�
     },
   });
 
+  // Sync content when switching between activities
+  useEffect(() => {
+    if (editor && content !== undefined) {
+      const currentHtml = editor.getHTML();
+      if (currentHtml !== content && content !== null) {
+        editor.commands.setContent(content || '');
+      }
+    }
+  }, [content, editor]);
+
   return (
     <div style={{
       border: '1.5px solid rgba(0,0,0,0.08)', borderRadius: 12, overflow: 'hidden',
@@ -98,9 +109,13 @@ export default function RichTextEditor({ content, onChange, placeholder = 'На�
 
 // Read-only renderer for theory content
 export function TheoryContent({ html }) {
+  const cleanHtml = DOMPurify.sanitize(html || '', {
+    ALLOWED_TAGS: ['p', 'h2', 'h3', 'ul', 'ol', 'li', 'a', 'img', 'em', 'strong', 'u', 'blockquote', 'hr', 'br'],
+    ALLOWED_ATTR: ['href', 'src', 'alt', 'target', 'rel', 'class'],
+  });
   return (
     <div style={{ fontSize: 14, lineHeight: 1.7, color: '#1a1a2e' }}>
-      <div className="theory-content" dangerouslySetInnerHTML={{ __html: html }} />
+      <div className="theory-content" dangerouslySetInnerHTML={{ __html: cleanHtml }} />
       <style>{`
         .theory-content p { margin: 0 0 10px; }
         .theory-content h2 { font-size: 20px; font-weight: 700; margin: 20px 0 10px; }
