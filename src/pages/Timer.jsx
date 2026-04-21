@@ -11,7 +11,7 @@ const BALL_R = 10;
 const GREEN = "#27ae60";
 const GREEN_PALE = "rgba(39,174,96,0.2)";
 
-export default function TimerPage({ activity, timerSeconds, timerPaused, currentDay, onPause, onBack, onDone, onSeek, video, videoUrl, onDurationDetected }) {
+export default function TimerPage({ activity, timerSeconds, timerPaused, currentDay, onPause, onBack, onDone, onSeek, video, videoUrl, onDurationDetected, activeCall, getCallToken }) {
   const totalSec = video?.duration_sec || activity.duration * 60;
   const elapsed = totalSec - timerSeconds;
   const hasStarted = elapsed > 0;
@@ -337,6 +337,55 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
     };
   }, [applyDrag]);
 
+  // ─── Call practice type: Daily.co video call ───
+  const [callState, setCallState] = useState('waiting'); // waiting | joining | active | ended
+  const [callToken, setCallToken] = useState(null);
+  const [callCountdown, setCallCountdown] = useState('');
+  const callFrameRef = useRef(null);
+  const callContainerRef = useRef(null);
+
+  // Countdown timer for scheduled call
+  useEffect(() => {
+    if (activity.practiceType !== 'call' || !activeCall) return;
+    const update = () => {
+      const now = Date.now();
+      const scheduled = new Date(activeCall.scheduled_at).getTime();
+      const diff = scheduled - now;
+      if (diff <= 0) {
+        setCallCountdown('Сейчас');
+      } else {
+        const h = Math.floor(diff / 3600000);
+        const m = Math.floor((diff % 3600000) / 60000);
+        const s = Math.floor((diff % 60000) / 1000);
+        setCallCountdown(h > 0 ? `${h}ч ${m}м` : m > 0 ? `${m}м ${s}с` : `${s}с`);
+      }
+    };
+    update();
+    const iv = setInterval(update, 1000);
+    return () => clearInterval(iv);
+  }, [activity.practiceType, activeCall]);
+
+  const handleJoinCall = useCallback(async () => {
+    if (!activeCall || !getCallToken) return;
+    setCallState('joining');
+    try {
+      const data = await getCallToken(activeCall.id);
+      if (data?.token && activeCall.room_url) {
+        setCallToken(data.token);
+        setCallState('active');
+      } else {
+        setCallState('waiting');
+      }
+    } catch {
+      setCallState('waiting');
+    }
+  }, [activeCall, getCallToken]);
+
+  const handleLeaveCall = useCallback(() => {
+    setCallState('ended');
+    setCallToken(null);
+  }, []);
+
   // ─── Theory practice type: show text content + "Изучено" button ───
   if (activity.practiceType === 'theory') {
     return (
@@ -380,6 +429,157 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
               Изучено
             </button>
           </div>
+        </div>
+      </Layout>
+    );
+  }
+
+  // ─── Call practice type: Daily.co video call UI ───
+  if (activity.practiceType === 'call') {
+    const scheduled = activeCall ? new Date(activeCall.scheduled_at) : null;
+    const now = Date.now();
+    const canJoin = scheduled && (now >= scheduled.getTime() - 5 * 60 * 1000); // 5 min before
+
+    return (
+      <Layout>
+        <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", padding: "0 24px", position: "relative", zIndex: 1 }}>
+          {/* Top bar */}
+          <div style={{ width: "100%", display: "flex", alignItems: "center", paddingTop: 52, marginBottom: 20 }}>
+            <button onClick={onBack} style={btnBack}>←</button>
+            <h2 style={{ flex: 1, textAlign: "center", fontSize: 18, fontWeight: 600, color: "#1a1a2e", margin: 0 }}>{activity.label}</h2>
+            <div style={{ width: 42 }} />
+          </div>
+
+          {callState === 'active' && callToken && activeCall?.room_url ? (
+            /* Daily.co iframe */
+            <div ref={callContainerRef} style={{
+              flex: 1, borderRadius: 20, overflow: 'hidden', marginBottom: 24,
+              background: '#000', position: 'relative', minHeight: 400,
+            }}>
+              <iframe
+                ref={callFrameRef}
+                src={`${activeCall.room_url}?t=${callToken}`}
+                style={{ width: '100%', height: '100%', border: 'none', position: 'absolute', inset: 0 }}
+                allow="camera; microphone; fullscreen; display-capture; autoplay"
+              />
+              <button onClick={handleLeaveCall} style={{
+                position: 'absolute', bottom: 16, left: '50%', transform: 'translateX(-50%)',
+                padding: '12px 32px', background: '#e74c3c', color: '#fff',
+                border: 'none', borderRadius: 14, fontSize: 15, fontWeight: 600,
+                cursor: 'pointer', boxShadow: '0 4px 16px rgba(231,76,60,0.3)', zIndex: 10,
+              }}>
+                Покинуть
+              </button>
+            </div>
+          ) : callState === 'ended' ? (
+            /* Post-call */
+            <div style={{
+              flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 20,
+            }}>
+              <div style={{
+                width: 80, height: 80, borderRadius: '50%', background: 'rgba(39,174,96,0.1)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <svg width="36" height="36" viewBox="0 0 16 16" fill="none">
+                  <polyline points="3,8.5 6.5,12 13,4" stroke="#27ae60" strokeWidth="2" strokeLinecap="round" fill="none"/>
+                </svg>
+              </div>
+              <div style={{ fontSize: 18, fontWeight: 600, color: '#1a1a2e' }}>Звонок завершён</div>
+              <button onClick={onDone} style={{
+                padding: '16px 44px', background: '#1a1a2e', color: '#fff',
+                border: 'none', borderRadius: 16, fontSize: 16, fontWeight: 600,
+                cursor: 'pointer', boxShadow: '0 4px 20px rgba(26,26,46,0.2)', minWidth: 180,
+              }}>
+                Готово
+              </button>
+            </div>
+          ) : (
+            /* Waiting / pre-call */
+            <div style={{
+              flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 24,
+            }}>
+              {activeCall ? (
+                <>
+                  <div style={{
+                    width: 100, height: 100, borderRadius: '50%',
+                    background: 'rgba(26,26,46,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#1a1a2e" strokeWidth="1.5">
+                      <path d="M15.05 5A5 5 0 0 1 19 8.95M15.05 1A9 9 0 0 1 23 8.94M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/>
+                    </svg>
+                  </div>
+
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: 16, fontWeight: 600, color: '#1a1a2e', marginBottom: 8 }}>
+                      Запланированный звонок
+                    </div>
+                    <div style={{ fontSize: 14, color: '#666' }}>
+                      {scheduled.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })}, {scheduled.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
+                    </div>
+                    {activeCall.duration_min && (
+                      <div style={{ fontSize: 13, color: '#999', marginTop: 4 }}>
+                        Длительность: {activeCall.duration_min} мин
+                      </div>
+                    )}
+                  </div>
+
+                  {!canJoin && (
+                    <div style={{
+                      background: 'rgba(255,255,255,0.7)', backdropFilter: 'blur(16px)',
+                      borderRadius: 16, padding: '16px 28px', textAlign: 'center',
+                      border: '1px solid rgba(255,255,255,0.7)',
+                    }}>
+                      <div style={{ fontSize: 13, color: '#999', marginBottom: 4 }}>До начала</div>
+                      <div style={{ fontSize: 28, fontWeight: 300, color: '#1a1a2e', fontVariantNumeric: 'tabular-nums' }}>
+                        {callCountdown}
+                      </div>
+                    </div>
+                  )}
+
+                  <button
+                    onClick={handleJoinCall}
+                    disabled={!canJoin || callState === 'joining'}
+                    style={{
+                      padding: '16px 44px',
+                      background: canJoin ? '#1a1a2e' : 'rgba(26,26,46,0.15)',
+                      color: canJoin ? '#fff' : '#999',
+                      border: 'none', borderRadius: 16, fontSize: 16, fontWeight: 600,
+                      cursor: canJoin ? 'pointer' : 'not-allowed',
+                      boxShadow: canJoin ? '0 4px 20px rgba(26,26,46,0.2)' : 'none',
+                      minWidth: 180, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+                      opacity: callState === 'joining' ? 0.7 : 1,
+                    }}
+                  >
+                    {callState === 'joining' ? 'Подключение...' : canJoin ? 'Войти в звонок' : 'Ожидание'}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <div style={{
+                    width: 100, height: 100, borderRadius: '50%',
+                    background: 'rgba(26,26,46,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#aaa" strokeWidth="1.5">
+                      <rect x="2" y="3" width="20" height="14" rx="2"/>
+                      <line x1="8" y1="21" x2="16" y2="21"/>
+                      <line x1="12" y1="17" x2="12" y2="21"/>
+                    </svg>
+                  </div>
+                  <div style={{ fontSize: 16, fontWeight: 600, color: '#1a1a2e' }}>Звонок не запланирован</div>
+                  <div style={{ fontSize: 14, color: '#999', textAlign: 'center', maxWidth: 280 }}>
+                    Тренер ещё не назначил звонок на этот день
+                  </div>
+                  <button onClick={onBack} style={{
+                    padding: '14px 36px', background: 'rgba(255,255,255,0.8)', color: '#1a1a2e',
+                    border: '1.5px solid rgba(0,0,0,0.08)', borderRadius: 14, fontSize: 15, fontWeight: 600,
+                    cursor: 'pointer', backdropFilter: 'blur(12px)',
+                  }}>
+                    Назад
+                  </button>
+                </>
+              )}
+            </div>
+          )}
         </div>
       </Layout>
     );

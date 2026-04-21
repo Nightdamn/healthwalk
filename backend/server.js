@@ -10,6 +10,7 @@ import path from 'path';
 import authRoutes from './routes/auth.js';
 import apiRoutes from './routes/api.js';
 import fileRoutes from './routes/files.js';
+import { query, queryOne } from './db.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -30,9 +31,11 @@ app.use(helmet({
       scriptSrc: ["'self'", "'unsafe-inline'", "https://www.youtube.com", "https://s.ytimg.com"],
       frameSrc: ["'self'", "https://www.youtube.com", "https://drive.google.com", "https://*.daily.co"],
       imgSrc: ["'self'", "data:", "blob:", "https://img.youtube.com", "https://*.googleusercontent.com"],
-      connectSrc: ["'self'"],
+      connectSrc: ["'self'", "https://*.daily.co", "wss://*.daily.co", "https://*.pluot.blue", "wss://*.pluot.blue"],
       styleSrc: ["'self'", "'unsafe-inline'"],
-      mediaSrc: ["'self'", "blob:"],
+      mediaSrc: ["'self'", "blob:", "https://*.daily.co", "https://*.pluot.blue"],
+      workerSrc: ["'self'", "blob:"],
+      childSrc: ["'self'", "blob:"],
     },
   },
 }));
@@ -45,6 +48,38 @@ app.get('/api/health', (req, res) => {
     uptime: process.uptime(),
     timestamp: new Date().toISOString(),
   });
+});
+
+// ── Daily.co Webhook (no auth — called by Daily.co) ──
+app.post('/api/daily-webhook', async (req, res) => {
+  try {
+    const { event, payload } = req.body;
+    console.log('[Daily Webhook]', event);
+
+    if (event === 'recording.ready-to-download' && payload?.room_name && payload?.download_link) {
+      // Find the call by room URL
+      const call = await queryOne(
+        `SELECT * FROM activity_calls WHERE room_url LIKE $1`,
+        [`%${payload.room_name}`]
+      );
+      if (call) {
+        // Save recording as activity_video
+        await query(
+          `INSERT INTO activity_videos (course_id, activity_id, video_type, video_url, duration_sec, first_day, last_day)
+           VALUES ($1, $2, 'link', $3, $4, $5, $5)
+           ON CONFLICT (course_id, activity_id, first_day, last_day) DO UPDATE SET video_url = $3, duration_sec = $4`,
+          [call.course_id, call.activity_id, payload.download_link, payload.duration || null, call.day]
+        );
+        // Update call status
+        await query(`UPDATE activity_calls SET status = 'completed', updated_at = NOW() WHERE id = $1`, [call.id]);
+        console.log('[Daily Webhook] Recording saved for call', call.id);
+      }
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[Daily Webhook Error]', err);
+    res.json({ ok: true }); // Always 200 for webhooks
+  }
 });
 
 // ── API Routes ──

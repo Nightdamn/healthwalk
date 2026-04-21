@@ -795,8 +795,23 @@ router.patch('/videos/:id/duration', async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════
-// ACTIVITY CALLS (online sessions)
+// ACTIVITY CALLS (online sessions via Daily.co)
 // ═══════════════════════════════════════════════════════════
+
+const DAILY_API_KEY = process.env.DAILY_API_KEY;
+const DAILY_API = 'https://api.daily.co/v1';
+
+async function dailyFetch(path, method = 'GET', body = null) {
+  if (!DAILY_API_KEY) return null;
+  const opts = {
+    method,
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${DAILY_API_KEY}` },
+  };
+  if (body) opts.body = JSON.stringify(body);
+  const res = await fetch(`${DAILY_API}${path}`, opts);
+  if (!res.ok) { const t = await res.text(); console.error('[Daily]', res.status, t); return null; }
+  return res.json();
+}
 
 router.get('/calls/:courseId', async (req, res) => {
   try {
@@ -819,10 +834,32 @@ router.post('/calls', async (req, res) => {
   try {
     const { courseId, activityId, day, scheduledAt, durationMin } = req.body;
     if (!await isTrainer(req.userId, courseId)) return res.status(403).json({ error: 'Нет прав' });
+
+    // Create Daily.co room
+    const dur = durationMin || 30;
+    const scheduledDate = new Date(scheduledAt);
+    const expiry = Math.floor(scheduledDate.getTime() / 1000) + (dur + 60) * 60; // room expires 1h after end
+    const roomName = `hw-${courseId.slice(0, 8)}-d${day}-${Date.now().toString(36)}`;
+    let roomUrl = null;
+
+    const room = await dailyFetch('/rooms', 'POST', {
+      name: roomName,
+      properties: {
+        enable_recording: 'cloud',
+        max_participants: 50,
+        exp: expiry,
+        enable_chat: true,
+        enable_knocking: true,
+        start_audio_off: true,
+        start_video_off: false,
+      },
+    });
+    if (room?.url) roomUrl = room.url;
+
     const call = await queryOne(
-      `INSERT INTO activity_calls (course_id, activity_id, day, scheduled_at, duration_min, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
-      [courseId, activityId, day, scheduledAt, durationMin || 30, req.userId]
+      `INSERT INTO activity_calls (course_id, activity_id, day, scheduled_at, duration_min, room_url, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+      [courseId, activityId, day, scheduledAt, dur, roomUrl, req.userId]
     );
     res.json({ data: call });
   } catch (err) { console.error(err); res.json({ error: err.message }); }
@@ -846,9 +883,56 @@ router.delete('/calls/:id', async (req, res) => {
   try {
     const call = await queryOne('SELECT * FROM activity_calls WHERE id = $1', [req.params.id]);
     if (!call || !await isTrainer(req.userId, call.course_id)) return res.status(403).json({ error: 'Нет прав' });
+    // Delete Daily.co room
+    if (call.room_url) {
+      const roomName = call.room_url.split('/').pop();
+      await dailyFetch(`/rooms/${roomName}`, 'DELETE');
+    }
     await query('DELETE FROM activity_calls WHERE id = $1', [req.params.id]);
     res.json({ success: true });
   } catch (err) { res.json({ error: err.message }); }
+});
+
+// Get meeting token for a call (students get limited, trainers get owner)
+router.post('/calls/:id/token', async (req, res) => {
+  try {
+    const call = await queryOne('SELECT * FROM activity_calls WHERE id = $1', [req.params.id]);
+    if (!call) return res.status(404).json({ error: 'Звонок не найден' });
+    // Verify enrollment
+    const course = await queryOne('SELECT owner_id FROM courses WHERE id = $1', [call.course_id]);
+    if (!course) return res.status(404).json({ error: 'Курс не найден' });
+    const isOwner = course.owner_id === req.userId;
+    const enroll = !isOwner ? await queryOne('SELECT role FROM course_enrollments WHERE course_id = $1 AND user_id = $2', [call.course_id, req.userId]) : null;
+    if (!isOwner && !enroll) return res.status(403).json({ error: 'Нет доступа' });
+
+    const isStaff = isOwner || (enroll && ['trainer', 'curator'].includes(enroll.role));
+    const roomName = call.room_url?.split('/').pop();
+    if (!roomName) return res.status(400).json({ error: 'Комната не создана' });
+
+    const user = await queryOne('SELECT display_name, email FROM users WHERE id = $1', [req.userId]);
+    const userName = user?.display_name || user?.email || 'Участник';
+
+    const token = await dailyFetch('/meeting-tokens', 'POST', {
+      properties: {
+        room_name: roomName,
+        user_name: userName,
+        is_owner: isStaff,
+        enable_recording: isStaff ? 'cloud' : undefined,
+        start_audio_off: true,
+        exp: Math.floor(Date.now() / 1000) + 3600 * 3,
+      },
+    });
+    if (!token?.token) return res.status(500).json({ error: 'Не удалось создать токен' });
+
+    // Track attendance
+    await query(
+      `INSERT INTO call_attendance (call_id, user_id, joined_at) VALUES ($1,$2,NOW())
+       ON CONFLICT (call_id, user_id) DO UPDATE SET joined_at = COALESCE(call_attendance.joined_at, NOW())`,
+      [call.id, req.userId]
+    );
+
+    res.json({ token: token.token, roomUrl: call.room_url, isStaff });
+  } catch (err) { console.error(err); res.status(500).json({ error: err.message }); }
 });
 
 export default router;

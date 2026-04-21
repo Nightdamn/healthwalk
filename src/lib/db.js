@@ -518,3 +518,7 @@ export async function createActivityCall(courseId, activityId, day, scheduledAt,
 export async function deleteActivityCall(callId) {
   return await apiDelete(`/api/calls/${callId}`);
 }
+
+export async function getCallToken(callId) {
+  return await apiPost(`/api/calls/${callId}/token`);
+}

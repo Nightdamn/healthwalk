@@ -27,6 +27,7 @@ import {
   loadStudentExclusions, loadStudentCustomActivities,
   getUnreadCount,
   getActivityVideos, getVideoForDay, getVideoSignedUrl, updateVideoDuration,
+  getActivityCalls, getCallToken,
 } from './lib/db';
 
 function extractUser(userData) {
@@ -67,10 +68,12 @@ export default function App() {
   // Unread messages
   const [unreadCount, setUnreadCount] = useState(0);
 
-  // Videos
+  // Videos & Calls
   const [courseVideos, setCourseVideos] = useState([]);
+  const [courseCalls, setCourseCalls] = useState([]);
   const [activeVideo, setActiveVideo] = useState(null);
   const [activeVideoUrl, setActiveVideoUrl] = useState(null);
+  const [activeCall, setActiveCall] = useState(null);
 
   // Timer
   const [activeActivity, setActiveActivity] = useState(null);
@@ -187,18 +190,21 @@ export default function App() {
               loadStudentExclusions(user.id, active.id),
               loadStudentCustomActivities(user.id, active.id),
               getActivityVideos(active.id),
+              getActivityCalls(active.id),
             );
           }
-          const [raw, excl, custom, vids] = await Promise.all(loadPromises);
+          const [raw, excl, custom, vids, calls] = await Promise.all(loadPromises);
           setRawProgress(raw);
           if (active.type === 'course') {
             setExclusions(excl || {});
             setCustomActivities(custom || []);
             setCourseVideos(vids || []);
+            setCourseCalls(calls || []);
           } else {
             setExclusions({});
             setCustomActivities([]);
             setCourseVideos([]);
+            setCourseCalls([]);
           }
 
           // Calculate current day from start date
@@ -234,18 +240,21 @@ export default function App() {
         loadStudentExclusions(user.id, item.id),
         loadStudentCustomActivities(user.id, item.id),
         getActivityVideos(item.id),
+        getActivityCalls(item.id),
       );
     }
-    const [raw, excl, custom, vids] = await Promise.all(loadPromises);
+    const [raw, excl, custom, vids, calls] = await Promise.all(loadPromises);
     setRawProgress(raw);
     if (item.type === 'course') {
       setExclusions(excl || {});
       setCustomActivities(custom || []);
       setCourseVideos(vids || []);
+      setCourseCalls(calls || []);
     } else {
       setExclusions({});
       setCustomActivities([]);
       setCourseVideos([]);
+      setCourseCalls([]);
     }
 
     // Calculate day based on item's own start date
@@ -341,6 +350,15 @@ export default function App() {
   const handleStartTimer = async (activity) => {
     // Normalize activity props
     activity = { ...activity, practiceType: activity.practiceType || 'media', descriptionHtml: activity.descriptionHtml || null };
+
+    // Find call for call-type activities
+    if (activity.practiceType === 'call') {
+      const call = courseCalls.find(c => c.activity_id === activity.activityId && c.day === currentDay && c.status !== 'cancelled');
+      setActiveCall(call || null);
+    } else {
+      setActiveCall(null);
+    }
+
     // Find video for this activity and day
     const video = getVideoForDay(courseVideos, activity.id, currentDay);
     setActiveVideo(video);
@@ -449,24 +467,27 @@ export default function App() {
   };
 
   const handleEditCourseBack = async () => {
-    // Reload videos in case they were added/deleted during editing
+    // Reload videos/calls in case they were added/deleted during editing
     if (editCourseId && activeItem?.type === 'course' && activeItem?.id === editCourseId) {
-      const vids = await getActivityVideos(editCourseId);
+      const [vids, calls] = await Promise.all([getActivityVideos(editCourseId), getActivityCalls(editCourseId)]);
       setCourseVideos(vids || []);
+      setCourseCalls(calls || []);
     }
     setScreen('my_courses');
   };
 
   const handleCourseSaved = async () => {
     await refreshItems();
-    // Reload active item and videos if it's the edited course
+    // Reload active item, videos and calls if it's the edited course
     if (activeItem?.type === 'course' && activeItem?.id === editCourseId) {
-      const [items, vids] = await Promise.all([
+      const [items, vids, calls] = await Promise.all([
         getAvailableItems(user.id),
         getActivityVideos(editCourseId),
+        getActivityCalls(editCourseId),
       ]);
       setAvailableItems(items);
       setCourseVideos(vids || []);
+      setCourseCalls(calls || []);
       const updated = items.find(i => i.type === 'course' && i.id === editCourseId);
       if (updated) setActiveItem(updated);
     }
@@ -534,7 +555,8 @@ export default function App() {
     case 'timer': return (
       <TimerPage activity={activeActivity} timerSeconds={timerSeconds} timerPaused={timerPaused}
         currentDay={currentDay} onPause={handleTimerPause} onBack={handleTimerBack} onDone={handleTimerDone} onSeek={handleTimerSeek}
-        video={activeVideo} videoUrl={activeVideoUrl} onDurationDetected={handleDurationDetected} />
+        video={activeVideo} videoUrl={activeVideoUrl} onDurationDetected={handleDurationDetected}
+        activeCall={activeCall} getCallToken={getCallToken} />
     );
     case 'details': return <DetailsPage progress={progress} currentDay={currentDay} elapsedTime={elapsedTime} getElapsedForDay={getElapsedForDay} onBack={goMain} activeItem={activeItem} exclusions={exclusions} customActivities={customActivities} />;
     case 'profile': return (
