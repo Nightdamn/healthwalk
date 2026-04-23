@@ -50,14 +50,22 @@ export function getCourseDay(startDateISO, tzOffsetMin = null, dayStartHour = DA
   const now = new Date();
   const offsetMin = tzOffsetMin !== null ? tzOffsetMin : -(now.getTimezoneOffset());
 
-  const nowLocalMs = now.getTime() + offsetMin * 60 * 1000;
-  const startLocalMs = new Date(startDateISO).getTime() + offsetMin * 60 * 1000;
+  // Current "logical day" index: shift UTC → local, then subtract dayStartHour.
+  const nowShifted = now.getTime() + offsetMin * 60 * 1000 - dayStartHour * 60 * 60 * 1000;
+  const nowDayIdx = Math.floor(nowShifted / 86400000);
 
-  const shiftMs = dayStartHour * 60 * 60 * 1000;
-  const nowShifted = Math.floor((nowLocalMs - shiftMs) / (24 * 60 * 60 * 1000));
-  const startShifted = Math.floor((startLocalMs - shiftMs) / (24 * 60 * 60 * 1000));
+  // Start date: if it's a bare YYYY-MM-DD, treat as a calendar day directly
+  // (day 1 spans from dayStartHour of that date). Otherwise shift like "now".
+  let startDayIdx;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(startDateISO)) {
+    const [y, m, d] = startDateISO.split('-').map(Number);
+    startDayIdx = Math.floor(Date.UTC(y, m - 1, d) / 86400000);
+  } else {
+    const startShifted = new Date(startDateISO).getTime() + offsetMin * 60 * 1000 - dayStartHour * 60 * 60 * 1000;
+    startDayIdx = Math.floor(startShifted / 86400000);
+  }
 
-  return Math.max(1, Math.min(nowShifted - startShifted + 1, maxDays));
+  return Math.max(1, Math.min(nowDayIdx - startDayIdx + 1, maxDays));
 }
 
 /**
@@ -69,14 +77,19 @@ export function isCourseFinished(startDateISO, tzOffsetMin = null, dayStartHour 
   const now = new Date();
   const offsetMin = tzOffsetMin !== null ? tzOffsetMin : -(now.getTimezoneOffset());
 
-  const nowLocalMs = now.getTime() + offsetMin * 60 * 1000;
-  const startLocalMs = new Date(startDateISO).getTime() + offsetMin * 60 * 1000;
+  const nowShifted = now.getTime() + offsetMin * 60 * 1000 - dayStartHour * 60 * 60 * 1000;
+  const nowDayIdx = Math.floor(nowShifted / 86400000);
 
-  const shiftMs = dayStartHour * 60 * 60 * 1000;
-  const nowShifted = Math.floor((nowLocalMs - shiftMs) / (24 * 60 * 60 * 1000));
-  const startShifted = Math.floor((startLocalMs - shiftMs) / (24 * 60 * 60 * 1000));
+  let startDayIdx;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(startDateISO)) {
+    const [y, m, d] = startDateISO.split('-').map(Number);
+    startDayIdx = Math.floor(Date.UTC(y, m - 1, d) / 86400000);
+  } else {
+    const startShifted = new Date(startDateISO).getTime() + offsetMin * 60 * 1000 - dayStartHour * 60 * 60 * 1000;
+    startDayIdx = Math.floor(startShifted / 86400000);
+  }
 
-  return (nowShifted - startShifted + 1) > maxDays;
+  return (nowDayIdx - startDayIdx + 1) > maxDays;
 }
 
 /**
