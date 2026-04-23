@@ -337,9 +337,9 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
     };
   }, [applyDrag]);
 
-  // ─── Call practice type: Daily.co video call ───
+  // ─── Call practice type: Jitsi Meet video call ───
   const [callState, setCallState] = useState('waiting'); // waiting | joining | active | ended
-  const [callToken, setCallToken] = useState(null);
+  const [callJoin, setCallJoin] = useState(null); // { roomUrl, userName, isStaff }
   const [callCountdown, setCallCountdown] = useState('');
   const callFrameRef = useRef(null);
   const callContainerRef = useRef(null);
@@ -370,8 +370,8 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
     setCallState('joining');
     try {
       const data = await getCallToken(activeCall.id);
-      if (data?.token && activeCall.room_url) {
-        setCallToken(data.token);
+      if (data?.roomUrl) {
+        setCallJoin({ roomUrl: data.roomUrl, userName: data.userName || '', isStaff: !!data.isStaff });
         setCallState('active');
       } else {
         setCallState('waiting');
@@ -383,7 +383,7 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
 
   const handleLeaveCall = useCallback(() => {
     setCallState('ended');
-    setCallToken(null);
+    setCallJoin(null);
   }, []);
 
   // ─── Theory practice type: show text content + "Изучено" button ───
@@ -452,15 +452,15 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
             <div style={{ width: 42 }} />
           </div>
 
-          {callState === 'active' && callToken && activeCall?.room_url ? (
-            /* Daily.co iframe */
+          {callState === 'active' && callJoin?.roomUrl ? (
+            /* Jitsi Meet iframe */
             <div ref={callContainerRef} style={{
               flex: 1, borderRadius: 20, overflow: 'hidden', marginBottom: 24,
               background: '#000', position: 'relative', minHeight: 400,
             }}>
               <iframe
                 ref={callFrameRef}
-                src={`${activeCall.room_url}?t=${callToken}`}
+                src={`${callJoin.roomUrl}#userInfo.displayName=${encodeURIComponent(callJoin.userName || '')}&config.prejoinPageEnabled=false&config.startWithAudioMuted=true`}
                 style={{ width: '100%', height: '100%', border: 'none', position: 'absolute', inset: 0 }}
                 allow="camera; microphone; fullscreen; display-capture; autoplay"
               />
