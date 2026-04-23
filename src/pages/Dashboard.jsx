@@ -319,7 +319,11 @@ export default function Dashboard({
                   return (
                     <React.Fragment key={day}>
                       {showLine && <div style={{ width: 12, minWidth: 12, height: 2.5, background: lineGreen ? GREEN : 'rgba(0,0,0,0.06)', marginLeft: -3, marginRight: -3, zIndex: 0, flexShrink: 0 }} />}
-                      <div data-day={day} onClick={() => { if (isClickable) setViewingDay(day === currentDay ? null : day); }}
+                      <div data-day={day} onClick={() => {
+                          if (!isClickable) return;
+                          if (day === currentDay) { setViewingDay(null); setDashView('day'); }
+                          else setViewingDay(day);
+                        }}
                         style={{ cursor: isClickable ? 'pointer' : 'default', flexShrink: 0, zIndex: 1, position: 'relative' }}>
                         <DayCircle day={day} uid={uidRef.current} timePct={isCurrent ? timePct : (isPast ? 100 : 0)}
                           allDone={allDone} practicePct={practiceFrac} isPast={isPast} isCurrent={isCurrent} isFuture={isFuture} />
@@ -336,26 +340,20 @@ export default function Dashboard({
                 <button onClick={() => setDashView(dashView === 'map' ? 'day' : 'map')}
                   style={{
                     flex: 1, padding: '12px 0', borderRadius: 14, fontSize: 13, fontWeight: 600,
-                    cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                    transition: 'all 0.2s',
-                    background: dashView === 'map' ? 'rgba(39,174,96,0.1)' : 'rgba(255,255,255,0.65)',
-                    border: dashView === 'map' ? '1.5px solid rgba(39,174,96,0.3)' : '1.5px solid rgba(255,255,255,0.7)',
-                    color: dashView === 'map' ? GREEN : '#1a1a2e',
-                    backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)',
+                    cursor: 'pointer', border: 'none',
+                    background: '#1a1a2e', color: '#fff',
+                    opacity: dashView === 'map' ? 0.85 : 1,
                   }}>
-                  <span style={{ fontSize: 15 }}>&#x1f5fa;&#xfe0f;</span> Карта курса
+                  Карта курса
                 </button>
                 <button onClick={() => setDashView(dashView === 'stats' ? 'day' : 'stats')}
                   style={{
                     flex: 1, padding: '12px 0', borderRadius: 14, fontSize: 13, fontWeight: 600,
-                    cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                    transition: 'all 0.2s',
-                    background: dashView === 'stats' ? 'rgba(39,174,96,0.1)' : 'rgba(255,255,255,0.65)',
-                    border: dashView === 'stats' ? '1.5px solid rgba(39,174,96,0.3)' : '1.5px solid rgba(255,255,255,0.7)',
-                    color: dashView === 'stats' ? GREEN : '#1a1a2e',
-                    backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)',
+                    cursor: 'pointer', border: 'none',
+                    background: '#1a1a2e', color: '#fff',
+                    opacity: dashView === 'stats' ? 0.85 : 1,
                   }}>
-                  <span style={{ fontSize: 15 }}>&#x1f4ca;</span> Статистика
+                  Статистика
                 </button>
               </div>
             )}
@@ -379,6 +377,7 @@ export default function Dashboard({
                 daysTotal={daysTotal}
                 isActivityOnDay={isActivityOnDay}
                 currentDay={currentDay}
+                onBackToDay={() => setDashView('day')}
               />
             ) : dashView === 'map' ? (
               <CourseMapView
@@ -393,6 +392,7 @@ export default function Dashboard({
                 onStartTimer={onStartTimer}
                 enrollRole={activeItem?.enrollRole}
                 userRole={userRole}
+                onBackToDay={() => setDashView('day')}
               />
             ) : (
               <>
@@ -653,7 +653,7 @@ function CourseCompleteView({ progress, allActivities, daysTotal, exclusions, is
 }
 
 /* ── Course Map View ── */
-function CourseMapView({ progress, allActivities, daysTotal, isActivityOnDay, currentDay, dayStartHour, getElapsedForDay, elapsedTime, onStartTimer, enrollRole, userRole }) {
+function CourseMapView({ progress, allActivities, daysTotal, isActivityOnDay, currentDay, dayStartHour, getElapsedForDay, elapsedTime, onStartTimer, enrollRole, userRole, onBackToDay }) {
   const [expandedDay, setExpandedDay] = useState(null);
 
   const canAccessFuture = enrollRole === 'owner' || enrollRole === 'trainer' || enrollRole === 'curator'
@@ -661,6 +661,16 @@ function CourseMapView({ progress, allActivities, daysTotal, isActivityOnDay, cu
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {onBackToDay && (
+        <button onClick={onBackToDay}
+          style={{
+            padding: '12px 0', borderRadius: 14, fontSize: 13, fontWeight: 600,
+            cursor: 'pointer', border: 'none',
+            background: '#1a1a2e', color: '#fff', marginBottom: 4,
+          }}>
+          К практике
+        </button>
+      )}
       {Array.from({ length: daysTotal }, (_, i) => {
         const day = i + 1;
         const isFuture = day > currentDay;
@@ -777,7 +787,7 @@ function CourseMapView({ progress, allActivities, daysTotal, isActivityOnDay, cu
 }
 
 /* ── Course Stats View (live progress, always green) ── */
-function CourseStatsView({ progress, allActivities, daysTotal, isActivityOnDay, currentDay }) {
+function CourseStatsView({ progress, allActivities, daysTotal, isActivityOnDay, currentDay, onBackToDay }) {
   let completedDays = 0;
   let totalActiveDays = 0;
   const activityStats = {};
@@ -812,6 +822,16 @@ function CourseStatsView({ progress, allActivities, daysTotal, isActivityOnDay, 
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {onBackToDay && (
+        <button onClick={onBackToDay}
+          style={{
+            padding: '12px 0', borderRadius: 14, fontSize: 13, fontWeight: 600,
+            cursor: 'pointer', border: 'none',
+            background: '#1a1a2e', color: '#fff',
+          }}>
+          К практике
+        </button>
+      )}
       {/* Current progress header */}
       <div style={{
         ...glass, borderRadius: 20, padding: '24px 20px', textAlign: 'center',
