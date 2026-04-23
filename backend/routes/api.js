@@ -931,4 +931,90 @@ router.post('/calls/:id/token', async (req, res) => {
   } catch (err) { console.error(err); res.status(500).json({ error: err.message }); }
 });
 
+// Trainer-only: roster of everyone who could have been on the call,
+// with current attendance flags.
+router.get('/calls/:id/attendance', async (req, res) => {
+  try {
+    const call = await queryOne('SELECT * FROM activity_calls WHERE id = $1', [req.params.id]);
+    if (!call) return res.status(404).json({ error: 'Звонок не найден' });
+    if (!await isTrainer(req.userId, call.course_id)) return res.status(403).json({ error: 'Нет прав' });
+
+    const rows = await query(
+      `SELECT u.id AS user_id, u.email, u.display_name, ce.role,
+              (c.owner_id = u.id) AS is_owner,
+              COALESCE(ca.attended, false) AS attended,
+              (ca.joined_at IS NOT NULL) AS joined
+       FROM course_enrollments ce
+       JOIN users u ON u.id = ce.user_id
+       JOIN courses c ON c.id = ce.course_id
+       LEFT JOIN call_attendance ca ON ca.call_id = $1 AND ca.user_id = u.id
+       WHERE ce.course_id = $2
+       ORDER BY (c.owner_id = u.id) DESC, ce.role, u.display_name`,
+      [call.id, call.course_id]
+    );
+
+    res.json({
+      call: { id: call.id, day: call.day, activityId: call.activity_id },
+      currentUserId: req.userId,
+      participants: rows.map(r => ({
+        userId: r.user_id, email: r.email, displayName: r.display_name || r.email,
+        role: r.role, isOwner: r.is_owner, attended: r.attended, joined: r.joined,
+      })),
+    });
+  } catch (err) { console.error(err); res.status(500).json({ error: err.message }); }
+});
+
+// Trainer-only: mark attendance + write completion to course_progress for
+// attended users on the call's day.
+router.post('/calls/:id/attendance', async (req, res) => {
+  try {
+    const call = await queryOne('SELECT * FROM activity_calls WHERE id = $1', [req.params.id]);
+    if (!call) return res.status(404).json({ error: 'Звонок не найден' });
+    if (!await isTrainer(req.userId, call.course_id)) return res.status(403).json({ error: 'Нет прав' });
+
+    const attendedIds = Array.isArray(req.body?.attendedUserIds) ? req.body.attendedUserIds : [];
+
+    // activity_calls.activity_id is the activity definition key (text);
+    // course_progress stores the course_activities.id (uuid). Translate once.
+    const courseActivity = await queryOne(
+      'SELECT id FROM course_activities WHERE course_id = $1 AND activity_id = $2',
+      [call.course_id, call.activity_id]
+    );
+    if (!courseActivity) return res.status(404).json({ error: 'Активность курса не найдена' });
+
+    // Trainer's own row is always "attended".
+    const allAttended = new Set(attendedIds);
+    allAttended.add(req.userId);
+
+    const enrollees = await query(
+      `SELECT u.id AS user_id
+       FROM course_enrollments ce
+       JOIN users u ON u.id = ce.user_id
+       WHERE ce.course_id = $1`,
+      [call.course_id]
+    );
+
+    for (const row of enrollees) {
+      const attended = allAttended.has(row.user_id);
+      await query(
+        `INSERT INTO call_attendance (call_id, user_id, attended, joined_at)
+         VALUES ($1, $2, $3, CASE WHEN $3 THEN NOW() ELSE NULL END)
+         ON CONFLICT (call_id, user_id) DO UPDATE SET attended = $3`,
+        [call.id, row.user_id, attended]
+      );
+      await query(
+        `INSERT INTO course_progress (user_id, course_id, activity_id, day, elapsed_seconds, completed, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, NOW())
+         ON CONFLICT (user_id, course_id, activity_id, day)
+         DO UPDATE SET completed = $6, updated_at = NOW()`,
+        [row.user_id, call.course_id, courseActivity.id, call.day, attended ? (call.duration_min || 30) * 60 : 0, attended]
+      );
+    }
+
+    await query(`UPDATE activity_calls SET status = 'completed', updated_at = NOW() WHERE id = $1`, [call.id]);
+
+    res.json({ ok: true });
+  } catch (err) { console.error(err); res.status(500).json({ error: err.message }); }
+});
+
 export default router;

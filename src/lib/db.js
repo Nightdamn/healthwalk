@@ -522,3 +522,20 @@ export async function deleteActivityCall(callId) {
 export async function getCallToken(callId) {
   return await apiPost(`/api/calls/${callId}/token`);
 }
+
+export async function getCallAttendance(callId) {
+  try {
+    return await apiGet(`/api/calls/${callId}/attendance`);
+  } catch (err) {
+    console.error('[DB] Get call attendance:', err);
+    return null;
+  }
+}
+
+export async function saveCallAttendance(callId, attendedUserIds) {
+  try {
+    return await apiPost(`/api/calls/${callId}/attendance`, { attendedUserIds });
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}

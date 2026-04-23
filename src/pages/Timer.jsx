@@ -4,6 +4,7 @@ import { formatTime } from '../data/constants';
 import { btnBack } from '../styles/shared';
 import { extractYoutubeId, extractDriveId } from '../components/VideoSection';
 import { TheoryContent } from '../components/RichTextEditor';
+import { getCallAttendance, saveCallAttendance } from '../lib/db';
 
 const CX = 100, CY = 100, R = 90;
 const CIRCUMFERENCE = 2 * Math.PI * R;
@@ -344,6 +345,51 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
   const callFrameRef = useRef(null);
   const callContainerRef = useRef(null);
 
+  // Attendance (trainer-only after call ends)
+  const [attendance, setAttendance] = useState(null); // { currentUserId, participants: [...] }
+  const [attendanceLoading, setAttendanceLoading] = useState(false);
+  const [attendanceSaving, setAttendanceSaving] = useState(false);
+  const [checkedIds, setCheckedIds] = useState(() => new Set());
+
+  useEffect(() => {
+    if (callState !== 'ended' || !callJoin?.isStaff || !activeCall?.id) return;
+    let cancelled = false;
+    setAttendanceLoading(true);
+    (async () => {
+      const data = await getCallAttendance(activeCall.id);
+      if (cancelled) return;
+      if (data?.participants) {
+        setAttendance(data);
+        const initial = new Set();
+        for (const p of data.participants) {
+          if (p.userId === data.currentUserId || p.attended || p.joined) initial.add(p.userId);
+        }
+        setCheckedIds(initial);
+      }
+      setAttendanceLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [callState, callJoin, activeCall]);
+
+  const toggleAttendance = useCallback((userId) => {
+    if (userId === attendance?.currentUserId) return; // self always checked
+    setCheckedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(userId)) next.delete(userId);
+      else next.add(userId);
+      return next;
+    });
+  }, [attendance]);
+
+  const handleSubmitAttendance = useCallback(async () => {
+    if (!activeCall?.id || attendanceSaving) return;
+    setAttendanceSaving(true);
+    const ids = Array.from(checkedIds);
+    const result = await saveCallAttendance(activeCall.id, ids);
+    setAttendanceSaving(false);
+    if (result?.success !== false) onDone?.();
+  }, [activeCall, checkedIds, attendanceSaving, onDone]);
+
   // Countdown timer for scheduled call
   useEffect(() => {
     if (activity.practiceType !== 'call' || !activeCall) return;
@@ -555,27 +601,117 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
               <div ref={callContainerRef} style={{ position: 'absolute', inset: 0 }} />
             </div>
           ) : callState === 'ended' ? (
-            /* Post-call */
-            <div style={{
-              flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 20,
-            }}>
+            callJoin?.isStaff ? (
+              /* Trainer: mark attendance */
               <div style={{
-                width: 80, height: 80, borderRadius: '50%', background: 'rgba(39,174,96,0.1)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                flex: 1, display: 'flex', flexDirection: 'column', paddingBottom: 24,
               }}>
-                <svg width="36" height="36" viewBox="0 0 16 16" fill="none">
-                  <polyline points="3,8.5 6.5,12 13,4" stroke="#27ae60" strokeWidth="2" strokeLinecap="round" fill="none"/>
-                </svg>
+                <div style={{ textAlign: 'center', marginBottom: 16 }}>
+                  <div style={{ fontSize: 18, fontWeight: 600, color: '#1a1a2e', marginBottom: 4 }}>
+                    Звонок завершён
+                  </div>
+                  <div style={{ fontSize: 13, color: '#666' }}>
+                    Отметьте, кто участвовал — у них практика засчитается
+                  </div>
+                </div>
+
+                {attendanceLoading ? (
+                  <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#999' }}>
+                    Загрузка...
+                  </div>
+                ) : attendance?.participants?.length ? (
+                  <div style={{
+                    flex: 1, overflowY: 'auto',
+                    background: 'rgba(255,255,255,0.7)', backdropFilter: 'blur(16px)',
+                    borderRadius: 16, padding: 8, marginBottom: 16,
+                    border: '1px solid rgba(255,255,255,0.7)',
+                  }}>
+                    {attendance.participants.map(p => {
+                      const checked = checkedIds.has(p.userId);
+                      const isSelf = p.userId === attendance.currentUserId;
+                      return (
+                        <div
+                          key={p.userId}
+                          onClick={() => toggleAttendance(p.userId)}
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: 12,
+                            padding: '12px 12px', borderRadius: 12,
+                            cursor: isSelf ? 'default' : 'pointer',
+                            opacity: isSelf ? 0.7 : 1,
+                            background: checked ? 'rgba(39,174,96,0.08)' : 'transparent',
+                          }}
+                        >
+                          <div style={{
+                            width: 22, height: 22, borderRadius: 6,
+                            border: checked ? '2px solid #27ae60' : '2px solid rgba(0,0,0,0.2)',
+                            background: checked ? '#27ae60' : 'transparent',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                          }}>
+                            {checked && (
+                              <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                                <polyline points="3,8.5 6.5,12 13,4" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" fill="none"/>
+                              </svg>
+                            )}
+                          </div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 14, fontWeight: 500, color: '#1a1a2e', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {p.displayName || p.email || 'Участник'}
+                            </div>
+                            <div style={{ fontSize: 11, color: '#999' }}>
+                              {isSelf ? 'Вы' : p.isOwner ? 'Мастер' : p.role === 'trainer' ? 'Тренер' : 'Ученик'}
+                              {p.joined && !isSelf ? ' · был(а) в звонке' : ''}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#999' }}>
+                    Нет участников
+                  </div>
+                )}
+
+                <button
+                  onClick={handleSubmitAttendance}
+                  disabled={attendanceSaving || attendanceLoading}
+                  style={{
+                    padding: '16px 44px', background: '#1a1a2e', color: '#fff',
+                    border: 'none', borderRadius: 16, fontSize: 16, fontWeight: 600,
+                    cursor: attendanceSaving ? 'wait' : 'pointer',
+                    boxShadow: '0 4px 20px rgba(26,26,46,0.2)',
+                    opacity: attendanceSaving || attendanceLoading ? 0.7 : 1,
+                  }}
+                >
+                  {attendanceSaving ? 'Сохранение...' : 'Сохранить посещаемость'}
+                </button>
               </div>
-              <div style={{ fontSize: 18, fontWeight: 600, color: '#1a1a2e' }}>Звонок завершён</div>
-              <button onClick={onDone} style={{
-                padding: '16px 44px', background: '#1a1a2e', color: '#fff',
-                border: 'none', borderRadius: 16, fontSize: 16, fontWeight: 600,
-                cursor: 'pointer', boxShadow: '0 4px 20px rgba(26,26,46,0.2)', minWidth: 180,
+            ) : (
+              /* Student: simple done screen */
+              <div style={{
+                flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 20,
               }}>
-                Готово
-              </button>
-            </div>
+                <div style={{
+                  width: 80, height: 80, borderRadius: '50%', background: 'rgba(39,174,96,0.1)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <svg width="36" height="36" viewBox="0 0 16 16" fill="none">
+                    <polyline points="3,8.5 6.5,12 13,4" stroke="#27ae60" strokeWidth="2" strokeLinecap="round" fill="none"/>
+                  </svg>
+                </div>
+                <div style={{ fontSize: 18, fontWeight: 600, color: '#1a1a2e' }}>Звонок завершён</div>
+                <div style={{ fontSize: 13, color: '#666', textAlign: 'center', maxWidth: 280 }}>
+                  Тренер отметит посещаемость — практика засчитается автоматически
+                </div>
+                <button onClick={onBack} style={{
+                  padding: '16px 44px', background: '#1a1a2e', color: '#fff',
+                  border: 'none', borderRadius: 16, fontSize: 16, fontWeight: 600,
+                  cursor: 'pointer', boxShadow: '0 4px 20px rgba(26,26,46,0.2)', minWidth: 180,
+                }}>
+                  Готово
+                </button>
+              </div>
+            )
           ) : (
             /* Waiting / pre-call */
             <div style={{

@@ -282,6 +282,7 @@ CREATE TABLE IF NOT EXISTS call_attendance (
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   joined_at TIMESTAMPTZ,
   left_at TIMESTAMPTZ,
+  attended BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(call_id, user_id)
 );
