@@ -435,12 +435,25 @@ export default function Dashboard({
                     const pct = totalSec > 0 ? (elapsedSec / totalSec) * 100 : 0;
                     const elapsedMin = Math.floor(elapsedSec / 60);
                     const elapsedRemSec = elapsedSec % 60;
+                    const reopenTheory = done && act.practiceType === 'theory';
 
                     return (
-                      <div key={act.id} style={{
+                      <div key={act.id}
+                        onClick={reopenTheory ? () => onStartTimer({
+                          id: act.id,
+                          activityId: act.activityId,
+                          label: act.label,
+                          duration: act.durationMin,
+                          iconNum: act.iconNum,
+                          practiceType: act.practiceType,
+                          descriptionHtml: act.descriptionHtml,
+                          alreadyDone: true,
+                        }) : undefined}
+                        style={{
                         ...glass, background: done ? 'rgba(26,26,46,0.04)' : 'rgba(255,255,255,0.65)',
                         borderRadius: 18, padding: '18px 20px',
                         border: done ? '1px solid rgba(26,26,46,0.08)' : '1px solid rgba(255,255,255,0.7)',
+                        cursor: reopenTheory ? 'pointer' : 'default',
                       }}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -456,23 +469,7 @@ export default function Dashboard({
                               <div style={{ fontSize: 12, color: '#999', fontWeight: 500, marginTop: 2 }}>{act.practiceType === 'theory' ? 'Теория' : act.practiceType === 'call' ? 'Онлайн' : `${act.durationMin} минут`}</div>
                             </div>
                           </div>
-                          {done && act.practiceType === 'theory' ? (
-                            <button onClick={() => onStartTimer({
-                              id: act.id,
-                              activityId: act.activityId,
-                              label: act.label,
-                              duration: act.durationMin,
-                              iconNum: act.iconNum,
-                              practiceType: act.practiceType,
-                              descriptionHtml: act.descriptionHtml,
-                            })} style={{
-                              padding: '10px 22px', background: '#1a1a2e', color: '#fff', border: 'none',
-                              borderRadius: 12, fontSize: 13, fontWeight: 600, cursor: 'pointer',
-                              boxShadow: '0 3px 10px rgba(26,26,46,0.15)',
-                            }}>
-                              К практике
-                            </button>
-                          ) : done ? (
+                          {done ? (
                             <div style={{ width: 38, height: 38, borderRadius: '50%', background: '#27ae60', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                               <svg width="18" height="18" viewBox="0 0 16 16" fill="none"><polyline points="3,8.5 6.5,12 13,4" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="miter" fill="none" /></svg>
                             </div>
@@ -768,7 +765,7 @@ function CourseMapView({ progress, allActivities, daysTotal, isActivityOnDay, cu
 
                   return (
                     <div key={act.id}
-                      onClick={() => { if (clickable) onStartTimer({ id: act.id, activityId: act.activityId, label: act.label, duration: act.durationMin, iconNum: act.iconNum, practiceType: act.practiceType, descriptionHtml: act.descriptionHtml }); }}
+                      onClick={() => { if (clickable) onStartTimer({ id: act.id, activityId: act.activityId, label: act.label, duration: act.durationMin, iconNum: act.iconNum, practiceType: act.practiceType, descriptionHtml: act.descriptionHtml, alreadyDone: canReopenTheory }); }}
                       style={{
                         padding: '10px 12px', borderRadius: 12,
                         background: done ? 'rgba(39,174,96,0.06)' : 'rgba(0,0,0,0.02)',
