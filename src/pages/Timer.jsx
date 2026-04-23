@@ -386,6 +386,54 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
     setCallJoin(null);
   }, []);
 
+  // Jitsi External API: load script once, mount iframe into container div
+  useEffect(() => {
+    if (callState !== 'active' || !callJoin?.roomUrl) return;
+    const container = callContainerRef.current;
+    if (!container) return;
+
+    let api = null;
+    let cancelled = false;
+    const loadScript = () => new Promise((resolve, reject) => {
+      if (window.JitsiMeetExternalAPI) return resolve();
+      const existing = document.querySelector('script[data-jitsi]');
+      if (existing) { existing.addEventListener('load', resolve); existing.addEventListener('error', reject); return; }
+      const s = document.createElement('script');
+      s.src = 'https://meet.jit.si/external_api.js';
+      s.async = true;
+      s.dataset.jitsi = '1';
+      s.onload = resolve;
+      s.onerror = reject;
+      document.head.appendChild(s);
+    });
+
+    (async () => {
+      try {
+        await loadScript();
+        if (cancelled) return;
+        const roomName = callJoin.roomUrl.split('/').pop();
+        api = new window.JitsiMeetExternalAPI('meet.jit.si', {
+          roomName,
+          parentNode: container,
+          width: '100%',
+          height: '100%',
+          userInfo: { displayName: callJoin.userName || 'Участник' },
+          configOverwrite: { startWithAudioMuted: true, prejoinPageEnabled: false },
+          interfaceConfigOverwrite: { SHOW_JITSI_WATERMARK: false },
+        });
+        api.addListener('readyToClose', handleLeaveCall);
+      } catch (err) {
+        console.error('Jitsi load failed', err);
+        if (!cancelled) setCallState('waiting');
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      try { api?.dispose(); } catch {}
+    };
+  }, [callState, callJoin, handleLeaveCall]);
+
   // ─── Theory practice type: show text content + "Изучено" button ───
   if (activity.practiceType === 'theory') {
     return (
@@ -453,17 +501,12 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
           </div>
 
           {callState === 'active' && callJoin?.roomUrl ? (
-            /* Jitsi Meet iframe */
-            <div ref={callContainerRef} style={{
+            /* Jitsi Meet iframe (injected by External API) */
+            <div style={{
               flex: 1, borderRadius: 20, overflow: 'hidden', marginBottom: 24,
               background: '#000', position: 'relative', minHeight: 400,
             }}>
-              <iframe
-                ref={callFrameRef}
-                src={`${callJoin.roomUrl}#userInfo.displayName=${encodeURIComponent(callJoin.userName || '')}&config.prejoinPageEnabled=false&config.startWithAudioMuted=true`}
-                style={{ width: '100%', height: '100%', border: 'none', position: 'absolute', inset: 0 }}
-                allow="camera; microphone; fullscreen; display-capture; autoplay"
-              />
+              <div ref={callContainerRef} style={{ position: 'absolute', inset: 0 }} />
               <button onClick={handleLeaveCall} style={{
                 position: 'absolute', bottom: 16, left: '50%', transform: 'translateX(-50%)',
                 padding: '12px 32px', background: '#e74c3c', color: '#fff',

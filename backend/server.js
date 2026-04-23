@@ -27,16 +27,20 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'", "https://www.youtube.com", "https://s.ytimg.com", "https://meet.jit.si"],
-      frameSrc: ["'self'", "https://www.youtube.com", "https://drive.google.com", "https://meet.jit.si"],
-      imgSrc: ["'self'", "data:", "blob:", "https://img.youtube.com", "https://*.googleusercontent.com"],
-      connectSrc: ["'self'", "https://meet.jit.si", "wss://meet.jit.si"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://www.youtube.com", "https://s.ytimg.com", "https://meet.jit.si", "https://*.jitsi.net"],
+      frameSrc: ["'self'", "https://www.youtube.com", "https://drive.google.com", "https://meet.jit.si", "https://*.jitsi.net"],
+      imgSrc: ["'self'", "data:", "blob:", "https:", "https://img.youtube.com", "https://*.googleusercontent.com"],
+      connectSrc: ["'self'", "https://meet.jit.si", "wss://meet.jit.si", "https://*.jitsi.net", "wss://*.jitsi.net"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://meet.jit.si"],
+      fontSrc: ["'self'", "data:", "https://meet.jit.si"],
       mediaSrc: ["'self'", "blob:"],
       workerSrc: ["'self'", "blob:"],
-      childSrc: ["'self'", "blob:"],
+      childSrc: ["'self'", "blob:", "https://meet.jit.si"],
     },
   },
+  crossOriginOpenerPolicy: { policy: 'unsafe-none' },
+  crossOriginEmbedderPolicy: false,
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
 }));
 app.use(express.json({ limit: '10mb' }));
 
