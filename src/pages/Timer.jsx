@@ -417,9 +417,33 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
           parentNode: container,
           width: '100%',
           height: '100%',
+          lang: 'ru',
           userInfo: { displayName: callJoin.userName || 'Участник' },
-          configOverwrite: { startWithAudioMuted: true, prejoinPageEnabled: false },
-          interfaceConfigOverwrite: { SHOW_JITSI_WATERMARK: false },
+          configOverwrite: {
+            startWithAudioMuted: true,
+            prejoinPageEnabled: false,
+            prejoinConfig: { enabled: false },
+            defaultLanguage: 'ru',
+            disableDeepLinking: true,
+            hideConferenceSubject: true,
+            hideParticipantsStats: true,
+            disableProfile: true,
+            toolbarButtons: [
+              'microphone', 'camera', 'desktop', 'chat', 'tileview',
+              'fullscreen', 'settings', 'raisehand', 'hangup',
+            ],
+          },
+          interfaceConfigOverwrite: {
+            SHOW_JITSI_WATERMARK: false,
+            SHOW_WATERMARK_FOR_GUESTS: false,
+            SHOW_BRAND_WATERMARK: false,
+            SHOW_POWERED_BY: false,
+            MOBILE_APP_PROMO: false,
+            DISABLE_JOIN_LEAVE_NOTIFICATIONS: true,
+            HIDE_INVITE_MORE_HEADER: true,
+            DEFAULT_BACKGROUND: '#000',
+            DISABLE_VIDEO_BACKGROUND: true,
+          },
         });
         api.addListener('readyToClose', handleLeaveCall);
       } catch (err) {
