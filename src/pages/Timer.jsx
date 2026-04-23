@@ -439,6 +439,14 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
             startWithVideoMuted: false,
             disableTileEnlargement: false,
             tileView: { numberOfVisibleTiles: 25 },
+            p2p: { enabled: true },
+            disableAP: false,
+            enableNoisyMicDetection: true,
+            audioQuality: { stereo: false, opusMaxAverageBitrate: 32000 },
+            constraints: {
+              audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+              video: { height: { ideal: 540, max: 720, min: 240 } },
+            },
             toolbarButtons: [
               'microphone', 'camera', 'desktop', 'chat', 'tileview',
               'fullscreen', 'settings', 'raisehand', 'hangup',
