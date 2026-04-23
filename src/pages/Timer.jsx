@@ -339,7 +339,7 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
 
   // ─── Call practice type: Jitsi Meet video call ───
   const [callState, setCallState] = useState('waiting'); // waiting | joining | active | ended
-  const [callJoin, setCallJoin] = useState(null); // { roomUrl, userName, isStaff }
+  const [callJoin, setCallJoin] = useState(null); // { roomUrl, userName, isStaff, jwt, host }
   const [callCountdown, setCallCountdown] = useState('');
   const callFrameRef = useRef(null);
   const callContainerRef = useRef(null);
@@ -371,7 +371,13 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
     try {
       const data = await getCallToken(activeCall.id);
       if (data?.roomUrl) {
-        setCallJoin({ roomUrl: data.roomUrl, userName: data.userName || '', isStaff: !!data.isStaff });
+        setCallJoin({
+          roomUrl: data.roomUrl,
+          userName: data.userName || '',
+          isStaff: !!data.isStaff,
+          jwt: data.jwt || null,
+          host: data.host || null,
+        });
         setCallState('active');
       } else {
         setCallState('waiting');
@@ -394,12 +400,13 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
 
     let api = null;
     let cancelled = false;
+    const jitsiHost = callJoin.host || new URL(callJoin.roomUrl).host;
     const loadScript = () => new Promise((resolve, reject) => {
       if (window.JitsiMeetExternalAPI) return resolve();
       const existing = document.querySelector('script[data-jitsi]');
       if (existing) { existing.addEventListener('load', resolve); existing.addEventListener('error', reject); return; }
       const s = document.createElement('script');
-      s.src = 'https://meet.jit.si/external_api.js';
+      s.src = `https://${jitsiHost}/external_api.js`;
       s.async = true;
       s.dataset.jitsi = '1';
       s.onload = resolve;
@@ -412,12 +419,13 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
         await loadScript();
         if (cancelled) return;
         const roomName = callJoin.roomUrl.split('/').pop();
-        api = new window.JitsiMeetExternalAPI('meet.jit.si', {
+        api = new window.JitsiMeetExternalAPI(jitsiHost, {
           roomName,
           parentNode: container,
           width: '100%',
           height: '100%',
           lang: 'ru',
+          jwt: callJoin.jwt || undefined,
           userInfo: { displayName: callJoin.userName || 'Участник' },
           configOverwrite: {
             startWithAudioMuted: true,

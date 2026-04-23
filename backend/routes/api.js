@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import jwt from 'jsonwebtoken';
 import { query, queryOne, execute } from '../db.js';
 import { requireAuth } from '../middleware.js';
 
@@ -805,11 +806,35 @@ router.patch('/videos/:id/duration', async (req, res) => {
 // ACTIVITY CALLS (online sessions via Jitsi Meet)
 // ═══════════════════════════════════════════════════════════
 
-const JITSI_HOST = process.env.JITSI_HOST || 'https://meet.jit.si';
+const JITSI_HOST = process.env.JITSI_HOST || 'https://meet.instep.life';
+const JITSI_JWT_APP_ID = process.env.JITSI_JWT_APP_ID || 'instep';
+const JITSI_JWT_APP_SECRET = process.env.JITSI_JWT_APP_SECRET || '';
 
 function generateJitsiRoomUrl(courseId, day) {
   const rand = Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
   return `${JITSI_HOST}/instep-${courseId.slice(0, 8)}-d${day}-${rand}`;
+}
+
+function jitsiJwtFor({ room, userName, userId, isStaff }) {
+  if (!JITSI_JWT_APP_SECRET) return null;
+  const now = Math.floor(Date.now() / 1000);
+  return jwt.sign({
+    aud: 'jitsi',
+    iss: JITSI_JWT_APP_ID,
+    sub: new URL(JITSI_HOST).host,
+    room,
+    iat: now,
+    nbf: now - 10,
+    exp: now + 60 * 60 * 4,
+    moderator: !!isStaff,
+    context: {
+      user: {
+        id: String(userId),
+        name: userName,
+        moderator: !!isStaff,
+      },
+    },
+  }, JITSI_JWT_APP_SECRET, { algorithm: 'HS256' });
 }
 
 router.get('/calls/:courseId', async (req, res) => {
@@ -899,7 +924,10 @@ router.post('/calls/:id/token', async (req, res) => {
       [call.id, req.userId]
     );
 
-    res.json({ roomUrl: call.room_url, userName, isStaff });
+    const roomName = call.room_url.split('/').pop();
+    const jwtToken = jitsiJwtFor({ room: roomName, userName, userId: req.userId, isStaff });
+
+    res.json({ roomUrl: call.room_url, userName, isStaff, jwt: jwtToken, host: new URL(JITSI_HOST).host });
   } catch (err) { console.error(err); res.status(500).json({ error: err.message }); }
 });
 
