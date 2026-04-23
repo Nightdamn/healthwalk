@@ -436,6 +436,9 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
             hideConferenceSubject: true,
             hideParticipantsStats: true,
             disableProfile: true,
+            startWithVideoMuted: false,
+            disableTileEnlargement: false,
+            tileView: { numberOfVisibleTiles: 25 },
             toolbarButtons: [
               'microphone', 'camera', 'desktop', 'chat', 'tileview',
               'fullscreen', 'settings', 'raisehand', 'hangup',
@@ -454,6 +457,9 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
           },
         });
         api.addListener('readyToClose', handleLeaveCall);
+        api.addListener('videoConferenceJoined', () => {
+          try { api.executeCommand('setTileView', true); } catch {}
+        });
       } catch (err) {
         console.error('Jitsi load failed', err);
         if (!cancelled) setCallState('waiting');
@@ -535,18 +541,10 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
           {callState === 'active' && callJoin?.roomUrl ? (
             /* Jitsi Meet iframe (injected by External API) */
             <div style={{
-              flex: 1, borderRadius: 20, overflow: 'hidden', marginBottom: 24,
-              background: '#000', position: 'relative', minHeight: 400,
+              height: 'calc(100vh - 140px)', borderRadius: 20, overflow: 'hidden', marginBottom: 24,
+              background: '#000', position: 'relative', flexShrink: 0,
             }}>
               <div ref={callContainerRef} style={{ position: 'absolute', inset: 0 }} />
-              <button onClick={handleLeaveCall} style={{
-                position: 'absolute', bottom: 16, left: '50%', transform: 'translateX(-50%)',
-                padding: '12px 32px', background: '#e74c3c', color: '#fff',
-                border: 'none', borderRadius: 14, fontSize: 15, fontWeight: 600,
-                cursor: 'pointer', boxShadow: '0 4px 16px rgba(231,76,60,0.3)', zIndex: 10,
-              }}>
-                Покинуть
-              </button>
             </div>
           ) : callState === 'ended' ? (
             /* Post-call */
