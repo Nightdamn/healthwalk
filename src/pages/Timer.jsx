@@ -428,7 +428,7 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
           jwt: callJoin.jwt || undefined,
           userInfo: { displayName: callJoin.userName || 'Участник' },
           configOverwrite: {
-            startWithAudioMuted: true,
+            startWithAudioMuted: false,
             prejoinPageEnabled: false,
             prejoinConfig: { enabled: false },
             defaultLanguage: 'ru',
