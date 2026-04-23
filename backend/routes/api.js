@@ -5,6 +5,13 @@ import { requireAuth } from '../middleware.js';
 const router = Router();
 router.use(requireAuth);
 
+function toISODate(v) {
+  if (!v) return null;
+  const d = v instanceof Date ? v : new Date(v);
+  if (isNaN(d.getTime())) return null;
+  return d.toISOString().slice(0, 10);
+}
+
 // ═══════════════════════════════════════════════════════════
 // USER SETTINGS
 // ═══════════════════════════════════════════════════════════
@@ -64,7 +71,7 @@ router.get('/items', async (req, res) => {
         type: 'course', id: e.id, title: e.title, description: e.description || '',
         daysCount: e.days_count, avatarIcon: e.avatar_icon, avatarCustom: e.avatar_custom,
         ownerId: e.owner_id, enrollRole: e.role,
-        startDate: (e.joined_at || e.created_at || '').toString().slice(0, 10) || null,
+        startDate: toISODate(e.joined_at || e.created_at),
         enrollCount: parseInt(e.enroll_count),
         activities: acts.map(a => ({
           id: a.id, activityId: a.activity_id, label: a.label, durationMin: a.duration_min,
@@ -85,7 +92,7 @@ router.get('/items', async (req, res) => {
         type: 'course', id: c.id, title: c.title, description: c.description || '',
         daysCount: c.days_count, avatarIcon: c.avatar_icon, avatarCustom: c.avatar_custom,
         ownerId: c.owner_id, enrollRole: 'trainer',
-        startDate: (c.created_at || '').toString().slice(0, 10) || null,
+        startDate: toISODate(c.created_at),
         enrollCount: parseInt(cnt?.n || 0),
         activities: acts.map(a => ({
           id: a.id, activityId: a.activity_id, label: a.label, durationMin: a.duration_min,
