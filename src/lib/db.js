@@ -422,7 +422,7 @@ function getVideoDuration(file) {
 
 export async function uploadActivityVideo(courseId, activityId, file, firstDay, lastDay, onProgress) {
   const durationSec = await getVideoDuration(file);
-  const token = localStorage.getItem('hw_token');
+  const token = localStorage.getItem('is_token');
   const apiUrl = import.meta.env.VITE_API_URL || '';
 
   return new Promise((resolve) => {
@@ -497,7 +497,7 @@ export function getVideoForDay(videos, activityId, day) {
 
 export async function getVideoSignedUrl(filePath) {
   // For self-hosted: serve directly through our API
-  const token = localStorage.getItem('hw_token');
+  const token = localStorage.getItem('is_token');
   const apiUrl = import.meta.env.VITE_API_URL || '';
   return `${apiUrl}/api/files/video/${filePath}?token=${token}`;
 }

@@ -1,6 +1,6 @@
 #!/bin/bash
-# HealthWalk — First-time server setup
-# Запуск НА СЕРВЕРЕ: bash setup-server.sh
+# InStep — First-time server setup
+# Запуск НА СЕРВЕРЕ: bash setup-server.sh <domain>
 #
 # Что делает:
 # 1. Устанавливает Node.js 22 LTS
@@ -17,16 +17,16 @@
 set -euo pipefail
 
 DOMAIN="${1:-}"
-APP_DIR="/opt/healthwalk"
+APP_DIR="/opt/instep"
 
 if [ -z "$DOMAIN" ]; then
   echo "Usage: bash setup-server.sh <domain>"
-  echo "Example: bash setup-server.sh healthwalk.example.com"
+  echo "Example: bash setup-server.sh instep.life"
   exit 1
 fi
 
 echo "═══════════════════════════════════"
-echo "  HealthWalk Server Setup"
+echo "  InStep Server Setup"
 echo "  Domain: $DOMAIN"
 echo "═══════════════════════════════════"
 
@@ -55,9 +55,8 @@ chown -R www-data:www-data "$APP_DIR"
 echo ""
 echo "▸ [4/6] Configuring Nginx..."
 
-# Создаём конфиг из шаблона (заменяем домен)
-cat > /etc/nginx/sites-available/healthwalk << 'NGINX_EOF'
-upstream healthwalk_backend {
+cat > /etc/nginx/sites-available/instep << 'NGINX_EOF'
+upstream instep_backend {
     server 127.0.0.1:3000;
     keepalive 16;
 }
@@ -101,20 +100,20 @@ server {
     client_max_body_size 600M;
 
     location /assets/ {
-        alias /opt/healthwalk/dist/assets/;
+        alias /opt/instep/dist/assets/;
         expires 1y;
         add_header Cache-Control "public, immutable";
         access_log off;
     }
 
     location ~* \.(ico|png|webmanifest|robots\.txt)$ {
-        root /opt/healthwalk/dist;
+        root /opt/instep/dist;
         expires 7d;
         access_log off;
     }
 
     location /api/ {
-        proxy_pass http://healthwalk_backend;
+        proxy_pass http://instep_backend;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -125,7 +124,7 @@ server {
     }
 
     location /ws/ {
-        proxy_pass http://healthwalk_backend;
+        proxy_pass http://instep_backend;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -135,7 +134,7 @@ server {
     }
 
     location / {
-        proxy_pass http://healthwalk_backend;
+        proxy_pass http://instep_backend;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -146,23 +145,20 @@ server {
 }
 NGINX_EOF
 
-# Заменяем плейсхолдер на реальный домен
-sed -i "s/DOMAIN_PLACEHOLDER/$DOMAIN/g" /etc/nginx/sites-available/healthwalk
+sed -i "s/DOMAIN_PLACEHOLDER/$DOMAIN/g" /etc/nginx/sites-available/instep
 
-# Активируем сайт
-ln -sf /etc/nginx/sites-available/healthwalk /etc/nginx/sites-enabled/
+ln -sf /etc/nginx/sites-available/instep /etc/nginx/sites-enabled/
 rm -f /etc/nginx/sites-enabled/default
 
-# Проверяем конфиг
 nginx -t
 
 # ── 5. Systemd service ──
 echo ""
 echo "▸ [5/6] Installing systemd service..."
 
-cat > /etc/systemd/system/healthwalk.service << 'SERVICE_EOF'
+cat > /etc/systemd/system/instep.service << 'SERVICE_EOF'
 [Unit]
-Description=HealthWalk Web Application
+Description=InStep Web Application
 After=network.target
 Wants=network-online.target
 
@@ -170,7 +166,7 @@ Wants=network-online.target
 Type=simple
 User=www-data
 Group=www-data
-WorkingDirectory=/opt/healthwalk/backend
+WorkingDirectory=/opt/instep/backend
 ExecStart=/usr/bin/node server.js
 Restart=on-failure
 RestartSec=5
@@ -180,24 +176,24 @@ StartLimitIntervalSec=60
 Environment=NODE_ENV=production
 Environment=PORT=3000
 Environment=HOST=127.0.0.1
-EnvironmentFile=-/opt/healthwalk/backend/.env
+EnvironmentFile=-/opt/instep/backend/.env
 
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/opt/healthwalk
+ReadWritePaths=/opt/instep
 PrivateTmp=true
 
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=healthwalk
+SyslogIdentifier=instep
 
 [Install]
 WantedBy=multi-user.target
 SERVICE_EOF
 
 systemctl daemon-reload
-systemctl enable healthwalk
+systemctl enable instep
 
 # ── 6. Firewall ──
 echo ""
@@ -207,7 +203,6 @@ ufw allow 80/tcp
 ufw allow 443/tcp
 ufw --force enable
 
-# ── SSL (попробуем, но не обязательно на этом этапе) ──
 echo ""
 echo "═══════════════════════════════════"
 echo "  Setup complete!"
@@ -215,11 +210,11 @@ echo "════════════════════════�
 echo ""
 echo "Next steps:"
 echo "  1. Deploy the app:  bash backend/scripts/deploy.sh"
-echo "  2. Create .env:     nano /opt/healthwalk/backend/.env"
-echo "  3. Start service:   systemctl start healthwalk"
+echo "  2. Create .env:     nano /opt/instep/backend/.env"
+echo "  3. Start service:   systemctl start instep"
 echo "  4. Start nginx:     systemctl restart nginx"
 echo "  5. SSL certificate: certbot --nginx -d $DOMAIN"
 echo ""
 echo "Logs:"
-echo "  journalctl -u healthwalk -f"
+echo "  journalctl -u instep -f"
 echo "  tail -f /var/log/nginx/access.log"

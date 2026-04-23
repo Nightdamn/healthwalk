@@ -1,5 +1,5 @@
 #!/bin/bash
-# HealthWalk — Deploy script
+# InStep — Deploy script
 # Запуск с локальной машины: bash backend/scripts/deploy.sh
 #
 # Что делает:
@@ -13,14 +13,14 @@ set -euo pipefail
 # ── Конфигурация ──
 SERVER="root@193.233.216.180"
 SSH_KEY="/c/AI/AideServer/aide_server"
-REMOTE_DIR="/opt/healthwalk"
+REMOTE_DIR="/opt/instep"
 PROJECT_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 
 SSH_CMD="ssh -i $SSH_KEY -o StrictHostKeyChecking=no"
 SCP_CMD="scp -i $SSH_KEY -o StrictHostKeyChecking=no"
 
 echo "═══════════════════════════════════"
-echo "  HealthWalk Deploy"
+echo "  InStep Deploy"
 echo "═══════════════════════════════════"
 
 # ── 1. Сборка фронтенда ──
@@ -66,13 +66,13 @@ echo ""
 echo "▸ [4/4] Restarting service..."
 
 # Проверяем статус перед перезапуском
-SERVICE_ACTIVE=$($SSH_CMD $SERVER "systemctl is-active healthwalk 2>/dev/null || true")
+SERVICE_ACTIVE=$($SSH_CMD $SERVER "systemctl is-active instep 2>/dev/null || true")
 if [ "$SERVICE_ACTIVE" = "active" ]; then
-  $SSH_CMD $SERVER "systemctl restart healthwalk"
+  $SSH_CMD $SERVER "systemctl restart instep"
   echo "  ✓ Service restarted"
 else
   echo "  ⚠ Service not running (status: $SERVICE_ACTIVE)"
-  echo "  → Start manually: systemctl start healthwalk"
+  echo "  → Start manually: systemctl start instep"
 fi
 
 # ── Финальная проверка ──
@@ -84,7 +84,7 @@ if echo "$HEALTH" | grep -q '"ok"'; then
   echo "  ✓ Server is healthy"
 else
   echo "  ⚠ Health check failed: $HEALTH"
-  echo "  → Check logs: journalctl -u healthwalk -n 50"
+  echo "  → Check logs: journalctl -u instep -n 50"
 fi
 
 echo ""

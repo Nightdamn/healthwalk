@@ -1,12 +1,12 @@
 {
-  "name": "healthwalk-backend",
+  "name": "instep-backend",
   "version": "1.0.0",
   "private": true,
   "type": "module",
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "db:init": "psql -U healthwalk -d healthwalk -f schema.sql"
+    "db:init": "psql -U instep -d instep -f schema.sql"
   },
   "dependencies": {
     "express": "^5.1.0",

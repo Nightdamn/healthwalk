@@ -2,12 +2,12 @@
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
 function getToken() {
-  return localStorage.getItem('hw_token');
+  return localStorage.getItem('is_token');
 }
 
 export function setToken(token) {
-  if (token) localStorage.setItem('hw_token', token);
-  else localStorage.removeItem('hw_token');
+  if (token) localStorage.setItem('is_token', token);
+  else localStorage.removeItem('is_token');
 }
 
 export function isAuthenticated() {

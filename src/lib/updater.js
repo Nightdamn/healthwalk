@@ -1,5 +1,5 @@
 /**
- * Auto-update module for HealthWalk Android app.
+ * Auto-update module for InStep Android app.
  *
  * Checks a remote version.json for a newer release.
  * If found, opens the APK download URL via system browser
@@ -9,7 +9,7 @@
  * {
  *   "version": "1.1.0",
  *   "versionCode": 2,
- *   "apkUrl": "https://github.com/Nightdamn/healthwalk/releases/download/v1.1.0/healthwalk.apk",
+ *   "apkUrl": "https://github.com/Nightdamn/instep/releases/download/v1.1.0/instep.apk",
  *   "releaseNotes": "Новые функции и исправления"
  * }
  */
@@ -22,7 +22,7 @@ export const APP_VERSION = '1.0.0';
 export const APP_VERSION_CODE = 1;
 
 // URL where version.json is hosted
-const VERSION_CHECK_URL = 'https://nightdamn.github.io/healthwalk/version.json';
+const VERSION_CHECK_URL = 'https://nightdamn.github.io/instep/version.json';
 
 /**
  * Check if running as a native app (not in browser)

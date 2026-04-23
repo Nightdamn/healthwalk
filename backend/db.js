@@ -3,8 +3,8 @@ import pg from 'pg';
 const pool = new pg.Pool({
   host: process.env.DB_HOST || '127.0.0.1',
   port: parseInt(process.env.DB_PORT || '5432'),
-  database: process.env.DB_NAME || 'healthwalk',
-  user: process.env.DB_USER || 'healthwalk',
+  database: process.env.DB_NAME || 'instep',
+  user: process.env.DB_USER || 'instep',
   password: process.env.DB_PASSWORD || '',
   max: 20,
   idleTimeoutMillis: 30000,

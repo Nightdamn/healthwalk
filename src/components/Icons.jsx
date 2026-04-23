@@ -19,7 +19,7 @@ export const WalkingIcon = ({ size = 36 }) => (
 export const LogoFull = ({ height = 48 }) => (
   <img
     src="/icons/logo.svg"
-    alt="Осознанная Походка"
+    alt="InStep"
     height={height}
     style={{ objectFit: "contain" }}
   />
@@ -28,7 +28,7 @@ export const LogoFull = ({ height = 48 }) => (
 export const Logo = ({ size = 40 }) => (
   <img
     src="/icons/logo.svg"
-    alt="Осознанная Походка"
+    alt="InStep"
     height={size}
     style={{ objectFit: "contain" }}
   />

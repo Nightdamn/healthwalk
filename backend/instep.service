@@ -1,0 +1,46 @@
+# InStep — systemd service
+# Место: /etc/systemd/system/instep.service
+#
+# Команды:
+#   systemctl enable instep        # автозапуск
+#   systemctl start instep         # запуск
+#   systemctl stop instep          # остановка
+#   systemctl restart instep       # перезапуск
+#   journalctl -u instep -f        # логи
+
+[Unit]
+Description=InStep Web Application
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/instep/backend
+ExecStart=/usr/bin/node server.js
+Restart=on-failure
+RestartSec=5
+StartLimitBurst=5
+StartLimitIntervalSec=60
+
+# Environment
+Environment=NODE_ENV=production
+Environment=PORT=3000
+Environment=HOST=127.0.0.1
+EnvironmentFile=/opt/instep/backend/.env
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/instep
+PrivateTmp=true
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=instep
+
+[Install]
+WantedBy=multi-user.target

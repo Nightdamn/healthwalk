@@ -112,6 +112,6 @@ app.get('{*path}', (req, res) => {
 
 // ── Start ──
 app.listen(PORT, HOST, () => {
-  console.log(`[HealthWalk] Server running at http://${HOST}:${PORT}`);
-  console.log(`[HealthWalk] Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`[InStep] Server running at http://${HOST}:${PORT}`);
+  console.log(`[InStep] Environment: ${process.env.NODE_ENV || 'development'}`);
 });

@@ -1,8 +1,8 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.healthwalk.app',
-  appName: 'HealthWalk',
+  appId: 'life.instep.app',
+  appName: 'InStep',
   webDir: 'dist',
   server: {
     // In production, the app loads from bundled files

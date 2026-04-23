@@ -1,77 +1,72 @@
-# HealthWalk
+# InStep
 
-Платформа для ведения курсов осознанного движения и здоровья. Тренеры создают курсы с активностями, приглашают учеников, отслеживают прогресс и общаются через встроенный чат. Ученики выполняют ежедневные практики с таймером.
+Платформа для мастеров и учеников — курсы и практики про тело, ум, энергию и реализацию. Мастера собирают курсы с активностями, ведут учеников и общаются через встроенный чат. Ученики выполняют ежедневные практики с таймером.
 
 ## Стек
 
 - **Frontend:** React 18 + Vite (JSX, без TypeScript)
-- **Backend/БД:** Supabase (PostgreSQL + Auth + RLS)
-- **Хостинг:** Cloudflare Pages
+- **Backend:** Node.js 22 + Express, JWT
+- **БД:** PostgreSQL 16
+- **Хостинг:** Ubuntu 24.04 VDS + nginx + systemd
+- **Домен:** [instep.life](https://instep.life)
 - **Дизайн:** Glassmorphism, мобильно-ориентированный UI
 
 ## Быстрый старт
 
 ```bash
 npm install
-cp .env.example .env   # заполнить VITE_SUPABASE_URL и VITE_SUPABASE_ANON_KEY
+cp .env.example .env
 npm run dev             # http://localhost:5173
+```
+
+Бэкенд:
+
+```bash
+cd backend
+npm install
+cp .env.example .env    # заполнить DB_*, JWT_SECRET
+npm run dev             # http://localhost:3000
 ```
 
 ## Деплой
 
 ```bash
-npm run build
-npm run deploy          # Cloudflare Pages через wrangler
+bash backend/scripts/deploy.sh
 ```
 
-Или через GitHub: подключить репозиторий в Cloudflare Pages Dashboard, build command `npm run build`, output `dist`.
+Первичная настройка сервера:
+
+```bash
+scp backend/scripts/setup-server.sh root@server:/tmp/
+ssh root@server 'bash /tmp/setup-server.sh instep.life'
+```
 
 ## Структура проекта
 
 ```
-healthwalk/
+instep/
 ├── public/
 │   ├── favicon.svg
-│   ├── tracker-icons/        # SVG иконки по категориям (health, food, hobby...)
-│   └── _redirects             # SPA fallback для Cloudflare
+│   ├── tracker-icons/        # SVG иконки по категориям
+│   └── version.json          # версия APK для авто-обновления
 ├── src/
-│   ├── components/
-│   │   ├── Footer.jsx         # Подвал
-│   │   ├── IconPicker.jsx     # Выбор иконки для активности
-│   │   ├── Icons.jsx          # SVG-компоненты (логотип, фигурки)
-│   │   └── Layout.jsx         # Общий layout с градиентным фоном
-│   ├── data/
-│   │   ├── constants.js       # Девизы, утилиты времени, getCourseDay()
-│   │   └── iconCatalog.js     # Каталог иконок по категориям
-│   ├── lib/
-│   │   ├── db.js              # Все запросы к Supabase (CRUD, RPC)
-│   │   └── supabase.js        # Инициализация клиента Supabase
-│   ├── pages/
-│   │   ├── Login.jsx          # Авторизация (Google OAuth)
-│   │   ├── Dashboard.jsx      # Главный экран + экран завершения курса
-│   │   ├── Timer.jsx          # Таймер практики (круговой, с drag)
-│   │   ├── Details.jsx        # Детальный прогресс (сетка дней)
-│   │   ├── Profile.jsx        # Профиль, часовой пояс, биоритм
-│   │   ├── MyCourses.jsx      # Список курсов пользователя
-│   │   ├── CreateCourse.jsx   # Конструктор курса
-│   │   ├── EditCourse.jsx     # Редактирование курса
-│   │   ├── MyTrackers.jsx     # Личные трекеры
-│   │   ├── CreateTracker.jsx  # Создание трекера
-│   │   ├── EditTracker.jsx    # Редактирование трекера
-│   │   ├── TrainerCabinet.jsx # Кабинет тренера (управление учениками)
-│   │   ├── AskCoach.jsx       # Чат ученик ↔ тренер
-│   │   ├── InviteToCourse.jsx # Принятие приглашения в курс
-│   │   ├── AssignRole.jsx     # Назначение ролей (админ)
-│   │   └── Recommendations.jsx # Рекомендации
-│   ├── styles/
-│   │   └── shared.js          # Glassmorphism стили
-│   ├── App.jsx                # Роутинг, состояние, таймер
-│   ├── main.jsx               # Точка входа React
-│   └── index.css              # Глобальные стили
-├── supabase/                  # SQL миграции (v1-v13)
-├── docs/                      # Документация проекта
-│   ├── ARCHITECTURE.md
-│   └── DATABASE.md
+│   ├── components/           # Layout, Icons, IconPicker, Footer
+│   ├── data/                 # constants, iconCatalog
+│   ├── lib/                  # db.js, supabase.js (совместимость), updater.js
+│   ├── pages/                # экраны приложения
+│   ├── styles/               # glassmorphism
+│   ├── App.jsx
+│   ├── main.jsx
+│   └── index.css
+├── backend/
+│   ├── server.js             # Express API
+│   ├── db.js                 # PG client
+│   ├── schema.sql
+│   ├── nginx.conf            # nginx конфиг для prod
+│   ├── instep.service        # systemd unit
+│   └── scripts/              # setup-server.sh, deploy.sh
+├── supabase/                 # SQL миграции (v1-v13)
+├── docs/                     # ARCHITECTURE, DATABASE, ANDROID
 ├── ROADMAP.md
 └── package.json
 ```
@@ -80,14 +75,16 @@ healthwalk/
 
 - **Курсы** — создание курсов с набором активностей, настройка длительности и интервалов
 - **Роли** — создатель, тренер, куратор, ученик; гибкая система прав
-- **Кабинет тренера** — просмотр прогресса учеников, индивидуальные практики, отключение активностей
+- **Кабинет мастера** — просмотр прогресса учеников, индивидуальные практики, отключение активностей
 - **Таймер** — круговой таймер с drag-управлением, wake lock, автосохранение
-- **Чат** — двусторонние сообщения тренер ↔ ученик с уведомлениями
-- **Трекеры** — личные трекеры без тренера для самостоятельных практик
+- **Видеозвонки** — интеграция Daily.co для групповых и персональных практик
+- **Чат** — двусторонние сообщения мастер ↔ ученик с уведомлениями
+- **Трекеры** — личные трекеры без мастера для самостоятельных практик
 - **Экран завершения** — поздравление с результатами и диаграммами по окончании курса
 
 ## Документация
 
 - [Архитектура](docs/ARCHITECTURE.md)
 - [База данных](docs/DATABASE.md)
+- [Android-приложение](docs/ANDROID.md)
 - [Дорожная карта](ROADMAP.md)

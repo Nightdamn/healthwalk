@@ -1,7 +1,7 @@
 -- ═══════════════════════════════════════════════════════════
--- HealthWalk — Consolidated Database Schema
+-- InStep — Consolidated Database Schema
 -- Self-hosted PostgreSQL (no Supabase)
--- Run: psql -U healthwalk -d healthwalk -f schema.sql
+-- Run: psql -U instep -d instep -f schema.sql
 -- ═══════════════════════════════════════════════════════════
 
 -- Extensions

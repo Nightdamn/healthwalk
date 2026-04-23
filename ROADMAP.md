@@ -1,4 +1,4 @@
-# HealthWalk — Дорожная карта
+# InStep — Дорожная карта
 
 ## Этап 0: MVP (завершён)
 
@@ -100,7 +100,7 @@ Internet → Nginx (443/SSL) → Node.js Express (127.0.0.1:3000)
 ### Готово (подготовка)
 - [x] Express-сервер для SPA + API (`backend/server.js`)
 - [x] Nginx конфиг с SSL, gzip, кэш статики, WebSocket (`backend/nginx.conf`)
-- [x] Systemd сервис с security hardening (`backend/healthwalk.service`)
+- [x] Systemd сервис с security hardening (`backend/instep.service`)
 - [x] Deploy-скрипт: build → scp → restart (`backend/scripts/deploy.sh`)
 - [x] Setup-скрипт первого запуска (`backend/scripts/setup-server.sh`)
 - [x] Environment конфигурация (`backend/.env.example`)
@@ -113,9 +113,9 @@ Internet → Nginx (443/SSL) → Node.js Express (127.0.0.1:3000)
 - [x] Firewall: порт 3000 открыт
 
 ### Нужно сделать
-- [ ] Купить/привязать домен, настроить A-запись → 193.233.216.180
-- [ ] SSL-сертификат через certbot + Nginx
-- [ ] Настроить Google OAuth redirect URI (нужен домен)
+- [x] Купить/привязать домен, настроить A-запись → 193.233.216.180 (instep.life @ reg.ru, 2026-04-23)
+- [ ] SSL-сертификат через certbot + Nginx (после propagation DNS)
+- [ ] Настроить Google OAuth redirect URI на instep.life
 - [ ] **Безопасность регистрации** (см. [ТЗ: Безопасность регистрации](#тз-безопасность-регистрации))
 
 ### После переезда

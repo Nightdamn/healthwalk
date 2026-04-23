@@ -1,4 +1,4 @@
-# HealthWalk Android
+# InStep Android
 
 Android-приложение на базе Capacitor — обёртка над веб-приложением.
 
@@ -68,8 +68,8 @@ APK будет в: `android/app/build/outputs/apk/debug/app-debug.apk`
 cd android
 
 # Создать keystore (один раз)
-keytool -genkey -v -keystore healthwalk-release.keystore \
-  -alias healthwalk -keyalg RSA -keysize 2048 -validity 10000
+keytool -genkey -v -keystore instep-release.keystore \
+  -alias instep -keyalg RSA -keysize 2048 -validity 10000
 
 # Собрать release
 ./gradlew assembleRelease
@@ -81,9 +81,9 @@ keytool -genkey -v -keystore healthwalk-release.keystore \
 android {
     signingConfigs {
         release {
-            storeFile file('healthwalk-release.keystore')
+            storeFile file('instep-release.keystore')
             storePassword 'YOUR_PASSWORD'
-            keyAlias 'healthwalk'
+            keyAlias 'instep'
             keyPassword 'YOUR_PASSWORD'
         }
     }
@@ -139,7 +139,7 @@ npx @capacitor/assets generate --android
 {
   "version": "1.1.0",
   "versionCode": 2,
-  "apkUrl": "https://github.com/Nightdamn/healthwalk/releases/download/v1.1.0/healthwalk.apk",
+  "apkUrl": "https://github.com/Nightdamn/instep/releases/download/v1.1.0/instep.apk",
   "releaseNotes": "Описание изменений"
 }
 ```
