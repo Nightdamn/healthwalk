@@ -435,7 +435,7 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
 
   const handleLeaveCall = useCallback(() => {
     setCallState('ended');
-    setCallJoin(null);
+    // keep callJoin so we know isStaff on the post-call screen
   }, []);
 
   // Jitsi External API: load script once, mount iframe into container div
