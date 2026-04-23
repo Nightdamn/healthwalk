@@ -852,8 +852,6 @@ router.post('/calls', async (req, res) => {
     const room = await dailyFetch('/rooms', 'POST', {
       name: roomName,
       properties: {
-        enable_recording: 'cloud',
-        max_participants: 50,
         exp: expiry,
         enable_chat: true,
         enable_knocking: true,
@@ -913,8 +911,30 @@ router.post('/calls/:id/token', async (req, res) => {
     if (!isOwner && !enroll) return res.status(403).json({ error: 'Нет доступа' });
 
     const isStaff = isOwner || (enroll && ['trainer', 'curator'].includes(enroll.role));
-    const roomName = call.room_url?.split('/').pop();
-    if (!roomName) return res.status(400).json({ error: 'Комната не создана' });
+    let roomName = call.room_url?.split('/').pop();
+
+    // Lazy room creation: if the scheduled room wasn't created (e.g. earlier Daily API failure), create now
+    if (!roomName) {
+      const dur = call.duration_min || 30;
+      const scheduledSec = Math.floor(new Date(call.scheduled_at).getTime() / 1000);
+      const nowSec = Math.floor(Date.now() / 1000);
+      const expiry = Math.max(scheduledSec, nowSec) + (dur + 60) * 60;
+      const newName = `hw-${call.course_id.slice(0, 8)}-d${call.day}-${Date.now().toString(36)}`;
+      const room = await dailyFetch('/rooms', 'POST', {
+        name: newName,
+        properties: {
+          exp: expiry,
+          enable_chat: true,
+          enable_knocking: true,
+          start_audio_off: true,
+          start_video_off: false,
+        },
+      });
+      if (!room?.url) return res.status(500).json({ error: 'Не удалось создать комнату' });
+      await query('UPDATE activity_calls SET room_url = $1 WHERE id = $2', [room.url, call.id]);
+      call.room_url = room.url;
+      roomName = newName;
+    }
 
     const user = await queryOne('SELECT display_name, email FROM users WHERE id = $1', [req.userId]);
     const userName = user?.display_name || user?.email || 'Участник';
@@ -924,7 +944,6 @@ router.post('/calls/:id/token', async (req, res) => {
         room_name: roomName,
         user_name: userName,
         is_owner: isStaff,
-        enable_recording: isStaff ? 'cloud' : undefined,
         start_audio_off: true,
         exp: Math.floor(Date.now() / 1000) + 3600 * 3,
       },
