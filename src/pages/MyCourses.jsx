@@ -174,8 +174,21 @@ export default function MyCoursesPage({ user, userRole, onBack, onNavigate, onEd
                       const enrollCount = item?.enrollCount || (c.course_enrollments || []).length || 0;
                       const studentCount = Math.max(0, enrollCount - 1); // не считаем создателя
                       return (
-                        <div key={id} style={{ ...glass, borderRadius: 16, padding: "16px 16px" }}>
-                          <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                        <div key={id} style={{ ...glass, borderRadius: 16, padding: "16px 16px", position: 'relative' }}>
+                          <button
+                            onClick={() => onEditCourse?.(id)}
+                            title="Редактировать курс"
+                            style={{
+                              position: 'absolute', top: 10, right: 10,
+                              width: 32, height: 32, borderRadius: 8, padding: 0,
+                              border: '1.5px solid rgba(0,0,0,0.06)', background: 'rgba(255,255,255,0.85)',
+                              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              fontSize: 14, color: '#666',
+                            }}
+                          >
+                            ✏️
+                          </button>
+                          <div style={{ display: 'flex', gap: 12, alignItems: 'center', paddingRight: 36 }}>
                             {item && <CourseAvatar item={item} size={48} />}
                             <div style={{ flex: 1, minWidth: 0 }}>
                               <div style={{ fontSize: 16, fontWeight: 600, color: '#1a1a2e' }}>{title}</div>
