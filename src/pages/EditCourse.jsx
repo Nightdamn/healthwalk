@@ -6,6 +6,13 @@ import { btnBack, glass, pageWrapper, topBar, topBarTitle } from '../styles/shar
 import { loadCourseForEdit, updateCourseWithActivities, canDeleteCourse, deleteCourse, getActivityVideos, uploadActivityVideo, addVideoLink, deleteActivityVideo, getActivityCalls, createActivityCall, deleteActivityCall } from '../lib/db';
 import VideoSection from '../components/VideoSection';
 import RichTextEditor from '../components/RichTextEditor';
+import Dropdown from '../components/Dropdown';
+
+const PRACTICE_TYPE_OPTIONS = [
+  { value: 'media', label: 'Практика с медиа' },
+  { value: 'theory', label: 'Текстовая теория' },
+  { value: 'call', label: 'Онлайн с мастером' },
+];
 
 const GREEN = '#27ae60';
 
@@ -395,17 +402,12 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon,
       {/* Practice type selector */}
       <div style={{ marginBottom: 8 }}>
         <label style={{ ...labelStyle, fontSize: 11 }}>Тип практики</label>
-        <select value={activity.practiceType || 'media'} onChange={e => onUpdate('practiceType', e.target.value)}
-          style={{
-            ...inputStyle, padding: '8px 32px 8px 12px', fontSize: 13,
-            background: "rgba(255,255,255,0.85) url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8' width='12' height='8'><path d='M1 1l5 5 5-5' stroke='%231a1a2e' stroke-width='1.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>\") no-repeat right 12px center",
-            appearance: 'none', WebkitAppearance: 'none', MozAppearance: 'none',
-            cursor: 'pointer', fontWeight: 500,
-          }}>
-          <option value="media">Практика с медиа</option>
-          <option value="theory">Текстовая теория</option>
-          <option value="call">Онлайн с мастером</option>
-        </select>
+        <Dropdown
+          value={activity.practiceType || 'media'}
+          onChange={(v) => onUpdate('practiceType', v)}
+          options={PRACTICE_TYPE_OPTIONS}
+          fullWidth
+        />
       </div>
 
       {/* Description / theory text */}
