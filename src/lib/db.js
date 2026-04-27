@@ -358,6 +358,14 @@ export async function trainerAddStudentActivity(courseId, userId, label, iconNum
   }
 }
 
+export async function trainerToggleCompletion(courseId, userId, activityId, day, completed) {
+  try {
+    return await apiPost('/api/trainer/toggle-completion', { courseId, userId, activityId, day, completed });
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
 export async function trainerDeleteStudentActivity(activityId) {
   try {
     return await apiPost('/api/trainer/delete-activity', { activityId });

@@ -9,6 +9,7 @@ import {
   inviteToCourse, toggleStudentPause, removeStudentFromCourse,
   changeStudentRole, loadCourseForEdit,
   trainerToggleExclusion, trainerAddStudentActivity, trainerDeleteStudentActivity,
+  trainerToggleCompletion,
   getCourseExclusions, getCourseCustomActivities,
   getConversation, sendMessage, markMessagesRead, getUnreadByConversation,
 } from '../lib/db';
@@ -436,6 +437,22 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
                         }
                         return result;
                       }}
+                      onToggleCompletion={async (actId, day, completed) => {
+                        const result = await trainerToggleCompletion(courseId, st.user_id, actId, day, completed);
+                        if (result.success) {
+                          setAllProgress(prev => {
+                            const next = { ...prev };
+                            if (!next[st.user_id]) next[st.user_id] = {};
+                            if (!next[st.user_id][day]) next[st.user_id][day] = {};
+                            next[st.user_id][day] = {
+                              ...next[st.user_id][day],
+                              [actId]: { elapsed: result.elapsed || 0, completed: result.completed },
+                            };
+                            return next;
+                          });
+                        }
+                        return result;
+                      }}
                     />
 
                     {/* Actions */}
@@ -516,8 +533,10 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
 function StudentDetails({
   userId, courseId, progress, activities, daysCount, studentCurrentDay,
   exclusions, customActivities, onToggleExclusion, onAddActivity, onDeleteCustomActivity,
+  onToggleCompletion,
 }) {
   const [selectedDay, setSelectedDay] = useState(null);
+  const [completionSaving, setCompletionSaving] = useState(null);
   const [saving, setSaving] = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [addForm, setAddForm] = useState({ label: '', iconNum: 'health/1', durationMin: 10, firstDay: '', lastDay: '', intervalDays: 1 });
@@ -560,11 +579,12 @@ function StudentDetails({
     days.push({ day: d, total: dayActivities.length, completed, allDone, frac });
   }
 
-  const viewDay = selectedDay || (studentCurrentDay > 1 ? studentCurrentDay - 1 : 1);
+  const viewDay = selectedDay || studentCurrentDay;
   const isCurrentDay = viewDay === studentCurrentDay;
   const isFutureDay = viewDay > studentCurrentDay;
   const isPastDay = viewDay < studentCurrentDay;
-  const canEdit = viewDay >= studentCurrentDay; // текущий + будущий
+  const canEdit = viewDay >= studentCurrentDay; // adding/excluding: current + future
+  const canMarkCompletion = viewDay <= studentCurrentDay; // marking done: past + current
 
   const handleToggleExcl = async (actId) => {
     setSaving(actId);
@@ -697,7 +717,28 @@ function StudentDetails({
                     {p?.completed ? `✓ ${mins}м` : mins > 0 ? `${mins}:${String(secs).padStart(2, '0')}` : '—'}
                   </span>
                   <span style={{ fontSize: 10, color: '#bbb', flexShrink: 0 }}>/{target}м</span>
-                  {/* Disable button for any activity on future days */}
+                  {/* Mark/unmark completion — past + current day */}
+                  {canMarkCompletion && onToggleCompletion && (
+                    <button
+                      onClick={async () => {
+                        setCompletionSaving(a.id);
+                        await onToggleCompletion(a.id, viewDay, !p?.completed);
+                        setCompletionSaving(null);
+                      }}
+                      disabled={completionSaving === a.id}
+                      title={p?.completed ? 'Отменить зачёт' : 'Зачесть практику'}
+                      style={{
+                        width: 26, height: 26, borderRadius: 6, flexShrink: 0, padding: 0,
+                        border: `1.5px solid ${p?.completed ? GREEN : 'rgba(0,0,0,0.15)'}`,
+                        background: p?.completed ? GREEN : 'rgba(255,255,255,0.7)',
+                        color: p?.completed ? '#fff' : '#bbb',
+                        fontSize: 13, fontWeight: 700,
+                        cursor: completionSaving === a.id ? 'wait' : 'pointer',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        opacity: completionSaving === a.id ? 0.5 : 1,
+                      }}>✓</button>
+                  )}
+                  {/* Disable button — current + future days */}
                   {canEdit && (
                     <button onClick={() => handleToggleExcl(a.id)} disabled={isSaving}
                       title="Отключить для ученика"

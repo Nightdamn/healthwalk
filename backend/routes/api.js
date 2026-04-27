@@ -688,6 +688,43 @@ router.post('/trainer/add-activity', async (req, res) => {
   } catch (err) { res.json({ success: false, error: err.message }); }
 });
 
+// Trainer marks/unmarks completion on past or current day. Looks up activity
+// duration to set elapsed_seconds when toggling on (so progress bars look right).
+router.post('/trainer/toggle-completion', async (req, res) => {
+  try {
+    const { courseId, userId, activityId, day, completed } = req.body;
+    if (!await isTrainer(req.userId, courseId)) return res.json({ success: false, error: 'Нет прав' });
+
+    const existing = await queryOne(
+      'SELECT completed, elapsed_seconds FROM course_progress WHERE user_id = $1 AND course_id = $2 AND activity_id = $3 AND day = $4',
+      [userId, courseId, activityId, day]
+    );
+    const newCompleted = typeof completed === 'boolean' ? completed : !existing?.completed;
+
+    let elapsed = existing?.elapsed_seconds || 0;
+    if (newCompleted) {
+      let dur = null;
+      const courseAct = await queryOne('SELECT duration_min FROM course_activities WHERE id = $1', [activityId]);
+      if (courseAct) dur = courseAct.duration_min;
+      else {
+        const customAct = await queryOne('SELECT duration_min FROM student_custom_activities WHERE id = $1', [activityId]);
+        if (customAct) dur = customAct.duration_min;
+      }
+      if (dur && elapsed < dur * 60) elapsed = dur * 60;
+    }
+
+    await query(
+      `INSERT INTO course_progress (user_id, course_id, activity_id, day, elapsed_seconds, completed, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, NOW())
+       ON CONFLICT (user_id, course_id, activity_id, day)
+       DO UPDATE SET completed = $6, elapsed_seconds = $5, updated_at = NOW()`,
+      [userId, courseId, activityId, day, elapsed, newCompleted]
+    );
+
+    res.json({ success: true, completed: newCompleted, elapsed });
+  } catch (err) { res.json({ success: false, error: err.message }); }
+});
+
 router.post('/trainer/delete-activity', async (req, res) => {
   try {
     const { activityId } = req.body;
