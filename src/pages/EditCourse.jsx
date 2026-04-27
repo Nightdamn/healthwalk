@@ -441,8 +441,8 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon,
         </div>
       </div>
 
-      {/* Duration (hidden for theory) */}
-      {activity.practiceType !== 'theory' && (
+      {/* Duration (hidden for theory and call — call duration is set per scheduled session) */}
+      {activity.practiceType !== 'theory' && activity.practiceType !== 'call' && (
       <div>
         <label style={{ ...labelStyle, fontSize: 11 }}>Длительность</label>
         {hasDurationFromVideo ? (
@@ -467,8 +467,8 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon,
       </div>
       )}
 
-      {/* Video section — only for saved activities with media/call type */}
-      {activity.practiceType !== 'theory' && courseId && propActivityId && (
+      {/* Video section — only for media practice (theory/call have their own content) */}
+      {activity.practiceType === 'media' && courseId && propActivityId && (
         <VideoSection
           videos={videos}
           courseId={courseId}

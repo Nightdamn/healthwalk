@@ -8,9 +8,11 @@ import { requireAuth } from '../middleware.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const UPLOADS_DIR = path.join(__dirname, '..', 'uploads', 'course-videos');
+const MEDIA_DIR = path.join(__dirname, '..', 'uploads', 'theory-media');
 
-// Ensure uploads directory exists
+// Ensure uploads directories exist
 await fs.mkdir(UPLOADS_DIR, { recursive: true });
+await fs.mkdir(MEDIA_DIR, { recursive: true });
 
 const storage = multer.diskStorage({
   destination: async (req, file, cb) => {
@@ -31,6 +33,28 @@ const upload = multer({
     const allowed = ['video/mp4', 'video/webm', 'video/quicktime'];
     cb(null, allowed.includes(file.mimetype));
   },
+});
+
+// Theory inline media (images + short videos) — keyed by userId, no activity binding
+const ALLOWED_MEDIA = [
+  'image/jpeg', 'image/png', 'image/webp', 'image/gif',
+  'video/mp4', 'video/webm', 'video/quicktime',
+];
+const mediaStorage = multer.diskStorage({
+  destination: async (req, file, cb) => {
+    const dir = path.join(MEDIA_DIR, req.userId);
+    await fs.mkdir(dir, { recursive: true });
+    cb(null, dir);
+  },
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    cb(null, `${Date.now()}_${Math.random().toString(36).slice(2, 8)}${ext}`);
+  },
+});
+const mediaUpload = multer({
+  storage: mediaStorage,
+  limits: { fileSize: 100 * 1024 * 1024 }, // 100 MB
+  fileFilter: (req, file, cb) => cb(null, ALLOWED_MEDIA.includes(file.mimetype)),
 });
 
 const router = Router();
@@ -74,6 +98,37 @@ router.get('/video/:courseId/:activityId/:filename', requireAuth, async (req, re
     res.sendFile(filePath);
   } catch (err) {
     console.error('[Files] Serve:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/files/upload-media — inline image/video for theory editor ──
+router.post('/upload-media', requireAuth, mediaUpload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'Файл не загружен (или неподдерживаемый тип)' });
+    const url = `/api/files/media/${req.userId}/${req.file.filename}`;
+    const kind = req.file.mimetype.startsWith('image/') ? 'image' : 'video';
+    res.json({ url, kind, size: req.file.size });
+  } catch (err) {
+    console.error('[Files] Upload media:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/files/media/:userId/:filename — public, embedded in HTML ──
+router.get('/media/:userId/:filename', async (req, res) => {
+  try {
+    const { userId, filename } = req.params;
+    if (!/^[a-z0-9-]+$/i.test(userId) || filename.includes('..') || filename.includes('/')) {
+      return res.status(400).json({ error: 'Bad path' });
+    }
+    const filePath = path.join(MEDIA_DIR, userId, filename);
+    try { await fs.access(filePath); }
+    catch { return res.status(404).json({ error: 'Not found' }); }
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    res.sendFile(filePath);
+  } catch (err) {
+    console.error('[Files] Serve media:', err);
     res.status(500).json({ error: err.message });
   }
 });

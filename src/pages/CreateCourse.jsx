@@ -298,8 +298,8 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon,
           </div>
         </div>
       </div>
-      {/* Duration (hidden for theory) */}
-      {activity.practiceType !== 'theory' && (
+      {/* Duration (hidden for theory and call) */}
+      {activity.practiceType !== 'theory' && activity.practiceType !== 'call' && (
         <div>
           <label style={{ ...labelStyle, fontSize: 11 }}>Длительность</label>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -312,8 +312,8 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon,
         </div>
       )}
 
-      {/* Video links section (only for media type) */}
-      {activity.practiceType !== 'theory' && (
+      {/* Video links section (only for media practice) */}
+      {activity.practiceType === 'media' && (
       <div style={{ marginTop: 8, borderTop: '1px solid rgba(0,0,0,0.05)', paddingTop: 8 }}>
         <div style={{ fontSize: 11, fontWeight: 600, color: '#aaa', marginBottom: 6, textTransform: 'uppercase' }}>
           Видео

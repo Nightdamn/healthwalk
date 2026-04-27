@@ -523,6 +523,24 @@ export async function getCallToken(callId) {
   return await apiPost(`/api/calls/${callId}/token`);
 }
 
+export async function uploadTheoryMedia(file) {
+  const token = localStorage.getItem('is_token');
+  const apiUrl = import.meta.env.VITE_API_URL || '';
+  const fd = new FormData();
+  fd.append('file', file);
+  const res = await fetch(`${apiUrl}/api/files/upload-media`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${token}` },
+    body: fd,
+  });
+  if (!res.ok) {
+    let msg = `HTTP ${res.status}`;
+    try { msg = (await res.json()).error || msg; } catch {}
+    throw new Error(msg);
+  }
+  return await res.json();
+}
+
 export async function getCallAttendance(callId) {
   try {
     return await apiGet(`/api/calls/${callId}/attendance`);
