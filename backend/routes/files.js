@@ -53,7 +53,7 @@ const mediaStorage = multer.diskStorage({
 });
 const mediaUpload = multer({
   storage: mediaStorage,
-  limits: { fileSize: 100 * 1024 * 1024 }, // 100 MB
+  limits: { fileSize: 500 * 1024 * 1024 }, // 500 MB — single-course phase, revisit before scaling
   fileFilter: (req, file, cb) => cb(null, ALLOWED_MEDIA.includes(file.mimetype)),
 });
 
