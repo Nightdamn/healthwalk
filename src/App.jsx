@@ -476,9 +476,10 @@ export default function App() {
     setScreen('my_courses');
   };
 
+  // Refresh data when the editor saves but stay on the editor — the user
+  // explicitly clicks the back arrow when they're done.
   const handleCourseSaved = async () => {
     await refreshItems();
-    // Reload active item, videos and calls if it's the edited course
     if (activeItem?.type === 'course' && activeItem?.id === editCourseId) {
       const [items, vids, calls] = await Promise.all([
         getAvailableItems(user.id),
@@ -491,8 +492,6 @@ export default function App() {
       const updated = items.find(i => i.type === 'course' && i.id === editCourseId);
       if (updated) setActiveItem(updated);
     }
-    setEditCourseId(null);
-    setScreen('my_courses');
   };
 
   const handleTrackerCreated = async (tracker) => {

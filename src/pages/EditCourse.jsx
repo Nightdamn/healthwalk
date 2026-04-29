@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import Layout from '../components/Layout';
 import IconPicker from '../components/IconPicker';
 import { getIconPath } from '../data/iconCatalog';
@@ -114,47 +114,56 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted })
   const [calls, setCalls] = useState([]);
   const [videoUploadingId, setVideoUploadingId] = useState(null);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [savedAt, setSavedAt] = useState(0);
   const fileRef = useRef();
 
-  // Load course data
+  // Auto-fade the "Сохранено" toast.
   useEffect(() => {
+    if (!savedAt) return;
+    const id = setTimeout(() => setSavedAt(0), 2500);
+    return () => clearTimeout(id);
+  }, [savedAt]);
+
+  // Load (or re-load) course data from the server.
+  const loadCourse = useCallback(async ({ withSpinner = true } = {}) => {
     if (!courseId) return;
-    (async () => {
-      setLoading(true);
-      const [course, vids, callsData] = await Promise.all([
-        loadCourseForEdit(courseId),
-        getActivityVideos(courseId),
-        getActivityCalls(courseId),
-      ]);
-      if (!course) { setError('Не удалось загрузить курс'); setLoading(false); return; }
+    if (withSpinner) setLoading(true);
+    const [course, vids, callsData] = await Promise.all([
+      loadCourseForEdit(courseId),
+      getActivityVideos(courseId),
+      getActivityCalls(courseId),
+    ]);
+    if (!course) { setError('Не удалось загрузить курс'); setLoading(false); return; }
 
-      setTitle(course.title || '');
-      setDescription(course.description || '');
-      setDaysCount(course.days_count || 30);
-      setAvatarIcon(course.avatar_icon || 'health/1');
-      setAvatarCustom(course.avatar_custom || null);
-      setVideos(vids);
-      setCalls(callsData || []);
+    setTitle(course.title || '');
+    setDescription(course.description || '');
+    setDaysCount(course.days_count || 30);
+    setAvatarIcon(course.avatar_icon || 'health/1');
+    setAvatarCustom(course.avatar_custom || null);
+    setVideos(vids);
+    setCalls(callsData || []);
 
-      const acts = (course.course_activities || [])
-        .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
-        .map(a => ({
-          dbId: a.id,
-          activityId: a.activity_id,
-          label: a.label,
-          iconNum: a.icon_num || 'health/1',
-          practiceType: a.practice_type || 'media',
-          descriptionHtml: a.description_html || '',
-          firstDay: a.first_day || 1,
-          lastDay: a.last_day || course.days_count,
-          durationMin: a.duration_min || 10,
-          intervalDays: a.interval_days || 1,
-          _key: a.id,
-        }));
-      setActivities(acts.length > 0 ? acts : [emptyActivity(course.days_count)]);
-      setLoading(false);
-    })();
+    const acts = (course.course_activities || [])
+      .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
+      .map(a => ({
+        dbId: a.id,
+        activityId: a.activity_id,
+        label: a.label,
+        iconNum: a.icon_num || 'health/1',
+        practiceType: a.practice_type || 'media',
+        descriptionHtml: a.description_html || '',
+        firstDay: a.first_day || 1,
+        lastDay: a.last_day || course.days_count,
+        durationMin: a.duration_min || 10,
+        intervalDays: a.interval_days || 1,
+        _key: a.id,
+      }));
+    setActivities(acts.length > 0 ? acts : [emptyActivity(course.days_count)]);
+    setDeletedIds([]);
+    if (withSpinner) setLoading(false);
   }, [courseId]);
+
+  useEffect(() => { loadCourse(); }, [loadCourse]);
 
   // After a video is added, sync the activity's practice duration to match
   // the video runtime (rounded to whole minutes, min 1).
@@ -279,11 +288,24 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted })
         intervalDays: Math.max(parseInt(a.intervalDays) || 1, 1),
       })),
     });
-    setSaving(false);
 
-    if (result?.error) setError(result.error);
-    else if (result?.id) onSaved();
-    else setError('Не удалось сохранить курс');
+    if (result?.error) {
+      setError(result.error);
+      setSaving(false);
+      return;
+    }
+    if (!result?.id) {
+      setError('Не удалось сохранить курс');
+      setSaving(false);
+      return;
+    }
+    // Re-load so newly created activities pick up their dbIds (videos/call
+    // scheduling unlock for them on the next render).
+    await loadCourse({ withSpinner: false });
+    setSaving(false);
+    setSavedAt(Date.now());
+    // Tell the parent to refresh its list — the editor stays open.
+    onSaved?.();
   };
 
   const handleDelete = async () => {
@@ -412,6 +434,17 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted })
           border: 'none', borderRadius: 14, fontSize: 16, fontWeight: 600,
           cursor: saving ? 'wait' : 'pointer', opacity: saving ? 0.6 : 1,
         }}>{saving ? 'Сохранение...' : 'Сохранить изменения'}</button>
+
+        {/* Inline "saved" indicator — appears after a successful save and fades out. */}
+        {savedAt > 0 && (
+          <div style={{
+            marginTop: 8, padding: '8px 12px', borderRadius: 10,
+            background: 'rgba(39,174,96,0.08)', border: '1px solid rgba(39,174,96,0.25)',
+            color: GREEN, fontSize: 13, fontWeight: 600, textAlign: 'center',
+          }}>
+            ✓ Сохранено
+          </div>
+        )}
 
         {/* Delete course */}
         {onDeleted && (
@@ -574,28 +607,48 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon,
       </div>
       )}
 
-      {/* Video section — only for media practice (theory/call have their own content) */}
-      {activity.practiceType === 'media' && courseId && propActivityId && (
-        <VideoSection
-          videos={videos}
-          courseId={courseId}
-          activityId={propActivityId}
-          maxDay={maxDay}
-          defaultFirstDay={activity.firstDay || 1}
-          defaultLastDay={activity.lastDay || maxDay}
-          defaultIntervalDays={activity.intervalDays || 1}
-          onUpload={onVideoUpload}
-          onAddLink={onAddLink}
-          onDelete={onDeleteVideo}
-          uploading={videoUploadingId === propActivityId}
-          uploadProgress={videoUploadingId === propActivityId ? uploadProgress : 0}
-          globalUploading={!!videoUploadingId}
-        />
+      {/* Video section — only for media practice; need a saved activity (dbId)
+          so videos attach to a stable id. New activities show a "save first" hint. */}
+      {activity.practiceType === 'media' && courseId && (
+        activity.dbId ? (
+          <VideoSection
+            videos={videos}
+            courseId={courseId}
+            activityId={activity.dbId}
+            maxDay={maxDay}
+            defaultFirstDay={activity.firstDay || 1}
+            defaultLastDay={activity.lastDay || maxDay}
+            defaultIntervalDays={activity.intervalDays || 1}
+            onUpload={onVideoUpload}
+            onAddLink={onAddLink}
+            onDelete={onDeleteVideo}
+            uploading={videoUploadingId === activity.dbId}
+            uploadProgress={videoUploadingId === activity.dbId ? uploadProgress : 0}
+            globalUploading={!!videoUploadingId}
+          />
+        ) : (
+          <div style={{
+            marginTop: 8, padding: '10px 12px', borderRadius: 10,
+            background: 'rgba(52,152,219,0.06)', border: '1px solid rgba(52,152,219,0.2)',
+            fontSize: 12, color: '#3498db',
+          }}>
+            Нажмите «Сохранить изменения», чтобы загрузить видео для этой активности
+          </div>
+        )
       )}
 
       {/* Call scheduling — only for call type with saved activity */}
-      {activity.practiceType === 'call' && courseId && propActivityId && (() => {
-        const actId = activity.activityId || propActivityId;
+      {activity.practiceType === 'call' && courseId && !activity.dbId && (
+        <div style={{
+          marginTop: 8, padding: '10px 12px', borderRadius: 10,
+          background: 'rgba(52,152,219,0.06)', border: '1px solid rgba(52,152,219,0.2)',
+          fontSize: 12, color: '#3498db',
+        }}>
+          Нажмите «Сохранить изменения», чтобы запланировать звонки для этой активности
+        </div>
+      )}
+      {activity.practiceType === 'call' && courseId && activity.dbId && (() => {
+        const actId = activity.activityId || activity.dbId;
         const actCalls = (calls || []).filter(c => c.activity_id === actId);
         return (
           <div style={{ marginTop: 8, borderTop: '1px solid rgba(0,0,0,0.05)', paddingTop: 8 }}>
