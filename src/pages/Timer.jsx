@@ -825,9 +825,12 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
               <video
                 ref={videoRef}
                 src={videoUrl}
-                style={{ width: "100%", display: "block", aspectRatio: "16/9", objectFit: "contain", background: "#000" }}
+                style={{ width: "100%", display: "block", aspectRatio: "16/9", objectFit: "contain", background: "#000", pointerEvents: 'none' }}
                 playsInline
                 preload="metadata"
+                controlsList="nodownload nofullscreen noremoteplayback"
+                disablePictureInPicture
+                onContextMenu={(e) => e.preventDefault()}
                 onSeeked={handleVideoSeeked}
                 onLoadedMetadata={handleLoadedMetadata}
                 onError={() => setVideoError(true)}
@@ -837,9 +840,12 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
               <video
                 ref={videoRef}
                 src={video.video_url}
-                style={{ width: "100%", display: "block", aspectRatio: "16/9", objectFit: "contain", background: "#000" }}
+                style={{ width: "100%", display: "block", aspectRatio: "16/9", objectFit: "contain", background: "#000", pointerEvents: 'none' }}
                 playsInline
                 preload="metadata"
+                controlsList="nodownload nofullscreen noremoteplayback"
+                disablePictureInPicture
+                onContextMenu={(e) => e.preventDefault()}
                 onSeeked={handleVideoSeeked}
                 onLoadedMetadata={handleLoadedMetadata}
                 onError={() => setVideoError(true)}

@@ -808,6 +808,20 @@ router.get('/videos/:courseId', async (req, res) => {
   } catch (err) { res.json([]); }
 });
 
+// Trainer-only: update an activity's duration_min. Used after a video is added
+// to auto-sync practice length with the actual video runtime.
+router.patch('/activities/:id/duration', async (req, res) => {
+  try {
+    const dur = parseInt(req.body?.durationMin);
+    if (isNaN(dur) || dur < 1 || dur > 1200) return res.status(400).json({ error: 'Invalid duration' });
+    const act = await queryOne('SELECT course_id FROM course_activities WHERE id = $1', [req.params.id]);
+    if (!act) return res.status(404).json({ error: 'Not found' });
+    if (!await isTrainer(req.userId, act.course_id)) return res.status(403).json({ error: 'Нет прав' });
+    await query('UPDATE course_activities SET duration_min = $1 WHERE id = $2', [dur, req.params.id]);
+    res.json({ ok: true, durationMin: dur });
+  } catch (err) { console.error(err); res.json({ error: err.message }); }
+});
+
 router.post('/videos/link', async (req, res) => {
   try {
     const { courseId, activityId, url, videoType, firstDay, lastDay, intervalDays } = req.body;

@@ -3,10 +3,79 @@ import Layout from '../components/Layout';
 import IconPicker from '../components/IconPicker';
 import { getIconPath } from '../data/iconCatalog';
 import { btnBack, glass, pageWrapper, topBar, topBarTitle } from '../styles/shared';
-import { loadCourseForEdit, updateCourseWithActivities, canDeleteCourse, deleteCourse, getActivityVideos, uploadActivityVideo, addVideoLink, deleteActivityVideo, getActivityCalls, createActivityCall, deleteActivityCall } from '../lib/db';
-import VideoSection from '../components/VideoSection';
+import { loadCourseForEdit, updateCourseWithActivities, canDeleteCourse, deleteCourse, getActivityVideos, uploadActivityVideo, addVideoLink, deleteActivityVideo, getActivityCalls, createActivityCall, deleteActivityCall, updateActivityDuration, updateVideoDuration } from '../lib/db';
+import VideoSection, { extractYoutubeId } from '../components/VideoSection';
 import RichTextEditor from '../components/RichTextEditor';
 import Dropdown from '../components/Dropdown';
+
+// Detect a video's duration without showing it. Used at trainer-edit time so
+// the practice length auto-syncs with the actual runtime.
+function detectDirectDuration(url) {
+  return new Promise((resolve) => {
+    const v = document.createElement('video');
+    v.preload = 'metadata';
+    v.muted = true;
+    let done = false;
+    const finish = (val) => {
+      if (done) return; done = true;
+      try { v.src = ''; v.remove(); } catch {}
+      resolve(val);
+    };
+    v.onloadedmetadata = () => {
+      const d = Math.round(v.duration);
+      finish(d > 0 && isFinite(d) ? d : null);
+    };
+    v.onerror = () => finish(null);
+    setTimeout(() => finish(null), 8000);
+    v.src = url;
+  });
+}
+
+function detectYoutubeDuration(youtubeId) {
+  return new Promise((resolve) => {
+    const ensureApi = () => new Promise((res) => {
+      if (window.YT?.Player) return res();
+      if (!document.querySelector('script[data-yt-api]')) {
+        const tag = document.createElement('script');
+        tag.src = 'https://www.youtube.com/iframe_api';
+        tag.dataset.ytApi = '1';
+        document.head.appendChild(tag);
+      }
+      const tick = setInterval(() => {
+        if (window.YT?.Player) { clearInterval(tick); res(); }
+      }, 200);
+      setTimeout(() => { clearInterval(tick); res(); }, 8000);
+    });
+    (async () => {
+      await ensureApi();
+      if (!window.YT?.Player) return resolve(null);
+      const host = document.createElement('div');
+      host.style.cssText = 'position:fixed;left:-9999px;top:-9999px;width:1px;height:1px;';
+      document.body.appendChild(host);
+      let resolved = false;
+      const finish = (val) => {
+        if (resolved) return; resolved = true;
+        try { player?.destroy?.(); } catch {}
+        try { host.remove(); } catch {}
+        resolve(val);
+      };
+      const player = new window.YT.Player(host, {
+        videoId: youtubeId,
+        playerVars: { controls: 0, autoplay: 0 },
+        events: {
+          onReady: () => {
+            try {
+              const d = player.getDuration();
+              finish(d > 0 ? Math.round(d) : null);
+            } catch { finish(null); }
+          },
+          onError: () => finish(null),
+        },
+      });
+      setTimeout(() => finish(null), 10000);
+    })();
+  });
+}
 
 const PRACTICE_TYPE_OPTIONS = [
   { value: 'media', label: 'Практика с медиа' },
@@ -87,6 +156,15 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted })
     })();
   }, [courseId]);
 
+  // After a video is added, sync the activity's practice duration to match
+  // the video runtime (rounded to whole minutes, min 1).
+  const syncActivityDuration = async (activityId, durationSec) => {
+    if (!durationSec || durationSec <= 0) return;
+    const durationMin = Math.max(1, Math.round(durationSec / 60));
+    setActivities(prev => prev.map(a => (a.dbId === activityId ? { ...a, durationMin } : a)));
+    await updateActivityDuration(activityId, durationMin);
+  };
+
   const handleVideoUpload = async (activityId, file, firstDay, lastDay, intervalDays) => {
     setVideoUploadingId(activityId);
     setUploadProgress(0);
@@ -97,12 +175,34 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted })
     setUploadProgress(0);
     if (result.error) { setError(`Ошибка загрузки видео: ${result.error}`); return; }
     setVideos(prev => [...prev, result.data]);
+    // Server already extracts duration_sec from upload metadata when client sent it.
+    if (result.data?.duration_sec) {
+      await syncActivityDuration(activityId, result.data.duration_sec);
+    }
   };
 
   const handleAddLink = async (activityId, url, videoType, firstDay, lastDay, intervalDays) => {
     const result = await addVideoLink(courseId, activityId, url, videoType, firstDay, lastDay, intervalDays);
     if (result.error) { setError(`Ошибка добавления ссылки: ${result.error}`); return; }
-    setVideos(prev => [...prev, result.data]);
+    const created = result.data;
+    setVideos(prev => [...prev, created]);
+    // Detect duration in background; YouTube + direct mp4/webm only.
+    // Drive doesn't expose duration via its iframe — left untouched.
+    let detected = null;
+    try {
+      if (videoType === 'youtube') {
+        const ytId = extractYoutubeId(url);
+        if (ytId) detected = await detectYoutubeDuration(ytId);
+      } else if (videoType === 'link') {
+        detected = await detectDirectDuration(url);
+      }
+    } catch {}
+    if (detected && created?.id) {
+      // Persist on the video record so student-side Timer can use it directly.
+      try { await updateVideoDuration(created.id, detected); } catch {}
+      setVideos(prev => prev.map(v => (v.id === created.id ? { ...v, duration_sec: detected } : v)));
+      await syncActivityDuration(activityId, detected);
+    }
   };
 
   const handleDeleteVideo = async (videoId, videoUrl, videoType) => {

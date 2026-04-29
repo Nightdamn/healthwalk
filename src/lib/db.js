@@ -492,6 +492,14 @@ export async function updateVideoDuration(videoId, durationSec) {
   }
 }
 
+export async function updateActivityDuration(activityId, durationMin) {
+  try {
+    return await apiPatch(`/api/activities/${activityId}/duration`, { durationMin });
+  } catch (err) {
+    return { error: err.message };
+  }
+}
+
 export async function getActivityVideos(courseId) {
   try {
     return await apiGet(`/api/videos/${courseId}`);
