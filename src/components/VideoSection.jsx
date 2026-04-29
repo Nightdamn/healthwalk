@@ -76,6 +76,31 @@ function videoDisplayName(v) {
   return v.video_url.split('/').pop();
 }
 
+// Days covered by a list of videos, taking interval into account.
+function buildCoverage(videos) {
+  const days = new Set();
+  for (const v of videos) {
+    const iv = Math.max(1, v.interval_days || 1);
+    for (let d = v.first_day; d <= v.last_day; d += iv) days.add(d);
+  }
+  return days;
+}
+
+// First contiguous free range inside [from, to] not covered by `coverage`.
+function findFreeRange(coverage, from, to) {
+  let start = null;
+  for (let d = from; d <= to; d++) {
+    if (!coverage.has(d)) { start = d; break; }
+  }
+  if (start === null) return null;
+  let end = start;
+  for (let d = start; d <= to; d++) {
+    if (coverage.has(d)) break;
+    end = d;
+  }
+  return { start, end };
+}
+
 export default function VideoSection({
   videos, courseId, activityId, maxDay,
   defaultFirstDay = 1, defaultLastDay = null, defaultIntervalDays = 1,
@@ -87,18 +112,41 @@ export default function VideoSection({
   const [lastDay, setLastDay] = useState(defaultLastDay || maxDay || 1);
   const [intervalDays, setIntervalDays] = useState(defaultIntervalDays || 1);
   const [deletingId, setDeletingId] = useState(null);
+  // Form is auto-open while there are no videos; collapses to a "+ Ещё видео"
+  // CTA once at least one is added (so the trainer doesn't have a permanent
+  // form sitting around with stale defaults).
+  const [formOpen, setFormOpen] = useState(false);
   const fileRef = useRef();
-
-  // Re-sync defaults if activity range changes (e.g., user edits the activity range)
-  useEffect(() => {
-    setFirstDay(defaultFirstDay || 1);
-    setLastDay(defaultLastDay || maxDay || 1);
-    setIntervalDays(defaultIntervalDays || 1);
-  }, [defaultFirstDay, defaultLastDay, defaultIntervalDays, maxDay]);
 
   const actVideos = videos
     .filter(v => v.activity_id === activityId)
     .sort((a, b) => a.first_day - b.first_day || a.last_day - b.last_day);
+
+  // Activity's allowed range
+  const actFirst = defaultFirstDay || 1;
+  const actLast = defaultLastDay || maxDay || 1;
+
+  const coverage = buildCoverage(actVideos);
+  const freeRange = findFreeRange(coverage, actFirst, actLast);
+  const allCovered = freeRange === null;
+
+  // While the form is collapsed it tracks the next free range; once the user
+  // opens it those defaults get pinned (so user-edited values aren't reset
+  // every render).
+  useEffect(() => {
+    if (formOpen) return;
+    if (actVideos.length === 0) {
+      setFirstDay(actFirst);
+      setLastDay(actLast);
+      setIntervalDays(defaultIntervalDays || 1);
+    } else if (freeRange) {
+      setFirstDay(freeRange.start);
+      setLastDay(freeRange.end);
+      setIntervalDays(1);
+    }
+  }, [formOpen, actVideos.length, actFirst, actLast, freeRange?.start, freeRange?.end, defaultIntervalDays]);
+
+  const isFormVisible = actVideos.length === 0 || formOpen;
 
   const handleFileSelect = (e) => {
     const file = e.target.files?.[0];
@@ -114,6 +162,7 @@ export default function VideoSection({
     }
     onUpload(file, firstDay, lastDay, intervalDays);
     e.target.value = '';
+    setFormOpen(false);
   };
 
   const handleAddLink = () => {
@@ -127,6 +176,7 @@ export default function VideoSection({
     onAddLink(url, type, firstDay, lastDay, intervalDays);
     setLinkUrl('');
     setShowLinkInput(false);
+    setFormOpen(false);
   };
 
   return (
@@ -195,9 +245,35 @@ export default function VideoSection({
         </div>
       )}
 
+      {/* Collapsed CTA — shown after at least one video exists. */}
+      {actVideos.length > 0 && !formOpen && (
+        allCovered ? (
+          <div style={{
+            padding: '7px 10px', borderRadius: 8, fontSize: 11, fontWeight: 500,
+            background: 'rgba(0,0,0,0.03)', color: '#888', textAlign: 'center',
+          }}>
+            Все дни покрыты видео ({actFirst}–{actLast})
+          </div>
+        ) : (
+          <button onClick={() => setFormOpen(true)} disabled={globalUploading}
+            style={{
+              width: '100%', padding: '7px 10px', borderRadius: 8,
+              border: `1px dashed rgba(39,174,96,0.3)`, background: 'rgba(39,174,96,0.04)',
+              color: GREEN, fontSize: 11, fontWeight: 600,
+              cursor: globalUploading ? 'not-allowed' : 'pointer', opacity: globalUploading ? 0.4 : 1,
+            }}>
+            + Ещё видео
+            <span style={{ color: '#888', fontWeight: 400, marginLeft: 6 }}>
+              (свободно: дни {freeRange.start}–{freeRange.end})
+            </span>
+          </button>
+        )
+      )}
+
       {/* Day range + interval inputs.
           Inputs accept empty during editing (so user can clear "1" and type
           another number). On blur values are clamped to a valid range. */}
+      {isFormVisible && (
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>
         <span style={{ fontSize: 11, color: '#999' }}>С дня:</span>
         <input type="number" value={firstDay === '' ? '' : firstDay} min={1} max={maxDay}
@@ -240,10 +316,20 @@ export default function VideoSection({
           }}
           style={smallInput} title="Видео повторяется каждые N дней внутри диапазона" />
         <span style={{ fontSize: 11, color: '#999' }}>дн.</span>
+        {actVideos.length > 0 && (
+          <button onClick={() => { setFormOpen(false); setShowLinkInput(false); setLinkUrl(''); }}
+            style={{
+              padding: '4px 8px', borderRadius: 6, border: 'none',
+              background: 'rgba(0,0,0,0.05)', color: '#999', fontSize: 11, cursor: 'pointer',
+            }}>
+            Отмена
+          </button>
+        )}
       </div>
+      )}
 
       {/* Link input */}
-      {showLinkInput && (
+      {isFormVisible && showLinkInput && (
         <div style={{ marginBottom: 6 }}>
           <div style={{ display: 'flex', gap: 6 }}>
             <input value={linkUrl} onChange={e => setLinkUrl(e.target.value)}
@@ -284,6 +370,7 @@ export default function VideoSection({
       )}
 
       {/* Action buttons */}
+      {isFormVisible && (
       <div style={{ display: 'flex', gap: 6 }}>
         <button onClick={() => fileRef.current?.click()} disabled={globalUploading}
           style={{
@@ -306,6 +393,7 @@ export default function VideoSection({
           + Ссылка
         </button>
       </div>
+      )}
       <input ref={fileRef} type="file" accept="video/mp4,video/webm,video/quicktime"
         style={{ display: 'none' }} onChange={handleFileSelect} />
     </div>

@@ -251,8 +251,7 @@ CREATE TABLE IF NOT EXISTS activity_videos (
   last_day INT NOT NULL DEFAULT 1,
   interval_days INT NOT NULL DEFAULT 1 CHECK (interval_days >= 1),
   sort_order INT NOT NULL DEFAULT 0,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE(course_id, activity_id, first_day, last_day)
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_activity_videos_course ON activity_videos(course_id);
