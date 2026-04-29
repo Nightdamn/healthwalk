@@ -468,6 +468,40 @@ export async function uploadActivityVideo(courseId, activityId, file, firstDay, 
   });
 }
 
+// Import a Google Drive video to our own storage. Returns once the backend
+// finishes streaming the file, with the same { data } shape as a regular
+// upload. Calls onProgress(percent) while polling.
+export async function importDriveVideo(courseId, activityId, url, firstDay, lastDay, intervalDays, onProgress) {
+  const start = await apiPost('/api/files/import-drive', { courseId, activityId, url, firstDay, lastDay, intervalDays });
+  if (start?.error || !start?.jobId) return { error: start?.error || 'Не удалось начать импорт' };
+  const { jobId } = start;
+  const token = localStorage.getItem('is_token');
+  const apiUrl = import.meta.env.VITE_API_URL || '';
+  const poll = async () => {
+    const res = await fetch(`${apiUrl}/api/files/import-drive/${jobId}`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json();
+  };
+  while (true) {
+    let job;
+    try { job = await poll(); }
+    catch (err) { return { error: err.message }; }
+    if (job.totalBytes && onProgress) {
+      onProgress(Math.min(99, Math.round((job.bytesDone / job.totalBytes) * 100)));
+    } else if (onProgress) {
+      onProgress(0);
+    }
+    if (job.status === 'done') {
+      onProgress?.(100);
+      return { data: job.videoData };
+    }
+    if (job.status === 'error') return { error: job.error || 'Ошибка импорта' };
+    await new Promise(r => setTimeout(r, 700));
+  }
+}
+
 export async function addVideoLink(courseId, activityId, url, videoType, firstDay, lastDay, intervalDays) {
   try {
     return await apiPost('/api/videos/link', { courseId, activityId, url, videoType, firstDay, lastDay, intervalDays });

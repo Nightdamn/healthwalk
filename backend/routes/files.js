@@ -2,6 +2,8 @@ import { Router } from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs/promises';
+import { createWriteStream } from 'fs';
+import { randomUUID } from 'crypto';
 import { fileURLToPath } from 'url';
 import { queryOne } from '../db.js';
 import { requireAuth, verifyToken } from '../middleware.js';
@@ -124,6 +126,143 @@ router.get('/video/:courseId/:activityId/:filename', requireAuthOrQueryToken, as
     console.error('[Files] Serve:', err);
     res.status(500).json({ error: err.message });
   }
+});
+
+// ─── Drive import ─────────────────────────────────────────────────────────
+// Trainer pastes a "anyone with link" Google Drive video URL → we stream the
+// file to our own storage in the background. Once finished it shows up as a
+// regular type='file' video and the iframe-with-its-own-controls problem
+// goes away.
+const DRIVE_MAX_BYTES = 500 * 1024 * 1024;
+const driveJobs = new Map(); // jobId -> { status, bytesDone, totalBytes, error?, videoData? }
+
+function extractDriveIdServer(url) {
+  if (!url) return null;
+  let m = url.match(/drive\.google\.com\/(?:file\/d\/|open\?id=|uc\?.*id=)([a-zA-Z0-9_-]+)/);
+  if (m) return m[1];
+  m = url.match(/drive\.usercontent\.google\.com\/.*[?&]id=([a-zA-Z0-9_-]+)/);
+  if (m) return m[1];
+  return null;
+}
+
+async function isTrainerOfCourse(userId, courseId) {
+  const row = await queryOne(
+    `SELECT (c.owner_id = $1) OR EXISTS (
+       SELECT 1 FROM course_enrollments ce
+       WHERE ce.course_id = $2 AND ce.user_id = $1 AND ce.role IN ('trainer','curator')
+     ) AS ok
+     FROM courses c WHERE c.id = $2`,
+    [userId, courseId]
+  );
+  return !!row?.ok;
+}
+
+async function fetchDriveStream(driveId) {
+  // First try with confirm=t which bypasses the warning page for most files.
+  const baseUrl = `https://drive.usercontent.google.com/download?id=${encodeURIComponent(driveId)}&export=download&confirm=t`;
+  let response = await fetch(baseUrl, { redirect: 'follow' });
+  if (!response.ok) throw new Error(`Drive HTTP ${response.status}`);
+
+  let ctype = response.headers.get('content-type') || '';
+  // Big files sometimes still serve an HTML form; parse the confirm token.
+  if (ctype.includes('text/html')) {
+    const html = await response.text();
+    const tokenMatch = html.match(/name="confirm"\s+value="([^"]+)"/i)
+      || html.match(/[?&]confirm=([a-zA-Z0-9_-]+)/);
+    const uuidMatch = html.match(/name="uuid"\s+value="([^"]+)"/i);
+    if (!tokenMatch) throw new Error('Drive returned a confirmation page; make sure the file is shared "Anyone with the link"');
+    const params = new URLSearchParams({ id: driveId, export: 'download', confirm: tokenMatch[1] });
+    if (uuidMatch) params.set('uuid', uuidMatch[1]);
+    response = await fetch(`https://drive.usercontent.google.com/download?${params}`, { redirect: 'follow' });
+    if (!response.ok) throw new Error(`Drive HTTP ${response.status} (after confirm)`);
+    ctype = response.headers.get('content-type') || '';
+    if (ctype.includes('text/html')) throw new Error('Drive still returns HTML — file may be too large for direct download or not actually shared publicly');
+  }
+  return response;
+}
+
+function extFromMime(mime) {
+  if (mime.includes('mp4')) return '.mp4';
+  if (mime.includes('webm')) return '.webm';
+  if (mime.includes('quicktime') || mime.includes('mov')) return '.mov';
+  return '.mp4';
+}
+
+async function runDriveImport(jobId, params) {
+  const job = driveJobs.get(jobId);
+  if (!job) return;
+  let filePath = null;
+  try {
+    const response = await fetchDriveStream(params.driveId);
+    const total = parseInt(response.headers.get('content-length') || '0') || null;
+    if (total && total > DRIVE_MAX_BYTES) {
+      throw new Error(`Файл слишком большой: ${(total / 1024 / 1024).toFixed(0)} МБ (лимит 500 МБ)`);
+    }
+    job.totalBytes = total;
+
+    const ext = extFromMime(response.headers.get('content-type') || '');
+    const filename = `${Date.now()}_drive_${Math.random().toString(36).slice(2, 8)}${ext}`;
+    const dir = path.join(UPLOADS_DIR, params.courseId, params.activityId);
+    await fs.mkdir(dir, { recursive: true });
+    filePath = path.join(dir, filename);
+
+    const writeStream = createWriteStream(filePath);
+    let bytes = 0;
+    for await (const chunk of response.body) {
+      bytes += chunk.length;
+      if (bytes > DRIVE_MAX_BYTES) {
+        writeStream.destroy();
+        throw new Error('Превышен лимит 500 МБ во время скачивания');
+      }
+      writeStream.write(chunk);
+      job.bytesDone = bytes;
+    }
+    await new Promise((resolve, reject) => {
+      writeStream.end(() => resolve());
+      writeStream.on('error', reject);
+    });
+
+    const relPath = `${params.courseId}/${params.activityId}/${filename}`;
+    const v = await queryOne(
+      `INSERT INTO activity_videos (course_id, activity_id, video_type, video_url, file_size, first_day, last_day, interval_days)
+       VALUES ($1,$2,'file',$3,$4,$5,$6,$7) RETURNING *`,
+      [params.courseId, params.activityId, relPath, bytes,
+       parseInt(params.firstDay) || 1, parseInt(params.lastDay) || 1,
+       Math.max(1, parseInt(params.intervalDays) || 1)]
+    );
+
+    job.status = 'done';
+    job.videoData = v;
+    job.bytesDone = bytes;
+    if (!job.totalBytes) job.totalBytes = bytes;
+  } catch (err) {
+    console.error('[import-drive]', err);
+    job.status = 'error';
+    job.error = err.message;
+    if (filePath) { try { await fs.unlink(filePath); } catch {} }
+  }
+}
+
+router.post('/import-drive', requireAuth, async (req, res) => {
+  try {
+    const { courseId, activityId, url, firstDay, lastDay, intervalDays } = req.body || {};
+    if (!courseId || !activityId || !url) return res.status(400).json({ error: 'courseId, activityId, url required' });
+    if (!await isTrainerOfCourse(req.userId, courseId)) return res.status(403).json({ error: 'Нет прав' });
+    const driveId = extractDriveIdServer(url);
+    if (!driveId) return res.status(400).json({ error: 'Не удалось распознать ссылку Google Drive' });
+
+    const jobId = randomUUID();
+    driveJobs.set(jobId, { status: 'pending', bytesDone: 0, totalBytes: null });
+    setTimeout(() => driveJobs.delete(jobId), 60 * 60 * 1000);
+    runDriveImport(jobId, { courseId, activityId, driveId, firstDay, lastDay, intervalDays });
+    res.json({ jobId });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.get('/import-drive/:jobId', requireAuth, (req, res) => {
+  const job = driveJobs.get(req.params.jobId);
+  if (!job) return res.status(404).json({ error: 'Job not found' });
+  res.json(job);
 });
 
 // ── POST /api/files/upload-media — inline image/video for theory editor ──

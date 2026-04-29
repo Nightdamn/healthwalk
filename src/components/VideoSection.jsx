@@ -348,16 +348,29 @@ export default function VideoSection({
           {linkUrl.trim() && (
             <div style={{ fontSize: 10, color: '#999', marginTop: 3 }}>
               Тип: {videoTypeLabel(detectVideoType(linkUrl.trim()))}
+              {detectVideoType(linkUrl.trim()) === 'drive' && (
+                <span style={{ color: '#3498db' }}> · файл будет скачан на сервер</span>
+              )}
             </div>
           )}
+          <div style={{
+            marginTop: 6, padding: '6px 10px', borderRadius: 8,
+            background: 'rgba(52,152,219,0.06)', fontSize: 10, color: '#3498db', lineHeight: 1.4,
+          }}>
+            💡 Лучший вариант — загрузить видео на YouTube как «Доступ по ссылке» (Unlisted)
+            и вставить YouTube-ссылку: бесплатно, без лимита размера, идеальная синхронизация
+            с таймером.
+          </div>
         </div>
       )}
 
-      {/* Upload progress bar */}
+      {/* Upload / import progress bar */}
       {uploading && (
         <div style={{ marginBottom: 6 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
-            <span style={{ fontSize: 11, color: GREEN, fontWeight: 600 }}>Загрузка видео...</span>
+            <span style={{ fontSize: 11, color: GREEN, fontWeight: 600 }}>
+              {linkUrl && detectVideoType(linkUrl) === 'drive' ? 'Импорт с Google Drive...' : 'Загрузка видео...'}
+            </span>
             <span style={{ fontSize: 11, color: '#888' }}>{uploadProgress || 0}%</span>
           </div>
           <div style={{ width: '100%', height: 4, borderRadius: 2, background: 'rgba(0,0,0,0.06)' }}>

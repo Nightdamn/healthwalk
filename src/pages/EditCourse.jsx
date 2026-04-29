@@ -3,7 +3,7 @@ import Layout from '../components/Layout';
 import IconPicker from '../components/IconPicker';
 import { getIconPath } from '../data/iconCatalog';
 import { btnBack, glass, pageWrapper, topBar, topBarTitle } from '../styles/shared';
-import { loadCourseForEdit, updateCourseWithActivities, canDeleteCourse, deleteCourse, getActivityVideos, uploadActivityVideo, addVideoLink, deleteActivityVideo, getActivityCalls, createActivityCall, deleteActivityCall, updateActivityDuration, updateVideoDuration } from '../lib/db';
+import { loadCourseForEdit, updateCourseWithActivities, canDeleteCourse, deleteCourse, getActivityVideos, uploadActivityVideo, addVideoLink, importDriveVideo, deleteActivityVideo, getActivityCalls, createActivityCall, deleteActivityCall, updateActivityDuration, updateVideoDuration } from '../lib/db';
 import VideoSection, { extractYoutubeId } from '../components/VideoSection';
 import RichTextEditor from '../components/RichTextEditor';
 import Dropdown from '../components/Dropdown';
@@ -191,12 +191,31 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted })
   };
 
   const handleAddLink = async (activityId, url, videoType, firstDay, lastDay, intervalDays) => {
+    // Drive URLs route through import-drive: backend pulls the file to our
+    // storage, frontend shows a progress bar like a normal upload, and the
+    // result becomes a regular type='file' video (timer fully syncs).
+    if (videoType === 'drive') {
+      setVideoUploadingId(activityId);
+      setUploadProgress(0);
+      const result = await importDriveVideo(
+        courseId, activityId, url, firstDay, lastDay, intervalDays,
+        (pct) => setUploadProgress(pct),
+      );
+      setVideoUploadingId(null);
+      setUploadProgress(0);
+      if (result.error) { setError(`Ошибка импорта Drive: ${result.error}`); return; }
+      setVideos(prev => [...prev, result.data]);
+      if (result.data?.duration_sec) {
+        await syncActivityDuration(activityId, result.data.duration_sec);
+      }
+      return;
+    }
+
     const result = await addVideoLink(courseId, activityId, url, videoType, firstDay, lastDay, intervalDays);
     if (result.error) { setError(`Ошибка добавления ссылки: ${result.error}`); return; }
     const created = result.data;
     setVideos(prev => [...prev, created]);
-    // Detect duration in background; YouTube + direct mp4/webm only.
-    // Drive doesn't expose duration via its iframe — left untouched.
+    // Background duration detection — YouTube + direct mp4/webm.
     let detected = null;
     try {
       if (videoType === 'youtube') {
@@ -207,7 +226,6 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted })
       }
     } catch {}
     if (detected && created?.id) {
-      // Persist on the video record so student-side Timer can use it directly.
       try { await updateVideoDuration(created.id, detected); } catch {}
       setVideos(prev => prev.map(v => (v.id === created.id ? { ...v, duration_sec: detected } : v)));
       await syncActivityDuration(activityId, detected);
