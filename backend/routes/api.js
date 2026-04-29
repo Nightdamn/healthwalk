@@ -266,6 +266,24 @@ router.put('/courses/:id', async (req, res) => {
     );
 
     if (deletedActivityIds?.length) {
+      // Cascade: drop activity_videos rows + their files on disk for each removed activity.
+      // course_activities is keyed by UUID; activity_videos.activity_id is TEXT but stores
+      // that same UUID, so the IN-list works.
+      const { deleteVideoFile, deleteActivityDir } = await import('../storage.js');
+      const orphaned = await query(
+        `SELECT id, video_type, video_url FROM activity_videos
+         WHERE course_id = $1 AND activity_id = ANY($2)`,
+        [req.params.id, deletedActivityIds]
+      );
+      for (const v of orphaned) {
+        if (v.video_type === 'file') await deleteVideoFile(v.video_url);
+      }
+      await query(
+        `DELETE FROM activity_videos WHERE course_id = $1 AND activity_id = ANY($2)`,
+        [req.params.id, deletedActivityIds]
+      );
+      // Wipe the per-activity dir to clean any stale partial-upload leftovers too.
+      for (const aid of deletedActivityIds) await deleteActivityDir(req.params.id, aid);
       await query('DELETE FROM course_activities WHERE id = ANY($1)', [deletedActivityIds]);
     }
 
@@ -316,7 +334,10 @@ router.delete('/courses/:id', async (req, res) => {
   try {
     const course = await queryOne('SELECT owner_id FROM courses WHERE id = $1', [req.params.id]);
     if (!course || course.owner_id !== req.userId) return res.json({ deleted: false, error: 'Нет прав' });
+    // DB rows in activity_videos cascade via FK; we just need to wipe the disk dir.
+    const { deleteCourseDir } = await import('../storage.js');
     await query('DELETE FROM courses WHERE id = $1', [req.params.id]);
+    await deleteCourseDir(req.params.id);
     res.json({ deleted: true });
   } catch (err) { res.json({ deleted: false, error: err.message }); }
 });
@@ -841,13 +862,9 @@ router.delete('/videos/:id', async (req, res) => {
     const v = await queryOne('SELECT * FROM activity_videos WHERE id = $1', [req.params.id]);
     if (!v) return res.json({ error: 'Not found' });
     if (!await isTrainer(req.userId, v.course_id)) return res.status(403).json({ error: 'Нет прав' });
-    // Delete physical file if it's a file upload
-    if (v.video_type === 'file' && v.video_url) {
-      const { default: fs } = await import('fs/promises');
-      const { default: path } = await import('path');
-      const safeBasename = path.basename(v.video_url);
-      const filePath = path.join(process.cwd(), 'uploads', 'course-videos', safeBasename);
-      try { await fs.unlink(filePath); } catch {}
+    if (v.video_type === 'file') {
+      const { deleteVideoFile } = await import('../storage.js');
+      await deleteVideoFile(v.video_url);
     }
     await query('DELETE FROM activity_videos WHERE id = $1', [req.params.id]);
     res.json({ success: true });

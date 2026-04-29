@@ -78,6 +78,9 @@ const mediaUpload = multer({
 const router = Router();
 
 // ── POST /api/files/upload/:courseId/:activityId ──
+// multer 1.4+ already cleans up partial files on aborted requests / size-limit
+// errors. We only need to clean up if the DB insert fails AFTER the file was
+// saved successfully — otherwise the file is orphaned forever.
 router.post('/upload/:courseId/:activityId', requireAuth, upload.single('video'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'Файл не загружен' });
@@ -87,7 +90,6 @@ router.post('/upload/:courseId/:activityId', requireAuth, upload.single('video')
     const filePath = `${courseId}/${activityId}/${req.file.filename}`;
     const iv = Math.max(1, parseInt(intervalDays) || 1);
 
-    const { query: dbQuery } = await import('../db.js');
     const v = await queryOne(
       `INSERT INTO activity_videos (course_id, activity_id, video_type, video_url, file_size, duration_sec, first_day, last_day, interval_days)
        VALUES ($1,$2,'file',$3,$4,$5,$6,$7,$8) RETURNING *`,
@@ -98,6 +100,9 @@ router.post('/upload/:courseId/:activityId', requireAuth, upload.single('video')
     res.json({ data: v });
   } catch (err) {
     console.error('[Files] Upload:', err);
+    if (req.file?.path) {
+      try { await fs.unlink(req.file.path); } catch {}
+    }
     res.status(500).json({ error: err.message });
   }
 });
