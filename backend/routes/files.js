@@ -4,7 +4,25 @@ import path from 'path';
 import fs from 'fs/promises';
 import { fileURLToPath } from 'url';
 import { queryOne } from '../db.js';
-import { requireAuth } from '../middleware.js';
+import { requireAuth, verifyToken } from '../middleware.js';
+
+// HTML <video src="..."> tags can't add Authorization headers, so video
+// serving accepts the JWT as a ?token=<...> query param too.
+function requireAuthOrQueryToken(req, res, next) {
+  const header = req.headers.authorization;
+  let token = null;
+  if (header?.startsWith('Bearer ')) token = header.slice(7);
+  else if (typeof req.query.token === 'string') token = req.query.token;
+  if (!token) return res.status(401).json({ error: 'Unauthorized' });
+  try {
+    const payload = verifyToken(token);
+    req.userId = payload.id;
+    req.userEmail = payload.email;
+    next();
+  } catch {
+    return res.status(401).json({ error: 'Invalid token' });
+  }
+}
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const UPLOADS_DIR = path.join(__dirname, '..', 'uploads', 'course-videos');
@@ -85,7 +103,7 @@ router.post('/upload/:courseId/:activityId', requireAuth, upload.single('video')
 });
 
 // ── GET /api/files/video/:courseId/:activityId/:filename ──
-router.get('/video/:courseId/:activityId/:filename', requireAuth, async (req, res) => {
+router.get('/video/:courseId/:activityId/:filename', requireAuthOrQueryToken, async (req, res) => {
   try {
     const { courseId, activityId, filename } = req.params;
     const filePath = path.join(UPLOADS_DIR, courseId, activityId, filename);
