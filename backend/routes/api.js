@@ -810,12 +810,13 @@ router.get('/videos/:courseId', async (req, res) => {
 
 router.post('/videos/link', async (req, res) => {
   try {
-    const { courseId, activityId, url, videoType, firstDay, lastDay } = req.body;
+    const { courseId, activityId, url, videoType, firstDay, lastDay, intervalDays } = req.body;
     if (!await isTrainer(req.userId, courseId)) return res.status(403).json({ error: 'Нет прав' });
+    const iv = Math.max(1, parseInt(intervalDays) || 1);
     const v = await queryOne(
-      `INSERT INTO activity_videos (course_id, activity_id, video_type, video_url, first_day, last_day)
-       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
-      [courseId, activityId, videoType, url, firstDay, lastDay]
+      `INSERT INTO activity_videos (course_id, activity_id, video_type, video_url, first_day, last_day, interval_days)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+      [courseId, activityId, videoType, url, firstDay, lastDay, iv]
     );
     res.json({ data: v });
   } catch (err) { console.error(err); res.json({ error: err.message }); }

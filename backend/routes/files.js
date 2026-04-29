@@ -65,15 +65,16 @@ router.post('/upload/:courseId/:activityId', requireAuth, upload.single('video')
     if (!req.file) return res.status(400).json({ error: 'Файл не загружен' });
 
     const { courseId, activityId } = req.params;
-    const { firstDay, lastDay, durationSec } = req.body;
+    const { firstDay, lastDay, durationSec, intervalDays } = req.body;
     const filePath = `${courseId}/${activityId}/${req.file.filename}`;
+    const iv = Math.max(1, parseInt(intervalDays) || 1);
 
     const { query: dbQuery } = await import('../db.js');
     const v = await queryOne(
-      `INSERT INTO activity_videos (course_id, activity_id, video_type, video_url, file_size, duration_sec, first_day, last_day)
-       VALUES ($1,$2,'file',$3,$4,$5,$6,$7) RETURNING *`,
+      `INSERT INTO activity_videos (course_id, activity_id, video_type, video_url, file_size, duration_sec, first_day, last_day, interval_days)
+       VALUES ($1,$2,'file',$3,$4,$5,$6,$7,$8) RETURNING *`,
       [courseId, activityId, filePath, req.file.size, durationSec ? parseInt(durationSec) : null,
-       parseInt(firstDay) || 1, parseInt(lastDay) || 1]
+       parseInt(firstDay) || 1, parseInt(lastDay) || 1, iv]
     );
 
     res.json({ data: v });

@@ -431,7 +431,7 @@ function getVideoDuration(file) {
   });
 }
 
-export async function uploadActivityVideo(courseId, activityId, file, firstDay, lastDay, onProgress) {
+export async function uploadActivityVideo(courseId, activityId, file, firstDay, lastDay, intervalDays, onProgress) {
   const durationSec = await getVideoDuration(file);
   const token = localStorage.getItem('is_token');
   const apiUrl = import.meta.env.VITE_API_URL || '';
@@ -441,6 +441,7 @@ export async function uploadActivityVideo(courseId, activityId, file, firstDay, 
     formData.append('video', file);
     formData.append('firstDay', firstDay);
     formData.append('lastDay', lastDay);
+    if (intervalDays) formData.append('intervalDays', intervalDays);
     if (durationSec) formData.append('durationSec', durationSec);
 
     const xhr = new XMLHttpRequest();
@@ -467,9 +468,9 @@ export async function uploadActivityVideo(courseId, activityId, file, firstDay, 
   });
 }
 
-export async function addVideoLink(courseId, activityId, url, videoType, firstDay, lastDay) {
+export async function addVideoLink(courseId, activityId, url, videoType, firstDay, lastDay, intervalDays) {
   try {
-    return await apiPost('/api/videos/link', { courseId, activityId, url, videoType, firstDay, lastDay });
+    return await apiPost('/api/videos/link', { courseId, activityId, url, videoType, firstDay, lastDay, intervalDays });
   } catch (err) {
     return { error: err.message };
   }
@@ -501,7 +502,13 @@ export async function getActivityVideos(courseId) {
 
 export function getVideoForDay(videos, activityId, day) {
   const matching = videos
-    .filter(v => v.activity_id === activityId && day >= v.first_day && day <= v.last_day)
+    .filter(v => {
+      if (v.activity_id !== activityId) return false;
+      if (day < v.first_day || day > v.last_day) return false;
+      const interval = v.interval_days || 1;
+      if (interval <= 1) return true;
+      return (day - v.first_day) % interval === 0;
+    })
     .sort((a, b) => b.sort_order - a.sort_order);
   return matching[0] || null;
 }

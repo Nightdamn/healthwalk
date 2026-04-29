@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 
 const GREEN = '#27ae60';
 
@@ -76,13 +76,25 @@ function videoDisplayName(v) {
   return v.video_url.split('/').pop();
 }
 
-export default function VideoSection({ videos, courseId, activityId, maxDay, onUpload, onAddLink, onDelete, uploading, uploadProgress, globalUploading }) {
+export default function VideoSection({
+  videos, courseId, activityId, maxDay,
+  defaultFirstDay = 1, defaultLastDay = null, defaultIntervalDays = 1,
+  onUpload, onAddLink, onDelete, uploading, uploadProgress, globalUploading,
+}) {
   const [showLinkInput, setShowLinkInput] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
-  const [firstDay, setFirstDay] = useState(1);
-  const [lastDay, setLastDay] = useState(1);
+  const [firstDay, setFirstDay] = useState(defaultFirstDay || 1);
+  const [lastDay, setLastDay] = useState(defaultLastDay || maxDay || 1);
+  const [intervalDays, setIntervalDays] = useState(defaultIntervalDays || 1);
   const [deletingId, setDeletingId] = useState(null);
   const fileRef = useRef();
+
+  // Re-sync defaults if activity range changes (e.g., user edits the activity range)
+  useEffect(() => {
+    setFirstDay(defaultFirstDay || 1);
+    setLastDay(defaultLastDay || maxDay || 1);
+    setIntervalDays(defaultIntervalDays || 1);
+  }, [defaultFirstDay, defaultLastDay, defaultIntervalDays, maxDay]);
 
   const actVideos = videos
     .filter(v => v.activity_id === activityId)
@@ -100,7 +112,7 @@ export default function VideoSection({ videos, courseId, activityId, maxDay, onU
       alert('Максимальный размер файла: 500 МБ');
       return;
     }
-    onUpload(file, firstDay, lastDay);
+    onUpload(file, firstDay, lastDay, intervalDays);
     e.target.value = '';
   };
 
@@ -112,7 +124,7 @@ export default function VideoSection({ videos, courseId, activityId, maxDay, onU
       return;
     }
     const type = detectVideoType(url);
-    onAddLink(url, type, firstDay, lastDay);
+    onAddLink(url, type, firstDay, lastDay, intervalDays);
     setLinkUrl('');
     setShowLinkInput(false);
   };
@@ -149,6 +161,7 @@ export default function VideoSection({ videos, courseId, activityId, maxDay, onU
                 </div>
                 <div style={{ color: '#999', fontSize: 11 }}>
                   День {v.first_day}–{v.last_day}
+                  {v.interval_days > 1 ? ` • каждые ${v.interval_days} дн.` : ''}
                   {v.file_size ? ` • ${formatFileSize(v.file_size)}` : ''}
                   {v.duration_sec ? ` • ${Math.floor(v.duration_sec / 60)}:${String(v.duration_sec % 60).padStart(2, '0')}` : ''}
                 </div>
@@ -182,7 +195,7 @@ export default function VideoSection({ videos, courseId, activityId, maxDay, onU
         </div>
       )}
 
-      {/* Day interval inputs */}
+      {/* Day range + interval inputs */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>
         <span style={{ fontSize: 11, color: '#999' }}>С дня:</span>
         <input type="number" value={firstDay} min={1} max={maxDay}
@@ -194,6 +207,12 @@ export default function VideoSection({ videos, courseId, activityId, maxDay, onU
           onChange={e => { const n = parseInt(e.target.value); if (!isNaN(n) && n > 0) setLastDay(n); }}
           onBlur={() => setLastDay(Math.max(firstDay, Math.min(lastDay, maxDay)))}
           style={smallInput} />
+        <span style={{ fontSize: 11, color: '#999' }}>Каждые</span>
+        <input type="number" value={intervalDays} min={1} max={maxDay}
+          onChange={e => { const n = parseInt(e.target.value); if (!isNaN(n) && n > 0) setIntervalDays(n); }}
+          onBlur={() => setIntervalDays(Math.max(1, Math.min(intervalDays || 1, maxDay)))}
+          style={smallInput} title="Видео повторяется каждые N дней внутри диапазона" />
+        <span style={{ fontSize: 11, color: '#999' }}>дн.</span>
       </div>
 
       {/* Link input */}

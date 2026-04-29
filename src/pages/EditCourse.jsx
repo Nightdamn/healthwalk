@@ -87,10 +87,10 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted })
     })();
   }, [courseId]);
 
-  const handleVideoUpload = async (activityId, file, firstDay, lastDay) => {
+  const handleVideoUpload = async (activityId, file, firstDay, lastDay, intervalDays) => {
     setVideoUploadingId(activityId);
     setUploadProgress(0);
-    const result = await uploadActivityVideo(courseId, activityId, file, firstDay, lastDay, (pct) => {
+    const result = await uploadActivityVideo(courseId, activityId, file, firstDay, lastDay, intervalDays, (pct) => {
       setUploadProgress(pct);
     });
     setVideoUploadingId(null);
@@ -99,8 +99,8 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted })
     setVideos(prev => [...prev, result.data]);
   };
 
-  const handleAddLink = async (activityId, url, videoType, firstDay, lastDay) => {
-    const result = await addVideoLink(courseId, activityId, url, videoType, firstDay, lastDay);
+  const handleAddLink = async (activityId, url, videoType, firstDay, lastDay, intervalDays) => {
+    const result = await addVideoLink(courseId, activityId, url, videoType, firstDay, lastDay, intervalDays);
     if (result.error) { setError(`Ошибка добавления ссылки: ${result.error}`); return; }
     setVideos(prev => [...prev, result.data]);
   };
@@ -293,8 +293,8 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted })
             videoUploadingId={videoUploadingId}
             uploadProgress={uploadProgress}
             activityId={a.dbId || a._key}
-            onVideoUpload={(file, fd, ld) => handleVideoUpload(a.dbId || a._key, file, fd, ld)}
-            onAddLink={(url, type, fd, ld) => handleAddLink(a.dbId || a._key, url, type, fd, ld)}
+            onVideoUpload={(file, fd, ld, iv) => handleVideoUpload(a.dbId || a._key, file, fd, ld, iv)}
+            onAddLink={(url, type, fd, ld, iv) => handleAddLink(a.dbId || a._key, url, type, fd, ld, iv)}
             onDeleteVideo={handleDeleteVideo}
             calls={calls}
             onCreateCall={handleCreateCall}
@@ -481,6 +481,9 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon,
           courseId={courseId}
           activityId={propActivityId}
           maxDay={maxDay}
+          defaultFirstDay={activity.firstDay || 1}
+          defaultLastDay={activity.lastDay || maxDay}
+          defaultIntervalDays={activity.intervalDays || 1}
           onUpload={onVideoUpload}
           onAddLink={onAddLink}
           onDelete={onDeleteVideo}
