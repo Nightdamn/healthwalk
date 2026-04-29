@@ -54,9 +54,12 @@ app.get('/api/health', (req, res) => {
 });
 
 // ── API Routes ──
+// IMPORTANT: /api/files must be mounted BEFORE /api — apiRoutes uses a global
+// header-only requireAuth that would otherwise 401 the video-serving requests
+// which authenticate via ?token=<jwt> query param.
 app.use('/api/auth', authRoutes);
-app.use('/api', apiRoutes);
 app.use('/api/files', fileRoutes);
+app.use('/api', apiRoutes);
 
 // ── Serve SPA static files ──
 const distPath = path.join(__dirname, '..', 'dist');
