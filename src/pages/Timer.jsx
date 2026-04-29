@@ -76,7 +76,12 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
       const x = e.touches ? e.touches[0].clientX : e.clientX;
       applyLinearDrag(x);
     };
-    const end = () => { linearDraggingRef.current = false; };
+    const end = () => {
+      if (linearDraggingRef.current) {
+        linearDraggingRef.current = false;
+        endScrub();
+      }
+    };
     window.addEventListener('mousemove', move);
     window.addEventListener('mouseup', end);
     window.addEventListener('touchmove', move, { passive: false });
@@ -175,23 +180,27 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
   }, [timerPaused, isDone, hasVideo]);
 
   // ─── Sync timer seek → video seek ───
+  // During drag we sync every change; outside drag, sync only on jumps >1s
+  // (so the normal 1-sec timer tick doesn't seek the video each tick).
   const lastSyncedElapsed = useRef(elapsed);
   useEffect(() => {
-    if (!hasVideo || syncingRef.current) return;
+    if (!hasVideo) return;
     const diff = Math.abs(elapsed - lastSyncedElapsed.current);
-    // Only sync on large jumps (drag seek), not on normal 1-sec ticks
-    if (diff > 2) {
+    const isDragJump = draggingRef.current || linearDraggingRef.current;
+    if (isDragJump || diff > 1) {
       syncingRef.current = true;
       if ((isFileVideo || isDirectLink) && videoRef.current) {
-        videoRef.current.currentTime = elapsed;
+        try { videoRef.current.currentTime = elapsed; } catch {}
       }
       if (isYoutube && ytReadyRef.current && ytPlayerRef.current) {
         try { ytPlayerRef.current.seekTo(elapsed, true); } catch (e) {}
       }
-      setTimeout(() => { syncingRef.current = false; }, 200);
+      // Short lockout — long enough that the resulting `seeked` event from
+      // the player doesn't loop back and re-update the timer.
+      setTimeout(() => { syncingRef.current = false; }, 80);
     }
     lastSyncedElapsed.current = elapsed;
-  }, [elapsed, hasVideo]);
+  }, [elapsed, hasVideo, isFileVideo, isDirectLink, isYoutube]);
 
   // ─── HTML5 video event: user seeks video → update timer ───
   const handleVideoSeeked = useCallback(() => {
@@ -278,7 +287,35 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
   const ballScreenY = CY - R * Math.cos(angleRad);
 
   // ─── Drag logic ───
+  // Drag a ball auto-pauses the timer (so video freezes on the scrubbed
+  // frame), and on release resumes if it was playing before the drag.
   const draggingRef = useRef(false);
+  const wasPlayingBeforeDragRef = useRef(false);
+
+  // Always-current refs so handlers stuck in old closures still see the latest.
+  const timerPausedRef = useRef(timerPaused);
+  const onPauseRef = useRef(onPause);
+  const isDoneRef = useRef(isDone);
+  useEffect(() => { timerPausedRef.current = timerPaused; }, [timerPaused]);
+  useEffect(() => { onPauseRef.current = onPause; }, [onPause]);
+  useEffect(() => { isDoneRef.current = isDone; }, [isDone]);
+
+  const beginScrub = () => {
+    if (!timerPausedRef.current) {
+      wasPlayingBeforeDragRef.current = true;
+      onPauseRef.current?.();
+    } else {
+      wasPlayingBeforeDragRef.current = false;
+    }
+  };
+
+  const endScrub = () => {
+    if (wasPlayingBeforeDragRef.current && !isDoneRef.current) {
+      // resume after one tick so any pending seek finishes first
+      setTimeout(() => { onPauseRef.current?.(); }, 0);
+    }
+    wasPlayingBeforeDragRef.current = false;
+  };
 
   const pointerToElapsed = useCallback((clientX, clientY, container) => {
     const rect = container.getBoundingClientRect();
@@ -309,12 +346,14 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
     if (isDone || elapsed <= 0) return;
     e.preventDefault();
     draggingRef.current = true;
-  }, [isDone, elapsed]);
+    beginScrub();
+  }, [isDone, elapsed, timerPaused]);
 
   const onTouchStartBall = useCallback((e) => {
     if (isDone || elapsed <= 0) return;
     draggingRef.current = true;
-  }, [isDone, elapsed]);
+    beginScrub();
+  }, [isDone, elapsed, timerPaused]);
 
   useEffect(() => {
     const moveHandler = (e) => {
@@ -324,7 +363,12 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
       const y = e.touches ? e.touches[0].clientY : e.clientY;
       applyDrag(x, y);
     };
-    const endHandler = () => { draggingRef.current = false; };
+    const endHandler = () => {
+      if (draggingRef.current) {
+        draggingRef.current = false;
+        endScrub();
+      }
+    };
 
     window.addEventListener('mousemove', moveHandler);
     window.addEventListener('mouseup', endHandler);
@@ -928,11 +972,13 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
                 onMouseDown={(e) => {
                   if (elapsed <= 0) return;
                   linearDraggingRef.current = true;
+                  beginScrub();
                   applyLinearDrag(e.clientX);
                 }}
                 onTouchStart={(e) => {
                   if (elapsed <= 0) return;
                   linearDraggingRef.current = true;
+                  beginScrub();
                   applyLinearDrag(e.touches[0].clientX);
                 }}
                 style={{
