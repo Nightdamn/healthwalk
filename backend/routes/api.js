@@ -738,6 +738,11 @@ router.post('/trainer/toggle-completion', async (req, res) => {
         if (customAct) dur = customAct.duration_min;
       }
       if (dur && elapsed < dur * 60) elapsed = dur * 60;
+    } else {
+      // Un-marking completion → reset elapsed too. Otherwise the student
+      // still sees the timer at 00:00 (because elapsed == full duration
+      // from when it was marked done) and the practice looks completed.
+      elapsed = 0;
     }
 
     await query(
