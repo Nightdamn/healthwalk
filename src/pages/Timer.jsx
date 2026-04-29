@@ -861,15 +861,33 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
         {/* Video player or placeholder */}
         {hasVideo ? (
           <div ref={videoContainerRef} style={{
-            width: "100%", borderRadius: isFullscreen ? 0 : 20, overflow: "hidden", marginBottom: isFullscreen ? 0 : 24,
-            background: "#000", boxShadow: isFullscreen ? 'none' : "0 8px 32px rgba(0,0,0,0.12)",
+            width: "100%",
+            // In fullscreen the container IS the screen — fill it and center
+            // the video with object-fit:contain so it doesn't stick to the top.
+            height: isFullscreen ? '100%' : 'auto',
+            borderRadius: isFullscreen ? 0 : 20,
+            overflow: "hidden",
+            marginBottom: isFullscreen ? 0 : 24,
+            background: "#000",
+            boxShadow: isFullscreen ? 'none' : "0 8px 32px rgba(0,0,0,0.12)",
             position: 'relative',
+            display: isFullscreen ? 'flex' : 'block',
+            alignItems: 'center',
+            justifyContent: 'center',
           }}>
             {isFileVideo && !videoError && (
               <video
                 ref={videoRef}
                 src={videoUrl}
-                style={{ width: "100%", display: "block", aspectRatio: "16/9", objectFit: "contain", background: "#000", pointerEvents: 'none' }}
+                style={{
+                  width: "100%",
+                  height: isFullscreen ? '100%' : 'auto',
+                  aspectRatio: isFullscreen ? 'auto' : "16/9",
+                  display: "block",
+                  objectFit: "contain",
+                  background: "#000",
+                  pointerEvents: 'none',
+                }}
                 playsInline
                 preload="metadata"
                 controlsList="nodownload nofullscreen noremoteplayback"
@@ -884,7 +902,15 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
               <video
                 ref={videoRef}
                 src={video.video_url}
-                style={{ width: "100%", display: "block", aspectRatio: "16/9", objectFit: "contain", background: "#000", pointerEvents: 'none' }}
+                style={{
+                  width: "100%",
+                  height: isFullscreen ? '100%' : 'auto',
+                  aspectRatio: isFullscreen ? 'auto' : "16/9",
+                  display: "block",
+                  objectFit: "contain",
+                  background: "#000",
+                  pointerEvents: 'none',
+                }}
                 playsInline
                 preload="metadata"
                 controlsList="nodownload nofullscreen noremoteplayback"
@@ -908,14 +934,20 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
               </div>
             )}
             {isYoutube && (
-              <div style={{ position: 'relative', paddingBottom: '56.25%', height: 0 }}>
+              <div style={isFullscreen
+                ? { position: 'relative', width: '100%', height: '100%' }
+                : { position: 'relative', paddingBottom: '56.25%', height: 0 }
+              }>
                 <div ref={ytContainerRef} style={{
                   position: 'absolute', top: 0, left: 0, width: '100%', height: '100%',
                 }} />
               </div>
             )}
             {isDrive && (
-              <div style={{ position: 'relative', paddingBottom: '56.25%', height: 0, overflow: 'hidden' }}>
+              <div style={isFullscreen
+                ? { position: 'relative', width: '100%', height: '100%', overflow: 'hidden' }
+                : { position: 'relative', paddingBottom: '56.25%', height: 0, overflow: 'hidden' }
+              }>
                 <iframe
                   src={driveId
                     ? `https://drive.google.com/file/d/${driveId}/preview`
