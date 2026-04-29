@@ -883,25 +883,55 @@ function StudentDetails({
                         />
                       </div>
                     )}
-                    {/* Day range + interval */}
+                    {/* Day range + interval. Inputs accept empty during edit; on blur
+                        we clamp to a valid range so it's impossible to save a broken value. */}
                     <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
                       <div style={{ flex: 1 }}>
                         <label style={labelStyle}>С дня</label>
-                        <input type="number" value={addForm.firstDay}
-                          disabled
-                          style={{ ...inputStyle, opacity: 0.5, cursor: 'not-allowed' }} />
+                        <input type="number" value={addForm.firstDay === '' ? '' : addForm.firstDay}
+                          onChange={e => {
+                            const v = e.target.value;
+                            if (v === '') { setAddForm(f => ({ ...f, firstDay: '' })); return; }
+                            const n = parseInt(v);
+                            if (!isNaN(n)) setAddForm(f => ({ ...f, firstDay: n }));
+                          }}
+                          onBlur={() => setAddForm(f => {
+                            const n = parseInt(f.firstDay);
+                            const min = studentCurrentDay; // can only add to current/future
+                            return { ...f, firstDay: isNaN(n) || n < min ? min : Math.min(n, daysCount) };
+                          })}
+                          style={inputStyle} />
                       </div>
                       <div style={{ flex: 1 }}>
                         <label style={labelStyle}>По день</label>
-                        <input type="number" value={addForm.lastDay}
-                          onChange={e => setAddForm(f => ({ ...f, lastDay: e.target.value === '' ? '' : parseInt(e.target.value) || '' }))}
+                        <input type="number" value={addForm.lastDay === '' ? '' : addForm.lastDay}
+                          onChange={e => {
+                            const v = e.target.value;
+                            if (v === '') { setAddForm(f => ({ ...f, lastDay: '' })); return; }
+                            const n = parseInt(v);
+                            if (!isNaN(n)) setAddForm(f => ({ ...f, lastDay: n }));
+                          }}
+                          onBlur={() => setAddForm(f => {
+                            const n = parseInt(f.lastDay);
+                            const fd = parseInt(f.firstDay) || studentCurrentDay;
+                            return { ...f, lastDay: isNaN(n) || n < fd ? fd : Math.min(n, daysCount) };
+                          })}
                           style={inputStyle} />
                       </div>
                       <div style={{ flex: 1 }}>
                         <label style={labelStyle}>Интервал</label>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                          <input type="number" value={addForm.intervalDays}
-                            onChange={e => setAddForm(f => ({ ...f, intervalDays: e.target.value === '' ? '' : parseInt(e.target.value) }))}
+                          <input type="number" value={addForm.intervalDays === '' ? '' : addForm.intervalDays}
+                            onChange={e => {
+                              const v = e.target.value;
+                              if (v === '') { setAddForm(f => ({ ...f, intervalDays: '' })); return; }
+                              const n = parseInt(v);
+                              if (!isNaN(n)) setAddForm(f => ({ ...f, intervalDays: n }));
+                            }}
+                            onBlur={() => setAddForm(f => {
+                              const n = parseInt(f.intervalDays);
+                              return { ...f, intervalDays: isNaN(n) || n < 1 ? 1 : Math.min(n, daysCount) };
+                            })}
                             style={inputStyle} />
                           <span style={{ fontSize: 11, color: '#888', whiteSpace: 'nowrap' }}>дней</span>
                         </div>
@@ -912,8 +942,17 @@ function StudentDetails({
                       <div style={{ marginBottom: 8 }}>
                         <label style={labelStyle}>Длительность</label>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <input type="number" value={addForm.durationMin}
-                            onChange={e => setAddForm(f => ({ ...f, durationMin: e.target.value === '' ? '' : parseInt(e.target.value) }))}
+                          <input type="number" value={addForm.durationMin === '' ? '' : addForm.durationMin}
+                            onChange={e => {
+                              const v = e.target.value;
+                              if (v === '') { setAddForm(f => ({ ...f, durationMin: '' })); return; }
+                              const n = parseInt(v);
+                              if (!isNaN(n)) setAddForm(f => ({ ...f, durationMin: n }));
+                            }}
+                            onBlur={() => setAddForm(f => {
+                              const n = parseInt(f.durationMin);
+                              return { ...f, durationMin: isNaN(n) || n < 1 ? 10 : Math.min(n, 1200) };
+                            })}
                             style={{ ...inputStyle, width: 80 }} />
                           <span style={{ fontSize: 13, color: '#888', whiteSpace: 'nowrap' }}>минут</span>
                         </div>

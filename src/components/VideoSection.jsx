@@ -195,22 +195,49 @@ export default function VideoSection({
         </div>
       )}
 
-      {/* Day range + interval inputs */}
+      {/* Day range + interval inputs.
+          Inputs accept empty during editing (so user can clear "1" and type
+          another number). On blur values are clamped to a valid range. */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>
         <span style={{ fontSize: 11, color: '#999' }}>С дня:</span>
-        <input type="number" value={firstDay} min={1} max={maxDay}
-          onChange={e => { const n = parseInt(e.target.value); if (!isNaN(n) && n > 0) setFirstDay(n); }}
-          onBlur={() => setFirstDay(Math.max(1, Math.min(firstDay, maxDay)))}
+        <input type="number" value={firstDay === '' ? '' : firstDay} min={1} max={maxDay}
+          onChange={e => {
+            const v = e.target.value;
+            if (v === '') { setFirstDay(''); return; }
+            const n = parseInt(v);
+            if (!isNaN(n)) setFirstDay(n);
+          }}
+          onBlur={() => {
+            const n = parseInt(firstDay);
+            setFirstDay(isNaN(n) || n < 1 ? 1 : Math.min(n, maxDay));
+          }}
           style={smallInput} />
         <span style={{ fontSize: 11, color: '#999' }}>По день:</span>
-        <input type="number" value={lastDay} min={1} max={maxDay}
-          onChange={e => { const n = parseInt(e.target.value); if (!isNaN(n) && n > 0) setLastDay(n); }}
-          onBlur={() => setLastDay(Math.max(firstDay, Math.min(lastDay, maxDay)))}
+        <input type="number" value={lastDay === '' ? '' : lastDay} min={1} max={maxDay}
+          onChange={e => {
+            const v = e.target.value;
+            if (v === '') { setLastDay(''); return; }
+            const n = parseInt(v);
+            if (!isNaN(n)) setLastDay(n);
+          }}
+          onBlur={() => {
+            const n = parseInt(lastDay);
+            const fd = parseInt(firstDay) || 1;
+            setLastDay(isNaN(n) || n < fd ? fd : Math.min(n, maxDay));
+          }}
           style={smallInput} />
         <span style={{ fontSize: 11, color: '#999' }}>Каждые</span>
-        <input type="number" value={intervalDays} min={1} max={maxDay}
-          onChange={e => { const n = parseInt(e.target.value); if (!isNaN(n) && n > 0) setIntervalDays(n); }}
-          onBlur={() => setIntervalDays(Math.max(1, Math.min(intervalDays || 1, maxDay)))}
+        <input type="number" value={intervalDays === '' ? '' : intervalDays} min={1} max={maxDay}
+          onChange={e => {
+            const v = e.target.value;
+            if (v === '') { setIntervalDays(''); return; }
+            const n = parseInt(v);
+            if (!isNaN(n)) setIntervalDays(n);
+          }}
+          onBlur={() => {
+            const n = parseInt(intervalDays);
+            setIntervalDays(isNaN(n) || n < 1 ? 1 : Math.min(n, maxDay));
+          }}
           style={smallInput} title="Видео повторяется каждые N дней внутри диапазона" />
         <span style={{ fontSize: 11, color: '#999' }}>дн.</span>
       </div>

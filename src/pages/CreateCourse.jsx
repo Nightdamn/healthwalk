@@ -375,12 +375,31 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon,
             </div>
             <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
               <span style={{ fontSize: 10, color: '#999' }}>С дня:</span>
-              <input type="number" value={linkFirstDay} min={1} max={maxDay}
-                onChange={e => { const n = parseInt(e.target.value); if (!isNaN(n) && n > 0) setLinkFirstDay(n); }}
+              <input type="number" value={linkFirstDay === '' ? '' : linkFirstDay} min={1} max={maxDay}
+                onChange={e => {
+                  const v = e.target.value;
+                  if (v === '') { setLinkFirstDay(''); return; }
+                  const n = parseInt(v);
+                  if (!isNaN(n)) setLinkFirstDay(n);
+                }}
+                onBlur={() => {
+                  const n = parseInt(linkFirstDay);
+                  setLinkFirstDay(isNaN(n) || n < 1 ? 1 : Math.min(n, maxDay));
+                }}
                 style={{ ...inputStyle, width: 50, padding: '4px 6px', fontSize: 11 }} />
               <span style={{ fontSize: 10, color: '#999' }}>По:</span>
-              <input type="number" value={linkLastDay} min={1} max={maxDay}
-                onChange={e => { const n = parseInt(e.target.value); if (!isNaN(n) && n > 0) setLinkLastDay(n); }}
+              <input type="number" value={linkLastDay === '' ? '' : linkLastDay} min={1} max={maxDay}
+                onChange={e => {
+                  const v = e.target.value;
+                  if (v === '') { setLinkLastDay(''); return; }
+                  const n = parseInt(v);
+                  if (!isNaN(n)) setLinkLastDay(n);
+                }}
+                onBlur={() => {
+                  const n = parseInt(linkLastDay);
+                  const fd = parseInt(linkFirstDay) || 1;
+                  setLinkLastDay(isNaN(n) || n < fd ? fd : Math.min(n, maxDay));
+                }}
                 style={{ ...inputStyle, width: 50, padding: '4px 6px', fontSize: 11 }} />
             </div>
           </div>
