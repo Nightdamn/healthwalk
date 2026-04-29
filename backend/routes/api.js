@@ -79,6 +79,7 @@ router.get('/items', async (req, res) => {
           iconNum: a.icon_num || 'health/1', practiceType: a.practice_type || 'media',
           descriptionHtml: a.description_html || null, firstDay: a.first_day || 1,
           lastDay: a.last_day || e.days_count, intervalDays: a.interval_days || 1,
+          createdAt: a.created_at,
         })),
       });
     }
@@ -100,6 +101,7 @@ router.get('/items', async (req, res) => {
           iconNum: a.icon_num || 'health/1', practiceType: a.practice_type || 'media',
           descriptionHtml: a.description_html || null, firstDay: a.first_day || 1,
           lastDay: a.last_day || c.days_count, intervalDays: a.interval_days || 1,
+          createdAt: a.created_at,
         })),
       });
     }
@@ -677,14 +679,18 @@ router.post('/trainer/toggle-exclusion', async (req, res) => {
 
 router.post('/trainer/add-activity', async (req, res) => {
   try {
-    const { courseId, userId, label, iconNum, durationMin, firstDay, lastDay, intervalDays } = req.body;
+    const {
+      courseId, userId, label, iconNum, durationMin, firstDay, lastDay, intervalDays,
+      practiceType, descriptionHtml,
+    } = req.body;
     if (!await isTrainer(req.userId, courseId)) return res.json({ success: false, error: 'Нет прав' });
+    const pt = ['media', 'theory', 'call'].includes(practiceType) ? practiceType : 'media';
     const act = await queryOne(
-      `INSERT INTO student_custom_activities (course_id, user_id, label, icon_num, duration_min, first_day, last_day, interval_days)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
-      [courseId, userId, label, iconNum, durationMin, firstDay, lastDay, intervalDays || 1]
+      `INSERT INTO student_custom_activities (course_id, user_id, label, icon_num, duration_min, first_day, last_day, interval_days, practice_type, description_html)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id, created_at`,
+      [courseId, userId, label, iconNum, durationMin, firstDay, lastDay, intervalDays || 1, pt, descriptionHtml || null]
     );
-    res.json({ success: true, id: act.id });
+    res.json({ success: true, id: act.id, createdAt: act.created_at });
   } catch (err) { res.json({ success: false, error: err.message }); }
 });
 
@@ -752,7 +758,9 @@ router.get('/trainer/custom-activities/:courseId', async (req, res) => {
   try {
     if (!await isTrainer(req.userId, req.params.courseId)) return res.json([]);
     const rows = await query(
-      'SELECT id, user_id, label, icon_num, duration_min, first_day, last_day, interval_days FROM student_custom_activities WHERE course_id = $1 ORDER BY created_at',
+      `SELECT id, user_id, label, icon_num, duration_min, first_day, last_day, interval_days,
+              practice_type, description_html, created_at
+       FROM student_custom_activities WHERE course_id = $1 ORDER BY created_at`,
       [req.params.courseId]
     );
     res.json(rows);
@@ -782,6 +790,9 @@ router.get('/custom-activities/:courseId', async (req, res) => {
       id: a.id, activityId: a.id, label: a.label, durationMin: a.duration_min,
       iconNum: a.icon_num || 'health/1', firstDay: a.first_day, lastDay: a.last_day,
       intervalDays: a.interval_days || 1, isCustom: true,
+      practiceType: a.practice_type || 'media',
+      descriptionHtml: a.description_html || null,
+      createdAt: a.created_at,
     })));
   } catch (err) { res.json([]); }
 });

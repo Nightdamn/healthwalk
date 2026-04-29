@@ -93,6 +93,31 @@ export function isCourseFinished(startDateISO, tzOffsetMin = null, dayStartHour 
 }
 
 /**
+ * День ученика в момент создания активности — чтобы не показывать активность
+ * в днях до того, как ученик её "увидел". Если activity создана до joined_at,
+ * вернёт 1 (никакого сдвига).
+ */
+export function studentDayAtTime(joinedAtISO, atTimeISO) {
+  if (!joinedAtISO || !atTimeISO) return 1;
+  const j = new Date(joinedAtISO).getTime();
+  const t = new Date(atTimeISO).getTime();
+  if (!isFinite(j) || !isFinite(t) || t <= j) return 1;
+  return Math.floor((t - j) / 86400000) + 1;
+}
+
+/**
+ * Effective first_day для конкретного ученика. Обрезает прошлые дни:
+ * если ученик на дне 5 в момент добавления активности с firstDay=1,
+ * у этого ученика она появится только с дня 5. Pattern (интервал)
+ * остаётся привязан к оригинальному firstDay.
+ */
+export function effectiveFirstDay(originalFirstDay, activityCreatedAt, joinedAt) {
+  const base = originalFirstDay || 1;
+  if (!activityCreatedAt || !joinedAt) return base;
+  return Math.max(base, studentDayAtTime(joinedAt, activityCreatedAt));
+}
+
+/**
  * Возвращает ISO дату начала курса (первый день в dayStartHour).
  */
 export function getDefaultStartDate(dayStartHour = DAY_START_HOUR) {

@@ -350,9 +350,12 @@ export async function trainerToggleExclusion(courseId, userId, activityId, day) 
   }
 }
 
-export async function trainerAddStudentActivity(courseId, userId, label, iconNum, durationMin, firstDay, lastDay, intervalDays) {
+export async function trainerAddStudentActivity(courseId, userId, label, iconNum, durationMin, firstDay, lastDay, intervalDays, practiceType, descriptionHtml) {
   try {
-    return await apiPost('/api/trainer/add-activity', { courseId, userId, label, iconNum, durationMin, firstDay, lastDay, intervalDays });
+    return await apiPost('/api/trainer/add-activity', {
+      courseId, userId, label, iconNum, durationMin, firstDay, lastDay, intervalDays,
+      practiceType, descriptionHtml,
+    });
   } catch (err) {
     return { success: false, error: err.message };
   }

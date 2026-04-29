@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import Layout from '../components/Layout';
 import Footer from '../components/Footer';
 import { LogoFull } from '../components/Icons';
-import { MOTTOS } from '../data/constants';
+import { MOTTOS, effectiveFirstDay } from '../data/constants';
 import { getIconPath } from '../data/iconCatalog';
 import { glass } from '../styles/shared';
 
@@ -69,9 +69,13 @@ export default function Dashboard({
   const allActivities = [...(activeItem?.activities || []), ...customActivities];
   const daysTotal = activeItem?.daysCount || 30;
 
-  // Helper: check if an activity is scheduled on a given day (respects interval + exclusions)
+  // Helper: check if an activity is scheduled on a given day (respects interval + exclusions).
+  // Activities added to a course after the student already passed certain days
+  // shouldn't appear in those past days for that student — clamp via effectiveFirstDay.
+  const studentJoinedAt = activeItem?.startDate;
   const isActivityOnDay = (a, day) => {
-    if (day < a.firstDay || day > a.lastDay) return false;
+    const effFirst = effectiveFirstDay(a.firstDay, a.createdAt, studentJoinedAt);
+    if (day < effFirst || day > a.lastDay) return false;
     const interval = a.intervalDays || 1;
     if ((day - a.firstDay) % interval !== 0) return false;
     // Check exclusion

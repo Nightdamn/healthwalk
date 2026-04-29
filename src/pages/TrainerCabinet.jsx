@@ -1,8 +1,16 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Layout from '../components/Layout';
 import IconPicker from '../components/IconPicker';
+import Dropdown from '../components/Dropdown';
+import RichTextEditor from '../components/RichTextEditor';
+
+const PRACTICE_TYPE_OPTIONS = [
+  { value: 'media', label: 'Практика с медиа' },
+  { value: 'theory', label: 'Текстовая теория' },
+  { value: 'call', label: 'Онлайн с мастером' },
+];
 import { getIconPath } from '../data/iconCatalog';
-import { getCourseDay } from '../data/constants';
+import { getCourseDay, effectiveFirstDay } from '../data/constants';
 import { btnBack, glass, pageWrapper, topBar, topBarTitle } from '../styles/shared';
 import {
   getCourseStudentsInfo, getCourseAllStudentsProgress,
@@ -122,10 +130,16 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
   const activities = (course?.course_activities || []).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
   const daysCount = course?.days_count || 30;
 
-  const isActOnDay = (a, d) => {
-    if (d < (a.first_day || 1) || d > (a.last_day || daysCount)) return false;
+  // Per-student check: activity is scheduled on day d, taking into account
+  // its effective first day for THIS student (activities added later don't
+  // appear in days the student has already passed).
+  const isActOnDayForStudent = (a, d, joinedAt) => {
+    const origFirst = a.first_day || 1;
+    const last = a.last_day || daysCount;
+    const effFirst = effectiveFirstDay(origFirst, a.created_at, joinedAt);
+    if (d < effFirst || d > last) return false;
     const interval = a.interval_days || 1;
-    return (d - (a.first_day || 1)) % interval === 0;
+    return (d - origFirst) % interval === 0;
   };
 
   // Calculate stats for a student: elapsed days (based on joined_at) and completion
@@ -139,7 +153,7 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
     let completedDays = 0;
     for (let d = 1; d < studentCurrentDay; d++) {
       const dayActs = [...activities, ...customActs]
-        .filter(a => isActOnDay(a, d) && !excl[`${a.id}_${d}`]);
+        .filter(a => isActOnDayForStudent(a, d, student.joined_at) && !excl[`${a.id}_${d}`]);
       if (dayActs.length === 0) continue;
       if (dayActs.every(a => prog[d]?.[a.id]?.completed)) completedDays++;
     }
@@ -401,6 +415,7 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
                       activities={activities}
                       daysCount={daysCount}
                       studentCurrentDay={stats.studentCurrentDay}
+                      studentJoinedAt={st.joined_at}
                       exclusions={allExclusions[st.user_id] || {}}
                       customActivities={allCustomActivities.filter(ca => ca.user_id === st.user_id)}
                       onToggleExclusion={async (actId, day) => {
@@ -417,15 +432,19 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
                         }
                         return result;
                       }}
-                      onAddActivity={async (label, iconNum, durationMin, firstDay, lastDay, intervalDays) => {
+                      onAddActivity={async (label, iconNum, durationMin, firstDay, lastDay, intervalDays, practiceType, descriptionHtml) => {
                         const result = await trainerAddStudentActivity(
-                          courseId, st.user_id, label, iconNum, durationMin, firstDay, lastDay, intervalDays
+                          courseId, st.user_id, label, iconNum, durationMin, firstDay, lastDay, intervalDays,
+                          practiceType, descriptionHtml
                         );
                         if (result.success) {
                           setAllCustomActivities(prev => [...prev, {
                             id: result.id, user_id: st.user_id, label, icon_num: iconNum,
                             duration_min: durationMin, first_day: firstDay, last_day: lastDay,
                             interval_days: intervalDays,
+                            practice_type: practiceType || 'media',
+                            description_html: descriptionHtml || null,
+                            created_at: result.createdAt || new Date().toISOString(),
                           }]);
                         }
                         return result;
@@ -531,7 +550,7 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
 
 /* ── Student detail progress view ── */
 function StudentDetails({
-  userId, courseId, progress, activities, daysCount, studentCurrentDay,
+  userId, courseId, progress, activities, daysCount, studentCurrentDay, studentJoinedAt,
   exclusions, customActivities, onToggleExclusion, onAddActivity, onDeleteCustomActivity,
   onToggleCompletion,
 }) {
@@ -539,17 +558,21 @@ function StudentDetails({
   const [completionSaving, setCompletionSaving] = useState(null);
   const [saving, setSaving] = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
-  const [addForm, setAddForm] = useState({ label: '', iconNum: 'health/1', durationMin: 10, firstDay: '', lastDay: '', intervalDays: 1 });
+  const [addForm, setAddForm] = useState({
+    label: '', iconNum: 'health/1', durationMin: 10, firstDay: '', lastDay: '', intervalDays: 1,
+    practiceType: 'media', descriptionHtml: '',
+  });
   const [addSaving, setAddSaving] = useState(false);
   const [showIconPicker, setShowIconPicker] = useState(false);
 
   const isActOnDay = (a, d) => {
-    const first = a.first_day || 1;
+    const origFirst = a.first_day || 1;
     const last = a.last_day || daysCount;
-    if (d < first || d > last) return false;
+    const effFirst = effectiveFirstDay(origFirst, a.created_at, studentJoinedAt);
+    if (d < effFirst || d > last) return false;
     const interval = a.interval_days || 0;
-    if (interval === 0) return d === first;
-    return (d - first) % interval === 0;
+    if (interval === 0) return d === origFirst;
+    return (d - origFirst) % interval === 0;
   };
 
   // Merge course activities + custom activities for this student
@@ -596,15 +619,23 @@ function StudentDetails({
   const handleAdd = async () => {
     if (!addForm.label.trim()) return;
     setAddSaving(true);
+    const pt = addForm.practiceType || 'media';
+    // Theory has duration 1 min (instant); call duration is set per scheduled session.
+    const dur = pt === 'theory' ? 1 : (addForm.durationMin || 10);
     const result = await onAddActivity(
       addForm.label.trim(), addForm.iconNum,
-      addForm.durationMin || 10,
+      dur,
       addForm.firstDay || viewDay, addForm.lastDay || daysCount,
       addForm.intervalDays || 1,
+      pt,
+      addForm.descriptionHtml || null,
     );
     if (result.success) {
       setShowAddForm(false);
-      setAddForm({ label: '', iconNum: 'health/1', durationMin: 10, firstDay: '', lastDay: '', intervalDays: 1 });
+      setAddForm({
+        label: '', iconNum: 'health/1', durationMin: 10, firstDay: '', lastDay: '', intervalDays: 1,
+        practiceType: 'media', descriptionHtml: '',
+      });
     } else {
       alert(result.error || 'Ошибка');
     }
@@ -831,6 +862,27 @@ function StudentDetails({
                           placeholder="Например: Растяжка" style={inputStyle} />
                       </div>
                     </div>
+                    {/* Practice type */}
+                    <div style={{ marginBottom: 6 }}>
+                      <label style={labelStyle}>Тип практики</label>
+                      <Dropdown
+                        value={addForm.practiceType || 'media'}
+                        onChange={(v) => setAddForm(f => ({ ...f, practiceType: v }))}
+                        options={PRACTICE_TYPE_OPTIONS}
+                        fullWidth
+                      />
+                    </div>
+                    {/* Description / theory text — for theory and call */}
+                    {(addForm.practiceType === 'theory' || addForm.practiceType === 'call') && (
+                      <div style={{ marginBottom: 6 }}>
+                        <label style={labelStyle}>{addForm.practiceType === 'theory' ? 'Текст теории' : 'Описание'}</label>
+                        <RichTextEditor
+                          content={addForm.descriptionHtml || ''}
+                          onChange={(val) => setAddForm(f => ({ ...f, descriptionHtml: val }))}
+                          placeholder={addForm.practiceType === 'theory' ? 'Содержание теоретического материала...' : 'Описание онлайн-практики...'}
+                        />
+                      </div>
+                    )}
                     {/* Day range + interval */}
                     <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
                       <div style={{ flex: 1 }}>
@@ -855,16 +907,18 @@ function StudentDetails({
                         </div>
                       </div>
                     </div>
-                    {/* Duration */}
-                    <div style={{ marginBottom: 8 }}>
-                      <label style={labelStyle}>Длительность</label>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <input type="number" value={addForm.durationMin}
-                          onChange={e => setAddForm(f => ({ ...f, durationMin: e.target.value === '' ? '' : parseInt(e.target.value) }))}
-                          style={{ ...inputStyle, width: 80 }} />
-                        <span style={{ fontSize: 13, color: '#888', whiteSpace: 'nowrap' }}>минут</span>
+                    {/* Duration — hidden for theory/call */}
+                    {addForm.practiceType !== 'theory' && addForm.practiceType !== 'call' && (
+                      <div style={{ marginBottom: 8 }}>
+                        <label style={labelStyle}>Длительность</label>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <input type="number" value={addForm.durationMin}
+                            onChange={e => setAddForm(f => ({ ...f, durationMin: e.target.value === '' ? '' : parseInt(e.target.value) }))}
+                            style={{ ...inputStyle, width: 80 }} />
+                          <span style={{ fontSize: 13, color: '#888', whiteSpace: 'nowrap' }}>минут</span>
+                        </div>
                       </div>
-                    </div>
+                    )}
                     <div style={{ display: 'flex', gap: 6 }}>
                       <button onClick={handleAdd} disabled={addSaving || !addForm.label.trim()} style={{
                         flex: 1, padding: '8px', borderRadius: 8, fontSize: 12, fontWeight: 600,

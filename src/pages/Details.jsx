@@ -3,6 +3,7 @@ import Layout from '../components/Layout';
 import Footer from '../components/Footer';
 import { getIconPath } from '../data/iconCatalog';
 import { btnBack, glass } from '../styles/shared';
+import { effectiveFirstDay } from '../data/constants';
 
 const GREEN = '#27ae60';
 
@@ -32,6 +33,7 @@ export default function DetailsPage({ progress, currentDay, elapsedTime, getElap
 
   const activities = [...(activeItem?.activities || []), ...customActivities];
   const daysTotal = activeItem?.daysCount || 30;
+  const studentJoinedAt = activeItem?.startDate;
 
   return (
     <Layout>
@@ -62,7 +64,8 @@ export default function DetailsPage({ progress, currentDay, elapsedTime, getElap
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 6 }}>
                 {Array.from({ length: daysTotal }, (_, i) => {
                   const day = i + 1;
-                  const inRange = day >= act.firstDay && day <= act.lastDay
+                  const effFirst = effectiveFirstDay(act.firstDay, act.createdAt, studentJoinedAt);
+                  const inRange = day >= effFirst && day <= act.lastDay
                     && (act.intervalDays ? (day - act.firstDay) % act.intervalDays === 0 : true)
                     && !exclusions[`${act.id}_${day}`];
                   const done = progress[day]?.[act.id];

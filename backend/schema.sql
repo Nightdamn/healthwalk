@@ -227,6 +227,8 @@ CREATE TABLE IF NOT EXISTS student_custom_activities (
   first_day INTEGER NOT NULL DEFAULT 1 CHECK (first_day >= 1),
   last_day INTEGER NOT NULL DEFAULT 30 CHECK (last_day >= 1),
   interval_days INTEGER NOT NULL DEFAULT 1 CHECK (interval_days >= 1),
+  practice_type TEXT NOT NULL DEFAULT 'media' CHECK (practice_type IN ('media', 'theory', 'call')),
+  description_html TEXT,
   sort_order INTEGER DEFAULT 0,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
