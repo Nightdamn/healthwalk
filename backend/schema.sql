@@ -269,7 +269,7 @@ CREATE TABLE IF NOT EXISTS activity_calls (
   day INTEGER NOT NULL CHECK (day >= 1),
   scheduled_at TIMESTAMPTZ NOT NULL,
   duration_min INTEGER NOT NULL DEFAULT 30,
-  room_url TEXT,                       -- Daily.co room URL (set when API key available)
+  room_url TEXT,                       -- Jitsi Meet room URL (https://meet.instep.life/<room>)
   status TEXT NOT NULL DEFAULT 'scheduled' CHECK (status IN ('scheduled', 'active', 'completed', 'cancelled')),
   created_by UUID NOT NULL REFERENCES users(id),
   created_at TIMESTAMPTZ DEFAULT NOW(),

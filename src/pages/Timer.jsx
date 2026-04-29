@@ -576,7 +576,7 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
     );
   }
 
-  // ─── Call practice type: Daily.co video call UI ───
+  // ─── Call practice type: Jitsi Meet video call UI ───
   if (activity.practiceType === 'call') {
     const scheduled = activeCall ? new Date(activeCall.scheduled_at) : null;
     const now = Date.now();

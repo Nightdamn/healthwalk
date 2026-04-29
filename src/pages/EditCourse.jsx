@@ -676,9 +676,6 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon,
               }}>+ Запланировать звонок</button>
             )}
 
-            <div style={{ fontSize: 10, color: '#bbb', marginTop: 4 }}>
-              Комната для звонка будет создана после подключения Daily.co
-            </div>
           </div>
         );
       })()}
