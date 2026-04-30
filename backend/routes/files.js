@@ -242,9 +242,14 @@ async function runDriveImport(jobId, params) {
 
     // ── Post-process: remux to standard mp4+faststart so HTML5 video
     // streams smoothly (Drive often serves QuickTime .mov which causes
-    // stalls and slow seek), and probe duration for the practice timer.
+    // stalls and slow seek), AND transcode HEVC/AV1 → H.264 because
+    // Android Chrome software-decodes HEVC and stalls every few seconds.
     job.phase = 'processing';
-    const norm = await normalizeVideoFile(filePath, { forceMp4Ext: true });
+    const norm = await normalizeVideoFile(filePath, {
+      forceMp4Ext: true,
+      onPhase: (phase) => { job.phase = phase; }, // 'remux' | 'transcoding'
+      onProgress: (pct) => { job.transcodeProgress = pct; },
+    });
     filePath = norm.finalPath;
     const finalFilename = path.basename(filePath);
     const finalSize = norm.fileSize ?? bytes;

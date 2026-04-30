@@ -302,12 +302,11 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted })
   };
 
   const updateActivity = (idx, field, val) => {
-    let dbId = null;
-    setActivities(prev => prev.map((a, i) => {
-      if (i !== idx) return a;
-      dbId = a.dbId;
-      return { ...a, [field]: val };
-    }));
+    // Read dbId from current state BEFORE setActivities — React queues the
+    // updater function and runs it later, so reading inside `prev => ...`
+    // would give us the value too late and we'd skip every PATCH.
+    const dbId = activities[idx]?.dbId;
+    setActivities(prev => prev.map((a, i) => (i === idx ? { ...a, [field]: val } : a)));
     if (dbId) scheduleActivityPatch(dbId, { [field]: val });
   };
 

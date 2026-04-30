@@ -528,10 +528,16 @@ export async function importDriveVideo(courseId, activityId, url, firstDay, last
     catch (err) { return { error: err.message }; }
     const phase = job.phase || 'downloading';
     if (onProgress) {
-      // While downloading we report bytes/total. Once we flip to processing
-      // (server-side ffmpeg remux) the % stalls at the last download value;
-      // emit a sentinel `phase` so the UI can swap the label.
-      const pct = job.totalBytes ? Math.min(99, Math.round((job.bytesDone / job.totalBytes) * 100)) : 0;
+      let pct;
+      if (phase === 'downloading') {
+        pct = job.totalBytes ? Math.min(99, Math.round((job.bytesDone / job.totalBytes) * 100)) : 0;
+      } else if (phase === 'transcoding') {
+        // ffmpeg parses progress from -progress pipe:1 lines; updates job.transcodeProgress (0-100)
+        pct = typeof job.transcodeProgress === 'number' ? job.transcodeProgress : 0;
+      } else {
+        // 'remux' / 'processing' — fast container-only step, indeterminate
+        pct = 0;
+      }
       onProgress(pct, phase);
     }
     if (job.status === 'done') {
