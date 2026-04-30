@@ -515,6 +515,7 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted })
             videos={videos} courseId={courseId}
             videoUploadingId={videoUploadingId}
             uploadProgress={uploadProgress}
+            uploadPhase={uploadPhase}
             activityId={a.dbId || a._key}
             onVideoUpload={(file, fd, ld, iv) => handleVideoUpload(a.dbId || a._key, file, fd, ld, iv)}
             onAddLink={(url, type, fd, ld, iv) => handleAddLink(a.dbId || a._key, url, type, fd, ld, iv)}
@@ -572,7 +573,7 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted })
   );
 }
 
-function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon, videos, courseId, videoUploadingId, uploadProgress, activityId: propActivityId, onVideoUpload, onAddLink, onDeleteVideo, calls, onCreateCall, onDeleteCall }) {
+function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon, videos, courseId, videoUploadingId, uploadProgress, uploadPhase, activityId: propActivityId, onVideoUpload, onAddLink, onDeleteVideo, calls, onCreateCall, onDeleteCall }) {
   const [showCallForm, setShowCallForm] = useState(false);
   const [callDay, setCallDay] = useState(1);
   const [callDate, setCallDate] = useState('');
