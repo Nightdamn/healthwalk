@@ -24,6 +24,10 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || '127.0.0.1';
 
+// Behind nginx — trust 1 hop so req.ip is the real client IP, not 127.0.0.1.
+// Required for express-rate-limit (A-10) to key per real IP.
+app.set('trust proxy', 1);
+
 // ── Middleware ──
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 app.use(compression());
