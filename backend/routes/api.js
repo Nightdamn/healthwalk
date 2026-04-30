@@ -330,6 +330,155 @@ router.post('/courses/:id/can-delete', async (req, res) => {
   } catch (err) { res.json({ canDelete: false, reason: err.message }); }
 });
 
+// ─── Auto-save endpoints ───────────────────────────────────────────────────
+// Granular PATCH/POST/DELETE for course meta, activities. Replace the old
+// monolithic PUT /courses/:id "save everything" flow so the editor can
+// debounce-save individual fields as the user types — no more "click Save
+// before adding video" walls.
+
+// PATCH /courses/:id/meta — title, description, daysCount, avatar.
+// Idempotent; sends only fields that changed (others left alone).
+router.patch('/courses/:id/meta', async (req, res) => {
+  try {
+    const courseId = req.params.id;
+    const course = await queryOne('SELECT owner_id FROM courses WHERE id = $1', [courseId]);
+    if (!course) return res.status(404).json({ error: 'Курс не найден' });
+    if (course.owner_id !== req.userId) return res.status(403).json({ error: 'Нет прав' });
+
+    const { title, description, daysCount, avatarIcon, avatarCustom } = req.body || {};
+    const sets = [];
+    const params = [];
+    let i = 1;
+    if (typeof title === 'string') { sets.push(`title=$${i++}`); params.push(title); }
+    if (typeof description === 'string') { sets.push(`description=$${i++}`); params.push(description); }
+    if (typeof daysCount === 'number' && daysCount >= 1) {
+      sets.push(`days_count=$${i++}`); params.push(Math.min(daysCount, 365));
+    }
+    // Avatar can be set OR cleared. avatarIcon and avatarCustom are mutually exclusive.
+    if (avatarCustom !== undefined) {
+      sets.push(`avatar_custom=$${i++}`); params.push(avatarCustom || null);
+      if (avatarCustom) { sets.push(`avatar_icon=$${i++}`); params.push(null); }
+    }
+    if (avatarIcon !== undefined && !avatarCustom) {
+      sets.push(`avatar_icon=$${i++}`); params.push(avatarIcon || null);
+    }
+    if (sets.length === 0) return res.json({ ok: true });
+    sets.push(`updated_at=NOW()`);
+    params.push(courseId);
+    await query(`UPDATE courses SET ${sets.join(', ')} WHERE id=$${i}`, params);
+    res.json({ ok: true });
+  } catch (err) { console.error(err); res.status(500).json({ error: err.message }); }
+});
+
+// POST /courses/:id/activities — create one activity, return the row so the
+// editor can immediately attach videos / schedule calls.
+router.post('/courses/:id/activities', async (req, res) => {
+  try {
+    const courseId = req.params.id;
+    if (!await isTrainer(req.userId, courseId)) return res.status(403).json({ error: 'Нет прав' });
+
+    const { label, iconNum, practiceType, descriptionHtml, firstDay, lastDay, durationMin, intervalDays, sortOrder } = req.body || {};
+    const days = await queryOne('SELECT days_count FROM courses WHERE id = $1', [courseId]);
+    const daysCount = days?.days_count || 30;
+    const pt = ['media', 'theory', 'call'].includes(practiceType) ? practiceType : 'media';
+    const fd = Math.max(1, Math.min(parseInt(firstDay) || 1, daysCount));
+    const ld = Math.max(fd, Math.min(parseInt(lastDay) || daysCount, daysCount));
+    const dur = pt === 'theory' ? 1 : Math.max(1, Math.min(parseInt(durationMin) || 10, 1200));
+    const iv = Math.max(1, parseInt(intervalDays) || 1);
+    const so = parseInt(sortOrder);
+    let resolvedSortOrder;
+    if (Number.isFinite(so)) {
+      resolvedSortOrder = so;
+    } else {
+      const lastRow = await queryOne('SELECT COALESCE(MAX(sort_order), -1) AS m FROM course_activities WHERE course_id = $1', [courseId]);
+      resolvedSortOrder = parseInt(lastRow?.m ?? -1) + 1;
+    }
+    const activityKey = `act_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const row = await queryOne(
+      `INSERT INTO course_activities
+         (course_id, activity_id, label, duration_min, icon_num, practice_type,
+          description_html, first_day, last_day, sort_order, interval_days)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
+      [courseId, activityKey, label || '', dur, iconNum || 'health/1', pt,
+       descriptionHtml || null, fd, ld, resolvedSortOrder, iv]
+    );
+    res.json({ data: row });
+  } catch (err) { console.error(err); res.status(500).json({ error: err.message }); }
+});
+
+// PATCH /activities/:id — update any subset of activity fields. Server clamps
+// to valid ranges so the client can send intermediate states (e.g., empty
+// firstDay during typing) without breaking the row.
+router.patch('/activities/:id', async (req, res) => {
+  try {
+    const act = await queryOne('SELECT * FROM course_activities WHERE id = $1', [req.params.id]);
+    if (!act) return res.status(404).json({ error: 'Активность не найдена' });
+    if (!await isTrainer(req.userId, act.course_id)) return res.status(403).json({ error: 'Нет прав' });
+    const days = await queryOne('SELECT days_count FROM courses WHERE id = $1', [act.course_id]);
+    const daysCount = days?.days_count || 30;
+
+    const { label, iconNum, practiceType, descriptionHtml, firstDay, lastDay, durationMin, intervalDays, sortOrder } = req.body || {};
+    const sets = [];
+    const params = [];
+    let i = 1;
+
+    if (typeof label === 'string') { sets.push(`label=$${i++}`); params.push(label); }
+    if (typeof iconNum === 'string' && iconNum) { sets.push(`icon_num=$${i++}`); params.push(iconNum); }
+    if (typeof practiceType === 'string' && ['media', 'theory', 'call'].includes(practiceType)) {
+      sets.push(`practice_type=$${i++}`); params.push(practiceType);
+    }
+    if (descriptionHtml !== undefined) {
+      sets.push(`description_html=$${i++}`); params.push(descriptionHtml || null);
+    }
+    if (firstDay !== undefined && firstDay !== null && firstDay !== '') {
+      const n = Math.max(1, Math.min(parseInt(firstDay) || 1, daysCount));
+      sets.push(`first_day=$${i++}`); params.push(n);
+    }
+    if (lastDay !== undefined && lastDay !== null && lastDay !== '') {
+      const n = Math.max(1, Math.min(parseInt(lastDay) || daysCount, daysCount));
+      sets.push(`last_day=$${i++}`); params.push(n);
+    }
+    if (durationMin !== undefined && durationMin !== null && durationMin !== '') {
+      const n = Math.max(1, Math.min(parseInt(durationMin) || 10, 1200));
+      sets.push(`duration_min=$${i++}`); params.push(n);
+    }
+    if (intervalDays !== undefined && intervalDays !== null && intervalDays !== '') {
+      const n = Math.max(1, parseInt(intervalDays) || 1);
+      sets.push(`interval_days=$${i++}`); params.push(n);
+    }
+    if (sortOrder !== undefined && sortOrder !== null && sortOrder !== '') {
+      sets.push(`sort_order=$${i++}`); params.push(parseInt(sortOrder) || 0);
+    }
+    if (sets.length === 0) return res.json({ ok: true });
+    params.push(req.params.id);
+    await query(`UPDATE course_activities SET ${sets.join(', ')} WHERE id=$${i}`, params);
+    res.json({ ok: true });
+  } catch (err) { console.error(err); res.status(500).json({ error: err.message }); }
+});
+
+// DELETE /activities/:id — remove the activity, its videos rows + files,
+// and any progress/exclusions for it.
+router.delete('/activities/:id', async (req, res) => {
+  try {
+    const act = await queryOne('SELECT * FROM course_activities WHERE id = $1', [req.params.id]);
+    if (!act) return res.json({ deleted: true }); // already gone
+    if (!await isTrainer(req.userId, act.course_id)) return res.status(403).json({ error: 'Нет прав' });
+
+    const { deleteVideoFile, deleteActivityDir } = await import('../storage.js');
+    const orphaned = await query(
+      `SELECT id, video_type, video_url FROM activity_videos WHERE activity_id = $1`,
+      [req.params.id]
+    );
+    for (const v of orphaned) {
+      if (v.video_type === 'file') await deleteVideoFile(v.video_url);
+    }
+    await query(`DELETE FROM activity_videos WHERE activity_id = $1`, [req.params.id]);
+    await deleteActivityDir(act.course_id, req.params.id);
+    await query('DELETE FROM course_activities WHERE id = $1', [req.params.id]);
+    res.json({ deleted: true });
+  } catch (err) { console.error(err); res.status(500).json({ error: err.message }); }
+});
+
 router.delete('/courses/:id', async (req, res) => {
   try {
     const course = await queryOne('SELECT owner_id FROM courses WHERE id = $1', [req.params.id]);

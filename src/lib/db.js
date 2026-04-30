@@ -139,6 +139,41 @@ export async function updateCourseWithActivities(courseId, { title, description,
   }
 }
 
+// ─── Auto-save granular endpoints ─────────────────────────────────────────
+
+export async function patchCourseMeta(courseId, fields) {
+  try {
+    return await apiPatch(`/api/courses/${courseId}/meta`, fields);
+  } catch (err) {
+    return { error: err.message };
+  }
+}
+
+export async function createActivity(courseId, fields) {
+  try {
+    const res = await apiPost(`/api/courses/${courseId}/activities`, fields || {});
+    return res?.data || res;
+  } catch (err) {
+    return { error: err.message };
+  }
+}
+
+export async function patchActivity(activityId, fields) {
+  try {
+    return await apiPatch(`/api/activities/${activityId}`, fields);
+  } catch (err) {
+    return { error: err.message };
+  }
+}
+
+export async function deleteActivity(activityId) {
+  try {
+    return await apiDelete(`/api/activities/${activityId}`);
+  } catch (err) {
+    return { error: err.message };
+  }
+}
+
 export async function getOwnCourses(ownerId) {
   try {
     return await apiGet('/api/courses-own');

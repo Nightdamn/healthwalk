@@ -467,11 +467,20 @@ export default function App() {
   };
 
   const handleEditCourseBack = async () => {
-    // Reload videos/calls in case they were added/deleted during editing
+    // Editor auto-saves while open, so on back we just need to refresh
+    // course list + active context so the dashboard reflects the latest state.
+    await refreshItems();
     if (editCourseId && activeItem?.type === 'course' && activeItem?.id === editCourseId) {
-      const [vids, calls] = await Promise.all([getActivityVideos(editCourseId), getActivityCalls(editCourseId)]);
+      const [items, vids, calls] = await Promise.all([
+        getAvailableItems(user.id),
+        getActivityVideos(editCourseId),
+        getActivityCalls(editCourseId),
+      ]);
+      setAvailableItems(items);
       setCourseVideos(vids || []);
       setCourseCalls(calls || []);
+      const updated = items.find(i => i.type === 'course' && i.id === editCourseId);
+      if (updated) setActiveItem(updated);
     }
     setScreen('my_courses');
   };

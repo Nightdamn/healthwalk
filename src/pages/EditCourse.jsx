@@ -3,7 +3,14 @@ import Layout from '../components/Layout';
 import IconPicker from '../components/IconPicker';
 import { getIconPath } from '../data/iconCatalog';
 import { btnBack, glass, pageWrapper, topBar, topBarTitle } from '../styles/shared';
-import { loadCourseForEdit, updateCourseWithActivities, canDeleteCourse, deleteCourse, getActivityVideos, uploadActivityVideo, addVideoLink, importDriveVideo, deleteActivityVideo, getActivityCalls, createActivityCall, deleteActivityCall, updateActivityDuration, updateVideoDuration } from '../lib/db';
+import {
+  loadCourseForEdit, canDeleteCourse, deleteCourse,
+  getActivityVideos, uploadActivityVideo, addVideoLink, importDriveVideo, deleteActivityVideo,
+  getActivityCalls, createActivityCall, deleteActivityCall,
+  updateActivityDuration, updateVideoDuration,
+  patchCourseMeta, createActivity, patchActivity, deleteActivity,
+} from '../lib/db';
+import { createAutoSaver } from '../lib/autoSave';
 import VideoSection, { extractYoutubeId } from '../components/VideoSection';
 import RichTextEditor from '../components/RichTextEditor';
 import Dropdown from '../components/Dropdown';
@@ -93,6 +100,28 @@ const inputStyle = {
 
 const labelStyle = { fontSize: 13, fontWeight: 600, color: '#888', marginBottom: 6, display: 'block' };
 
+function SaveStatusBadge({ status }) {
+  if (status === 'saving') {
+    return (
+      <span title="Сохранение..." style={{
+        fontSize: 11, color: '#888', whiteSpace: 'nowrap',
+      }}>•••</span>
+    );
+  }
+  if (status === 'error') {
+    return (
+      <span title="Ошибка сохранения" style={{
+        fontSize: 14, color: '#e74c3c',
+      }}>⚠</span>
+    );
+  }
+  return (
+    <span title="Все изменения сохранены" style={{
+      fontSize: 14, color: '#27ae60',
+    }}>✓</span>
+  );
+}
+
 function emptyActivity(daysCount) {
   return { dbId: null, label: '', iconNum: 'health/1', practiceType: 'media', descriptionHtml: '', firstDay: 1, lastDay: daysCount, durationMin: 10, intervalDays: 1, _key: Date.now() + Math.random() };
 }
@@ -104,9 +133,7 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted })
   const [avatarIcon, setAvatarIcon] = useState('health/1');
   const [avatarCustom, setAvatarCustom] = useState(null);
   const [activities, setActivities] = useState([]);
-  const [deletedIds, setDeletedIds] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState('');
   const [pickerTarget, setPickerTarget] = useState(null);
@@ -114,15 +141,21 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted })
   const [calls, setCalls] = useState([]);
   const [videoUploadingId, setVideoUploadingId] = useState(null);
   const [uploadProgress, setUploadProgress] = useState(0);
-  const [savedAt, setSavedAt] = useState(0);
+  const [saveStatus, setSaveStatus] = useState('saved'); // 'saving' | 'saved' | 'error'
   const fileRef = useRef();
 
-  // Auto-fade the "Сохранено" toast.
+  // One auto-saver per editor instance — debounces field PATCHes per-key
+  // (each key = one course field group or one activity dbId).
+  const saverRef = useRef(null);
+  if (!saverRef.current) saverRef.current = createAutoSaver(700);
   useEffect(() => {
-    if (!savedAt) return;
-    const id = setTimeout(() => setSavedAt(0), 2500);
-    return () => clearTimeout(id);
-  }, [savedAt]);
+    const off = saverRef.current.onStateChange(setSaveStatus);
+    return () => off();
+  }, []);
+  // Best-effort: flush any pending saves when the user navigates away.
+  useEffect(() => {
+    return () => { saverRef.current?.flushAll(); };
+  }, []);
 
   // Load (or re-load) course data from the server.
   const loadCourse = useCallback(async ({ withSpinner = true } = {}) => {
@@ -158,8 +191,7 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted })
         intervalDays: a.interval_days || 1,
         _key: a.id,
       }));
-    setActivities(acts.length > 0 ? acts : [emptyActivity(course.days_count)]);
-    setDeletedIds([]);
+    setActivities(acts);
     if (withSpinner) setLoading(false);
   }, [courseId]);
 
@@ -250,80 +282,115 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted })
     setCalls(prev => prev.filter(c => c.id !== callId));
   };
 
+  // ── Activity field auto-save ──
+  // Backend payload uses camelCase same as our state — pass through directly.
+  const scheduleActivityPatch = (dbId, fields) => {
+    saverRef.current.schedule(`act-${dbId}`, () => patchActivity(dbId, fields));
+  };
+
   const updateActivity = (idx, field, val) => {
-    setActivities(prev => prev.map((a, i) => i === idx ? { ...a, [field]: val } : a));
+    let dbId = null;
+    setActivities(prev => prev.map((a, i) => {
+      if (i !== idx) return a;
+      dbId = a.dbId;
+      return { ...a, [field]: val };
+    }));
+    if (dbId) scheduleActivityPatch(dbId, { [field]: val });
   };
 
-  const removeActivity = (idx) => {
+  const removeActivity = async (idx) => {
     const act = activities[idx];
-    if (act.dbId) setDeletedIds(prev => [...prev, act.dbId]);
     setActivities(prev => prev.filter((_, i) => i !== idx));
+    if (act?.dbId) {
+      saverRef.current.cancel(`act-${act.dbId}`);
+      // delete is fire-and-forget; if it errors, user can hit refresh
+      const result = await deleteActivity(act.dbId);
+      if (result?.error) setError(`Ошибка удаления активности: ${result.error}`);
+      // Refresh videos cached in state — server cascaded them on disk + DB.
+      setVideos(prev => prev.filter(v => v.activity_id !== act.dbId));
+    }
   };
 
-  const addActivity = () => setActivities(prev => [...prev, emptyActivity(daysCount)]);
+  // Add a new activity. Auto-creates the DB row immediately so videos /
+  // call scheduling are usable without a "save first" step. Anything the user
+  // types during the create roundtrip is merged into the new dbId after the
+  // response lands and pushed via a follow-up patch.
+  const addActivity = async () => {
+    const tempKey = `tmp-${Date.now()}`;
+    const placeholder = { ...emptyActivity(daysCount), _key: tempKey, _creating: true };
+    setActivities(prev => [...prev, placeholder]);
+    const days = parseInt(daysCount) || 30;
+    const created = await createActivity(courseId, {
+      label: '', iconNum: 'health/1', practiceType: 'media',
+      firstDay: 1, lastDay: days, durationMin: 10, intervalDays: 1,
+      sortOrder: activities.length,
+    });
+    if (created?.error || !created?.id) {
+      setError(`Ошибка создания активности: ${created?.error || 'unknown'}`);
+      setActivities(prev => prev.filter(a => a._key !== tempKey));
+      return;
+    }
+    let userEdits = null;
+    setActivities(prev => prev.map(a => {
+      if (a._key !== tempKey) return a;
+      // Merge: user-edited fields take precedence over server defaults.
+      const merged = {
+        dbId: created.id,
+        activityId: created.activity_id,
+        label: a.label || created.label || '',
+        iconNum: a.iconNum || created.icon_num || 'health/1',
+        practiceType: a.practiceType || created.practice_type || 'media',
+        descriptionHtml: a.descriptionHtml || created.description_html || '',
+        firstDay: a.firstDay ?? created.first_day,
+        lastDay: a.lastDay ?? created.last_day,
+        durationMin: a.durationMin ?? created.duration_min,
+        intervalDays: a.intervalDays ?? created.interval_days ?? 1,
+        _key: created.id,
+      };
+      // Detect what the user actually changed during the roundtrip.
+      const diff = {};
+      if (a.label && a.label !== '') diff.label = a.label;
+      if (a.iconNum && a.iconNum !== 'health/1') diff.iconNum = a.iconNum;
+      if (a.practiceType && a.practiceType !== 'media') diff.practiceType = a.practiceType;
+      if (a.descriptionHtml) diff.descriptionHtml = a.descriptionHtml;
+      if (Object.keys(diff).length > 0) userEdits = diff;
+      return merged;
+    }));
+    if (userEdits) {
+      saverRef.current.schedule(`act-${created.id}`, () => patchActivity(created.id, userEdits));
+    }
+  };
+
+  // ── Course meta auto-save wrappers ──
+  // setLocal + schedule a debounced PATCH. Server clamps values, so empty
+  // intermediate states (e.g., daysCount === '') are skipped.
+  const scheduleMetaSave = useCallback((fields) => {
+    saverRef.current.schedule('meta', () => patchCourseMeta(courseId, fields));
+  }, [courseId]);
+
+  const onTitleChange = (v) => { setTitle(v); scheduleMetaSave({ title: v }); };
+  const onDescriptionChange = (v) => { setDescription(v); scheduleMetaSave({ description: v }); };
+  const onDaysCountChange = (v) => {
+    setDaysCount(v);
+    const n = parseInt(v);
+    if (!isNaN(n) && n >= 1) scheduleMetaSave({ daysCount: Math.min(n, 365) });
+  };
+  const onAvatarIconChange = (icon) => {
+    setAvatarIcon(icon); setAvatarCustom(null);
+    scheduleMetaSave({ avatarIcon: icon, avatarCustom: null });
+  };
+  const onAvatarCustomChange = (dataUrl) => {
+    setAvatarCustom(dataUrl); setAvatarIcon(null);
+    scheduleMetaSave({ avatarCustom: dataUrl });
+  };
 
   const handleAvatarUpload = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
     if (!file.name.toLowerCase().endsWith('.svg')) { setError('Поддерживается только SVG'); return; }
     const reader = new FileReader();
-    reader.onload = (ev) => { setAvatarCustom(ev.target.result); setAvatarIcon(null); };
+    reader.onload = (ev) => onAvatarCustomChange(ev.target.result);
     reader.readAsDataURL(file);
-  };
-
-  const handleSave = async () => {
-    if (!title.trim()) { setError('Введите название курса'); return; }
-    const days = parseInt(daysCount) || 30;
-    const valid = activities.filter(a => a.label.trim());
-    if (valid.length === 0) { setError('Добавьте хотя бы одну активность'); return; }
-
-    for (const a of valid) {
-      const fd = parseInt(a.firstDay) || 1;
-      const ld = Math.min(parseInt(a.lastDay) || days, days);
-      if (fd < 1 || ld > days || fd > ld) {
-        setError(`Активность "${a.label}": проверьте диапазон дней (1–${days})`);
-        return;
-      }
-    }
-
-    setSaving(true); setError('');
-    const result = await updateCourseWithActivities(courseId, {
-      title: title.trim(),
-      description: description.trim(),
-      avatarIcon: avatarCustom ? null : avatarIcon,
-      avatarCustom,
-      daysCount: days,
-      deletedActivityIds: deletedIds,
-      activities: valid.map(a => ({
-        dbId: a.dbId,
-        label: a.label.trim(),
-        iconNum: a.iconNum,
-        practiceType: a.practiceType || 'media',
-        descriptionHtml: a.descriptionHtml || null,
-        firstDay: parseInt(a.firstDay) || 1,
-        lastDay: Math.min(parseInt(a.lastDay) || days, days),
-        durationMin: a.practiceType === 'theory' ? 1 : Math.min(parseInt(a.durationMin) || 10, 1200),
-        intervalDays: Math.max(parseInt(a.intervalDays) || 1, 1),
-      })),
-    });
-
-    if (result?.error) {
-      setError(result.error);
-      setSaving(false);
-      return;
-    }
-    if (!result?.id) {
-      setError('Не удалось сохранить курс');
-      setSaving(false);
-      return;
-    }
-    // Re-load so newly created activities pick up their dbIds (videos/call
-    // scheduling unlock for them on the next render).
-    await loadCourse({ withSpinner: false });
-    setSaving(false);
-    setSavedAt(Date.now());
-    // Tell the parent to refresh its list — the editor stays open.
-    onSaved?.();
   };
 
   const handleDelete = async () => {
@@ -370,7 +437,9 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted })
         <div style={topBar}>
           <button onClick={onBack} style={btnBack}>←</button>
           <h2 style={topBarTitle}>Редактировать курс</h2>
-          <div style={{ width: 42 }} />
+          <div style={{ width: 42, display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+            <SaveStatusBadge status={saveStatus} />
+          </div>
         </div>
 
         {/* Avatar + Title + Description */}
@@ -395,12 +464,12 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted })
             </div>
             <div style={{ flex: 1 }}>
               <label style={labelStyle}>Название курса</label>
-              <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Мой курс" style={inputStyle} />
+              <input value={title} onChange={e => onTitleChange(e.target.value)} placeholder="Мой курс" style={inputStyle} />
             </div>
           </div>
 
           <label style={labelStyle}>Описание</label>
-          <textarea value={description} onChange={e => setDescription(e.target.value)}
+          <textarea value={description} onChange={e => onDescriptionChange(e.target.value)}
             placeholder="Краткое описание курса..." rows={2}
             style={{ ...inputStyle, resize: 'vertical', fontFamily: 'inherit', marginBottom: 12 }} />
 
@@ -408,13 +477,14 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted })
           <input type="number" value={daysCount} min={1} max={365}
             onChange={e => {
               const raw = e.target.value;
-              if (raw === '') { setDaysCount(''); return; }
+              if (raw === '') { onDaysCountChange(''); return; }
               const n = parseInt(raw);
-              if (!isNaN(n) && n >= 0) setDaysCount(n);
+              if (!isNaN(n) && n >= 0) onDaysCountChange(n);
             }}
             onBlur={() => {
               const v = parseInt(daysCount);
-              setDaysCount(isNaN(v) || v < 1 ? 1 : Math.min(v, 365));
+              const clamped = isNaN(v) || v < 1 ? 1 : Math.min(v, 365);
+              if (clamped !== daysCount) onDaysCountChange(clamped);
             }}
             style={{ ...inputStyle, width: 100 }} />
         </div>
@@ -447,23 +517,6 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted })
           color: GREEN, fontSize: 15, fontWeight: 600, cursor: 'pointer', marginBottom: 20,
         }}>+ Добавить активность</button>
 
-        <button onClick={handleSave} disabled={saving || deleting} style={{
-          width: '100%', padding: 16, background: '#1a1a2e', color: '#fff',
-          border: 'none', borderRadius: 14, fontSize: 16, fontWeight: 600,
-          cursor: saving ? 'wait' : 'pointer', opacity: saving ? 0.6 : 1,
-        }}>{saving ? 'Сохранение...' : 'Сохранить изменения'}</button>
-
-        {/* Inline "saved" indicator — appears after a successful save and fades out. */}
-        {savedAt > 0 && (
-          <div style={{
-            marginTop: 8, padding: '8px 12px', borderRadius: 10,
-            background: 'rgba(39,174,96,0.08)', border: '1px solid rgba(39,174,96,0.25)',
-            color: GREEN, fontSize: 13, fontWeight: 600, textAlign: 'center',
-          }}>
-            ✓ Сохранено
-          </div>
-        )}
-
         {/* Delete course */}
         {onDeleted && (
           <div style={{
@@ -476,7 +529,7 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted })
             <div style={{ fontSize: 13, color: '#888', marginBottom: 12 }}>
               Курс можно удалить только если в нём нет учеников (кроме создателя).
             </div>
-            <button onClick={handleDelete} disabled={deleting || saving} style={{
+            <button onClick={handleDelete} disabled={deleting} style={{
               width: '100%', padding: 14, background: deleting ? '#ccc' : 'rgba(231,76,60,0.1)',
               color: '#e74c3c', border: '1.5px solid rgba(231,76,60,0.3)', borderRadius: 12,
               fontSize: 15, fontWeight: 600, cursor: deleting ? 'wait' : 'pointer',
@@ -497,7 +550,7 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted })
         <IconPicker
           value={pickerTarget === 'avatar' ? avatarIcon : activities[pickerTarget]?.iconNum}
           onChange={num => {
-            if (pickerTarget === 'avatar') { setAvatarIcon(num); setAvatarCustom(null); }
+            if (pickerTarget === 'avatar') onAvatarIconChange(num);
             else updateActivity(pickerTarget, 'iconNum', num);
           }}
           onClose={() => setPickerTarget(null)} />
@@ -625,46 +678,27 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon,
       </div>
       )}
 
-      {/* Video section — only for media practice; need a saved activity (dbId)
-          so videos attach to a stable id. New activities show a "save first" hint. */}
-      {activity.practiceType === 'media' && courseId && (
-        activity.dbId ? (
-          <VideoSection
-            videos={videos}
-            courseId={courseId}
-            activityId={activity.dbId}
-            maxDay={maxDay}
-            defaultFirstDay={activity.firstDay || 1}
-            defaultLastDay={activity.lastDay || maxDay}
-            defaultIntervalDays={activity.intervalDays || 1}
-            onUpload={onVideoUpload}
-            onAddLink={onAddLink}
-            onDelete={onDeleteVideo}
-            uploading={videoUploadingId === activity.dbId}
-            uploadProgress={videoUploadingId === activity.dbId ? uploadProgress : 0}
-            globalUploading={!!videoUploadingId}
-          />
-        ) : (
-          <div style={{
-            marginTop: 8, padding: '10px 12px', borderRadius: 10,
-            background: 'rgba(52,152,219,0.06)', border: '1px solid rgba(52,152,219,0.2)',
-            fontSize: 12, color: '#3498db',
-          }}>
-            Нажмите «Сохранить изменения», чтобы загрузить видео для этой активности
-          </div>
-        )
+      {/* Video section — for media practice. Activities are auto-created in DB
+          on add so dbId is always available; no more "save first" wall. */}
+      {activity.practiceType === 'media' && courseId && activity.dbId && (
+        <VideoSection
+          videos={videos}
+          courseId={courseId}
+          activityId={activity.dbId}
+          maxDay={maxDay}
+          defaultFirstDay={activity.firstDay || 1}
+          defaultLastDay={activity.lastDay || maxDay}
+          defaultIntervalDays={activity.intervalDays || 1}
+          onUpload={onVideoUpload}
+          onAddLink={onAddLink}
+          onDelete={onDeleteVideo}
+          uploading={videoUploadingId === activity.dbId}
+          uploadProgress={videoUploadingId === activity.dbId ? uploadProgress : 0}
+          globalUploading={!!videoUploadingId}
+        />
       )}
 
-      {/* Call scheduling — only for call type with saved activity */}
-      {activity.practiceType === 'call' && courseId && !activity.dbId && (
-        <div style={{
-          marginTop: 8, padding: '10px 12px', borderRadius: 10,
-          background: 'rgba(52,152,219,0.06)', border: '1px solid rgba(52,152,219,0.2)',
-          fontSize: 12, color: '#3498db',
-        }}>
-          Нажмите «Сохранить изменения», чтобы запланировать звонки для этой активности
-        </div>
-      )}
+      {/* Call scheduling */}
       {activity.practiceType === 'call' && courseId && activity.dbId && (() => {
         const actId = activity.activityId || activity.dbId;
         const actCalls = (calls || []).filter(c => c.activity_id === actId);
