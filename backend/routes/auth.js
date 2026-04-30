@@ -1,9 +1,20 @@
 import { Router } from 'express';
+import rateLimit from 'express-rate-limit';
 import bcrypt from 'bcryptjs';
 import { query, queryOne } from '../db.js';
 import { signToken, requireAuth } from '../middleware.js';
 
 const router = Router();
+
+// A-10: cap login attempts. bcrypt cost-10 throttles to ~3-5 hash/sec already
+// but with no per-IP cap a botnet could parallelize freely.
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Слишком много попыток. Попробуйте позже.' },
+});
 
 // ── POST /api/auth/register ── (временно отключена до реализации email confirmation + captcha)
 router.post('/register', async (req, res) => {
@@ -50,7 +61,7 @@ router.post('/register', async (req, res) => {
 });
 
 // ── POST /api/auth/login ──
-router.post('/login', async (req, res) => {
+router.post('/login', loginLimiter, async (req, res) => {
   try {
     const { email, password } = req.body;
     if (!email || !password) return res.status(400).json({ error: 'Email и пароль обязательны' });

@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import multer from 'multer';
+import rateLimit from 'express-rate-limit';
 import path from 'path';
 import fs from 'fs/promises';
 import { createWriteStream } from 'fs';
@@ -8,6 +9,18 @@ import { fileURLToPath } from 'url';
 import { queryOne } from '../db.js';
 import { requireAuth, verifyToken } from '../middleware.js';
 import { normalizeVideoFile, probeDuration } from '../videoProcess.js';
+
+// A-10: each Drive import spawns a download + ffmpeg transcode (CPU-heavy).
+// Cap to 10 imports per user per hour so a single trainer can't accidentally
+// (or maliciously) saturate the 2 vCPU VDS.
+const driveImportLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.userId || req.ip,
+  message: { error: 'Слишком много импортов с Drive. Попробуйте через час.' },
+});
 
 // HTML <video src="..."> tags can't add Authorization headers, so video
 // serving accepts the JWT as a ?token=<...> query param too.
@@ -198,14 +211,33 @@ async function isTrainerOfCourse(userId, courseId) {
   return !!row?.ok;
 }
 
+// X-3: SSRF guard for Drive imports. Two protections:
+//   1. AbortSignal.timeout — slow Drive responses can't pin Node async slots
+//      indefinitely.
+//   2. Final response.url host pin — fetch follows redirects automatically;
+//      we assert the *final* URL is still on a Google download host so a
+//      crafted Drive ID can't make Drive hand us a redirect to an internal
+//      service.
+const DRIVE_HOSTS = new Set(['drive.usercontent.google.com', 'drive.google.com']);
+function assertDriveHost(response) {
+  let host;
+  try { host = new URL(response.url).hostname; }
+  catch { throw new Error('Drive returned a malformed URL'); }
+  if (!DRIVE_HOSTS.has(host)) {
+    throw new Error(`Drive redirected to unexpected host: ${host}`);
+  }
+}
+
 async function fetchDriveStream(driveId) {
-  // First try with confirm=t which bypasses the warning page for most files.
   const baseUrl = `https://drive.usercontent.google.com/download?id=${encodeURIComponent(driveId)}&export=download&confirm=t`;
-  let response = await fetch(baseUrl, { redirect: 'follow' });
+  let response = await fetch(baseUrl, {
+    redirect: 'follow',
+    signal: AbortSignal.timeout(30_000),
+  });
   if (!response.ok) throw new Error(`Drive HTTP ${response.status}`);
+  assertDriveHost(response);
 
   let ctype = response.headers.get('content-type') || '';
-  // Big files sometimes still serve an HTML form; parse the confirm token.
   if (ctype.includes('text/html')) {
     const html = await response.text();
     const tokenMatch = html.match(/name="confirm"\s+value="([^"]+)"/i)
@@ -214,8 +246,12 @@ async function fetchDriveStream(driveId) {
     if (!tokenMatch) throw new Error('Drive returned a confirmation page; make sure the file is shared "Anyone with the link"');
     const params = new URLSearchParams({ id: driveId, export: 'download', confirm: tokenMatch[1] });
     if (uuidMatch) params.set('uuid', uuidMatch[1]);
-    response = await fetch(`https://drive.usercontent.google.com/download?${params}`, { redirect: 'follow' });
+    response = await fetch(`https://drive.usercontent.google.com/download?${params}`, {
+      redirect: 'follow',
+      signal: AbortSignal.timeout(30_000),
+    });
     if (!response.ok) throw new Error(`Drive HTTP ${response.status} (after confirm)`);
+    assertDriveHost(response);
     ctype = response.headers.get('content-type') || '';
     if (ctype.includes('text/html')) throw new Error('Drive still returns HTML — file may be too large for direct download or not actually shared publicly');
   }
@@ -299,7 +335,7 @@ async function runDriveImport(jobId, params) {
   }
 }
 
-router.post('/import-drive', requireAuth, async (req, res) => {
+router.post('/import-drive', requireAuth, driveImportLimiter, async (req, res) => {
   try {
     const { courseId, activityId, url, firstDay, lastDay, intervalDays } = req.body || {};
     if (!courseId || !activityId || !url) return res.status(400).json({ error: 'courseId, activityId, url required' });

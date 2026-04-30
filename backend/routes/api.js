@@ -1,10 +1,21 @@
 import { Router } from 'express';
 import jwt from 'jsonwebtoken';
+import rateLimit from 'express-rate-limit';
 import { query, queryOne, execute } from '../db.js';
 import { requireAuth } from '../middleware.js';
 
 const router = Router();
 router.use(requireAuth);
+
+// A-10: cap message sending so a compromised account can't spam.
+const messageLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.userId || req.ip,
+  message: { success: false, error: 'Слишком много сообщений за минуту' },
+});
 
 function toISODate(v) {
   if (!v) return null;
@@ -601,7 +612,7 @@ router.post('/invitations/:id/decline', async (req, res) => {
 // MESSAGES
 // ═══════════════════════════════════════════════════════════
 
-router.post('/messages/send', async (req, res) => {
+router.post('/messages/send', messageLimiter, async (req, res) => {
   try {
     const { courseId, recipientId, body } = req.body;
     if (!body || body.length > 500) return res.json({ success: false, error: 'Сообщение от 1 до 500 символов' });

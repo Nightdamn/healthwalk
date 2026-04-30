@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "express": "^5.1.0",
+    "express-rate-limit": "^7.4.0",
     "compression": "^1.8.0",
     "cors": "^2.8.5",
     "helmet": "^8.1.0",
