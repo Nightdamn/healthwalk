@@ -105,7 +105,8 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
       if (!ytContainerRef.current || ytPlayerRef.current) return;
       ytPlayerRef.current = new window.YT.Player(ytContainerRef.current, {
         videoId: youtubeId,
-        host: 'https://www.youtube-nocookie.com',
+        // Default host (www.youtube.com) — youtube-nocookie isn't in our CSP
+        // frame-src and embed-playback breaks otherwise.
         playerVars: {
           controls: 0,         // hide YT control bar
           modestbranding: 1,   // smaller YT logo
