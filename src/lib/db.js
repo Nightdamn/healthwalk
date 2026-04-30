@@ -523,13 +523,16 @@ export async function importDriveVideo(courseId, activityId, url, firstDay, last
     let job;
     try { job = await poll(); }
     catch (err) { return { error: err.message }; }
-    if (job.totalBytes && onProgress) {
-      onProgress(Math.min(99, Math.round((job.bytesDone / job.totalBytes) * 100)));
-    } else if (onProgress) {
-      onProgress(0);
+    const phase = job.phase || 'downloading';
+    if (onProgress) {
+      // While downloading we report bytes/total. Once we flip to processing
+      // (server-side ffmpeg remux) the % stalls at the last download value;
+      // emit a sentinel `phase` so the UI can swap the label.
+      const pct = job.totalBytes ? Math.min(99, Math.round((job.bytesDone / job.totalBytes) * 100)) : 0;
+      onProgress(pct, phase);
     }
     if (job.status === 'done') {
-      onProgress?.(100);
+      onProgress?.(100, 'done');
       return { data: job.videoData };
     }
     if (job.status === 'error') return { error: job.error || 'Ошибка импорта' };

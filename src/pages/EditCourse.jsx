@@ -141,6 +141,7 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted })
   const [calls, setCalls] = useState([]);
   const [videoUploadingId, setVideoUploadingId] = useState(null);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadPhase, setUploadPhase] = useState('downloading'); // 'downloading' | 'processing' | 'done'
   const [saveStatus, setSaveStatus] = useState('saved'); // 'saving' | 'saved' | 'error'
   const fileRef = useRef();
 
@@ -229,12 +230,14 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted })
     if (videoType === 'drive') {
       setVideoUploadingId(activityId);
       setUploadProgress(0);
+      setUploadPhase('downloading');
       const result = await importDriveVideo(
         courseId, activityId, url, firstDay, lastDay, intervalDays,
-        (pct) => setUploadProgress(pct),
+        (pct, phase) => { setUploadProgress(pct); if (phase) setUploadPhase(phase); },
       );
       setVideoUploadingId(null);
       setUploadProgress(0);
+      setUploadPhase('downloading');
       if (result.error) {
         const msg = `Не удалось импортировать видео с Google Drive:\n${result.error}\n\nЕсли файл больше 1 ГБ — сожмите его до меньшего размера или загрузите на YouTube как «Доступ по ссылке».`;
         setError(`Ошибка импорта Drive: ${result.error}`);
@@ -699,6 +702,7 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon,
           onDelete={onDeleteVideo}
           uploading={videoUploadingId === activity.dbId}
           uploadProgress={videoUploadingId === activity.dbId ? uploadProgress : 0}
+          uploadPhase={videoUploadingId === activity.dbId ? uploadPhase : 'downloading'}
           globalUploading={!!videoUploadingId}
         />
       )}

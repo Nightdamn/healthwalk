@@ -104,7 +104,7 @@ function findFreeRange(coverage, from, to) {
 export default function VideoSection({
   videos, courseId, activityId, maxDay,
   defaultFirstDay = 1, defaultLastDay = null, defaultIntervalDays = 1,
-  onUpload, onAddLink, onDelete, uploading, uploadProgress, globalUploading,
+  onUpload, onAddLink, onDelete, uploading, uploadProgress, uploadPhase, globalUploading,
 }) {
   const [showLinkInput, setShowLinkInput] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
@@ -369,14 +369,23 @@ export default function VideoSection({
         <div style={{ marginBottom: 6 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
             <span style={{ fontSize: 11, color: GREEN, fontWeight: 600 }}>
-              {linkUrl && detectVideoType(linkUrl) === 'drive' ? 'Импорт с Google Drive...' : 'Загрузка видео...'}
+              {uploadPhase === 'processing'
+                ? 'Обработка видео (remux)...'
+                : linkUrl && detectVideoType(linkUrl) === 'drive'
+                  ? 'Импорт с Google Drive...'
+                  : 'Загрузка видео...'}
             </span>
-            <span style={{ fontSize: 11, color: '#888' }}>{uploadProgress || 0}%</span>
+            <span style={{ fontSize: 11, color: '#888' }}>
+              {uploadPhase === 'processing' ? '...' : `${uploadProgress || 0}%`}
+            </span>
           </div>
           <div style={{ width: '100%', height: 4, borderRadius: 2, background: 'rgba(0,0,0,0.06)' }}>
             <div style={{
-              width: `${uploadProgress || 0}%`, height: '100%', borderRadius: 2,
-              background: GREEN, transition: 'width 0.3s ease',
+              width: uploadPhase === 'processing' ? '100%' : `${uploadProgress || 0}%`,
+              height: '100%', borderRadius: 2,
+              background: GREEN,
+              transition: 'width 0.3s ease',
+              opacity: uploadPhase === 'processing' ? 0.5 : 1,
             }} />
           </div>
         </div>

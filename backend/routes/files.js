@@ -7,6 +7,7 @@ import { randomUUID } from 'crypto';
 import { fileURLToPath } from 'url';
 import { queryOne } from '../db.js';
 import { requireAuth, verifyToken } from '../middleware.js';
+import { normalizeVideoFile, probeDuration } from '../videoProcess.js';
 
 // HTML <video src="..."> tags can't add Authorization headers, so video
 // serving accepts the JWT as a ?token=<...> query param too.
@@ -89,13 +90,30 @@ router.post('/upload/:courseId/:activityId', requireAuth, upload.single('video')
 
     const { courseId, activityId } = req.params;
     const { firstDay, lastDay, durationSec, intervalDays } = req.body;
-    const filePath = `${courseId}/${activityId}/${req.file.filename}`;
     const iv = Math.max(1, parseInt(intervalDays) || 1);
+
+    // Normalize the upload: remux to mp4+faststart (handles iPhone .mov
+    // and any non-faststart sources), probe real duration via ffprobe.
+    // Fallback: if remux fails, original file is left in place and we use
+    // whatever duration the client supplied.
+    let normPath = req.file.path;
+    let normSize = req.file.size;
+    let normDuration = durationSec ? parseInt(durationSec) : null;
+    try {
+      const norm = await normalizeVideoFile(req.file.path, { forceMp4Ext: true });
+      normPath = norm.finalPath;
+      normSize = norm.fileSize ?? req.file.size;
+      if (norm.durationSec) normDuration = norm.durationSec;
+    } catch (err) {
+      console.warn('[Files] normalize failed:', err.message);
+    }
+    const finalFilename = path.basename(normPath);
+    const filePath = `${courseId}/${activityId}/${finalFilename}`;
 
     const v = await queryOne(
       `INSERT INTO activity_videos (course_id, activity_id, video_type, video_url, file_size, duration_sec, first_day, last_day, interval_days)
        VALUES ($1,$2,'file',$3,$4,$5,$6,$7,$8) RETURNING *`,
-      [courseId, activityId, filePath, req.file.size, durationSec ? parseInt(durationSec) : null,
+      [courseId, activityId, filePath, normSize, normDuration,
        parseInt(firstDay) || 1, parseInt(lastDay) || 1, iv]
     );
 
@@ -222,16 +240,26 @@ async function runDriveImport(jobId, params) {
       writeStream.on('error', reject);
     });
 
-    const relPath = `${params.courseId}/${params.activityId}/${filename}`;
+    // ── Post-process: remux to standard mp4+faststart so HTML5 video
+    // streams smoothly (Drive often serves QuickTime .mov which causes
+    // stalls and slow seek), and probe duration for the practice timer.
+    job.phase = 'processing';
+    const norm = await normalizeVideoFile(filePath, { forceMp4Ext: true });
+    filePath = norm.finalPath;
+    const finalFilename = path.basename(filePath);
+    const finalSize = norm.fileSize ?? bytes;
+
+    const relPath = `${params.courseId}/${params.activityId}/${finalFilename}`;
     const v = await queryOne(
-      `INSERT INTO activity_videos (course_id, activity_id, video_type, video_url, file_size, first_day, last_day, interval_days)
-       VALUES ($1,$2,'file',$3,$4,$5,$6,$7) RETURNING *`,
-      [params.courseId, params.activityId, relPath, bytes,
+      `INSERT INTO activity_videos (course_id, activity_id, video_type, video_url, file_size, duration_sec, first_day, last_day, interval_days)
+       VALUES ($1,$2,'file',$3,$4,$5,$6,$7,$8) RETURNING *`,
+      [params.courseId, params.activityId, relPath, finalSize, norm.durationSec,
        parseInt(params.firstDay) || 1, parseInt(params.lastDay) || 1,
        Math.max(1, parseInt(params.intervalDays) || 1)]
     );
 
     job.status = 'done';
+    job.phase = 'done';
     job.videoData = v;
     job.bytesDone = bytes;
     if (!job.totalBytes) job.totalBytes = bytes;
@@ -252,7 +280,7 @@ router.post('/import-drive', requireAuth, async (req, res) => {
     if (!driveId) return res.status(400).json({ error: 'Не удалось распознать ссылку Google Drive' });
 
     const jobId = randomUUID();
-    driveJobs.set(jobId, { status: 'pending', bytesDone: 0, totalBytes: null });
+    driveJobs.set(jobId, { status: 'pending', phase: 'downloading', bytesDone: 0, totalBytes: null });
     setTimeout(() => driveJobs.delete(jobId), 60 * 60 * 1000);
     runDriveImport(jobId, { courseId, activityId, driveId, firstDay, lastDay, intervalDays });
     res.json({ jobId });
