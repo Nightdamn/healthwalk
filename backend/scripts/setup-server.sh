@@ -97,7 +97,7 @@ server {
     gzip_min_length 1024;
     gzip_types text/plain text/css application/json application/javascript text/xml application/xml text/javascript image/svg+xml;
 
-    client_max_body_size 600M;
+    client_max_body_size 1100M;
 
     location /assets/ {
         alias /opt/instep/dist/assets/;

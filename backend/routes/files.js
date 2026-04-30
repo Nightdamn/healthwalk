@@ -48,7 +48,7 @@ const storage = multer.diskStorage({
 
 const upload = multer({
   storage,
-  limits: { fileSize: 500 * 1024 * 1024 }, // 500 MB
+  limits: { fileSize: 1024 * 1024 * 1024 }, // 1 GB
   fileFilter: (req, file, cb) => {
     const allowed = ['video/mp4', 'video/webm', 'video/quicktime'];
     cb(null, allowed.includes(file.mimetype));
@@ -73,7 +73,7 @@ const mediaStorage = multer.diskStorage({
 });
 const mediaUpload = multer({
   storage: mediaStorage,
-  limits: { fileSize: 500 * 1024 * 1024 }, // 500 MB — single-course phase, revisit before scaling
+  limits: { fileSize: 1024 * 1024 * 1024 }, // 1 GB — single-course phase, revisit before scaling
   fileFilter: (req, file, cb) => cb(null, ALLOWED_MEDIA.includes(file.mimetype)),
 });
 
@@ -133,7 +133,7 @@ router.get('/video/:courseId/:activityId/:filename', requireAuthOrQueryToken, as
 // file to our own storage in the background. Once finished it shows up as a
 // regular type='file' video and the iframe-with-its-own-controls problem
 // goes away.
-const DRIVE_MAX_BYTES = 500 * 1024 * 1024;
+const DRIVE_MAX_BYTES = 1024 * 1024 * 1024; // 1 GB
 const driveJobs = new Map(); // jobId -> { status, bytesDone, totalBytes, error?, videoData? }
 
 function extractDriveIdServer(url) {
@@ -196,7 +196,7 @@ async function runDriveImport(jobId, params) {
     const response = await fetchDriveStream(params.driveId);
     const total = parseInt(response.headers.get('content-length') || '0') || null;
     if (total && total > DRIVE_MAX_BYTES) {
-      throw new Error(`Файл слишком большой: ${(total / 1024 / 1024).toFixed(0)} МБ (лимит 500 МБ)`);
+      throw new Error(`Файл слишком большой: ${(total / 1024 / 1024).toFixed(0)} МБ (лимит 1024 МБ)`);
     }
     job.totalBytes = total;
 
@@ -212,7 +212,7 @@ async function runDriveImport(jobId, params) {
       bytes += chunk.length;
       if (bytes > DRIVE_MAX_BYTES) {
         writeStream.destroy();
-        throw new Error('Превышен лимит 500 МБ во время скачивания');
+        throw new Error('Превышен лимит 1 ГБ во время скачивания');
       }
       writeStream.write(chunk);
       job.bytesDone = bytes;

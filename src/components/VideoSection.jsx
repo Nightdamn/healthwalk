@@ -156,8 +156,8 @@ export default function VideoSection({
       alert('Поддерживаемые форматы: MP4, WebM, MOV');
       return;
     }
-    if (file.size > 500 * 1024 * 1024) {
-      alert('Максимальный размер файла: 500 МБ');
+    if (file.size > 1024 * 1024 * 1024) {
+      alert('Максимальный размер файла: 1 ГБ');
       return;
     }
     onUpload(file, firstDay, lastDay, intervalDays);

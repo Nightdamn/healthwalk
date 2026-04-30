@@ -236,7 +236,7 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted })
       setVideoUploadingId(null);
       setUploadProgress(0);
       if (result.error) {
-        const msg = `Не удалось импортировать видео с Google Drive:\n${result.error}\n\nЕсли файл больше 500 МБ — сожмите его до меньшего размера или загрузите на YouTube как «Доступ по ссылке».`;
+        const msg = `Не удалось импортировать видео с Google Drive:\n${result.error}\n\nЕсли файл больше 1 ГБ — сожмите его до меньшего размера или загрузите на YouTube как «Доступ по ссылке».`;
         setError(`Ошибка импорта Drive: ${result.error}`);
         alert(msg);
         return;
