@@ -105,7 +105,17 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
       if (!ytContainerRef.current || ytPlayerRef.current) return;
       ytPlayerRef.current = new window.YT.Player(ytContainerRef.current, {
         videoId: youtubeId,
-        playerVars: { controls: 0, modestbranding: 1, rel: 0, playsinline: 1, disablekb: 1 },
+        host: 'https://www.youtube-nocookie.com',
+        playerVars: {
+          controls: 0,         // hide YT control bar
+          modestbranding: 1,   // smaller YT logo
+          rel: 0,              // no related videos at end
+          playsinline: 1,      // mobile inline play
+          disablekb: 1,        // ignore keyboard
+          fs: 0,               // hide YT fullscreen button (we have our own)
+          iv_load_policy: 3,   // no annotations
+          cc_load_policy: 0,   // no captions by default
+        },
         events: {
           onReady: () => {
             ytReadyRef.current = true; setYtLoaded(true);
@@ -120,11 +130,16 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
               } catch (e) {}
             }
           },
+          // IMPORTANT: read timerPaused / onPause via refs because this
+          // callback is captured at player creation and would otherwise
+          // see the initial paused=true forever, causing it to re-pause
+          // the video the moment YT reports PLAYING.
           onStateChange: (e) => {
             if (syncingRef.current) return;
-            // YT.PlayerState: PLAYING=1, PAUSED=2
-            if (e.data === 1 && timerPaused) onPause();
-            if (e.data === 2 && !timerPaused) onPause();
+            const paused = timerPausedRef.current;
+            const cb = onPauseRef.current;
+            if (e.data === 1 && paused) cb?.();    // YT started playing but timer says pause
+            if (e.data === 2 && !paused) cb?.();   // YT paused but timer says play
           },
         },
       });
@@ -935,11 +950,15 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
             )}
             {isYoutube && (
               <div style={isFullscreen
-                ? { position: 'relative', width: '100%', height: '100%' }
-                : { position: 'relative', paddingBottom: '56.25%', height: 0 }
+                ? { position: 'relative', width: '100%', height: '100%', overflow: 'hidden' }
+                : { position: 'relative', paddingBottom: '56.25%', height: 0, overflow: 'hidden' }
               }>
+                {/* pointer-events:none → all clicks go to our tap overlay above
+                    (zIndex 5) so YouTube's residual title/share/etc icons can't
+                    be interacted with even if YT decides to render them. */}
                 <div ref={ytContainerRef} style={{
                   position: 'absolute', top: 0, left: 0, width: '100%', height: '100%',
+                  pointerEvents: 'none',
                 }} />
               </div>
             )}
