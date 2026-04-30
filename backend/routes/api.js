@@ -205,7 +205,16 @@ router.get('/role', async (req, res) => {
 
 router.post('/role/assign', async (req, res) => {
   try {
+    // A-1: caller must already be admin. Without this any registered user
+    // could promote themselves by POSTing { email: own_email, role: 'admin' }.
+    const caller = await queryOne('SELECT role FROM user_roles WHERE user_id = $1', [req.userId]);
+    if (caller?.role !== 'admin') {
+      return res.status(403).json({ success: false, error: 'Только администратор может назначать роли' });
+    }
     const { email, role } = req.body;
+    if (!['student', 'curator', 'trainer', 'admin'].includes(role)) {
+      return res.status(400).json({ success: false, error: 'Invalid role' });
+    }
     await query(
       'INSERT INTO pending_roles (email, role, assigned_by) VALUES ($1, $2, $3) ON CONFLICT (email) DO UPDATE SET role = $2',
       [email.toLowerCase().trim(), role, req.userId]
@@ -252,6 +261,15 @@ router.get('/courses/:id', async (req, res) => {
   try {
     const course = await queryOne('SELECT * FROM courses WHERE id = $1', [req.params.id]);
     if (!course) return res.status(404).json({ error: 'Not found' });
+    // A-3: only the owner or someone enrolled in the course may read it.
+    // (Otherwise any authenticated user could harvest course content by UUID.)
+    if (course.owner_id !== req.userId) {
+      const enroll = await queryOne(
+        'SELECT 1 FROM course_enrollments WHERE course_id = $1 AND user_id = $2',
+        [req.params.id, req.userId]
+      );
+      if (!enroll) return res.status(403).json({ error: 'Нет доступа' });
+    }
     const acts = await query('SELECT * FROM course_activities WHERE course_id = $1 ORDER BY sort_order', [req.params.id]);
     res.json({ ...course, course_activities: acts });
   } catch (err) { console.error(err); res.status(500).json({ error: err.message }); }
@@ -259,6 +277,11 @@ router.get('/courses/:id', async (req, res) => {
 
 router.put('/courses/:id', async (req, res) => {
   try {
+    // A-2: only the owner may write the course definition. Without this
+    // any authenticated user could clobber a course they know the UUID of.
+    const owner = await queryOne('SELECT owner_id FROM courses WHERE id = $1', [req.params.id]);
+    if (!owner) return res.status(404).json({ error: 'Курс не найден' });
+    if (owner.owner_id !== req.userId) return res.status(403).json({ error: 'Нет прав' });
     const { title, description, avatarIcon, avatarCustom, daysCount, activities, deletedActivityIds } = req.body;
     await query(
       'UPDATE courses SET title=$1, description=$2, days_count=$3, avatar_icon=$4, avatar_custom=$5, updated_at=NOW() WHERE id=$6',
@@ -582,6 +605,21 @@ router.post('/messages/send', async (req, res) => {
   try {
     const { courseId, recipientId, body } = req.body;
     if (!body || body.length > 500) return res.json({ success: false, error: 'Сообщение от 1 до 500 символов' });
+    // A-4: both sender and recipient must belong to the course (owner counts).
+    // Prevents anyone with a JWT from injecting messages into arbitrary courses.
+    const c = await queryOne('SELECT owner_id FROM courses WHERE id = $1', [courseId]);
+    if (!c) return res.status(404).json({ success: false, error: 'Курс не найден' });
+    const isMember = async (uid) => {
+      if (uid === c.owner_id) return true;
+      const e = await queryOne(
+        'SELECT 1 FROM course_enrollments WHERE course_id = $1 AND user_id = $2',
+        [courseId, uid]
+      );
+      return !!e;
+    };
+    if (!(await isMember(req.userId)) || !(await isMember(recipientId))) {
+      return res.status(403).json({ success: false, error: 'Нет доступа к курсу' });
+    }
     const msg = await queryOne(
       'INSERT INTO messages (course_id, sender_id, recipient_id, body) VALUES ($1,$2,$3,$4) RETURNING id',
       [courseId, req.userId, recipientId, body]
@@ -593,6 +631,16 @@ router.post('/messages/send', async (req, res) => {
 router.get('/messages/conversation', async (req, res) => {
   try {
     const { courseId, otherUserId } = req.query;
+    // A-4 (read): same gate as send — caller must belong to the course.
+    const c = await queryOne('SELECT owner_id FROM courses WHERE id = $1', [courseId]);
+    if (!c) return res.status(404).json([]);
+    if (c.owner_id !== req.userId) {
+      const enroll = await queryOne(
+        'SELECT 1 FROM course_enrollments WHERE course_id = $1 AND user_id = $2',
+        [courseId, req.userId]
+      );
+      if (!enroll) return res.status(403).json([]);
+    }
     const msgs = await query(
       `SELECT id, sender_id, recipient_id, body, is_read, created_at FROM messages
        WHERE course_id = $1 AND ((sender_id = $2 AND recipient_id = $3) OR (sender_id = $3 AND recipient_id = $2))
@@ -703,6 +751,8 @@ router.get('/trackers/:id', async (req, res) => {
   try {
     const t = await queryOne('SELECT * FROM personal_trackers WHERE id = $1', [req.params.id]);
     if (!t) return res.status(404).json({ error: 'Not found' });
+    // A-3: trackers are personal, only the owner reads.
+    if (t.user_id !== req.userId) return res.status(403).json({ error: 'Нет доступа' });
     t.tracker_practices = await query('SELECT * FROM tracker_practices WHERE tracker_id = $1 ORDER BY sort_order', [t.id]);
     res.json(t);
   } catch (err) { console.error(err); res.status(500).json({ error: err.message }); }
@@ -710,6 +760,10 @@ router.get('/trackers/:id', async (req, res) => {
 
 router.put('/trackers/:id', async (req, res) => {
   try {
+    // A-2: ownership check before any write.
+    const owner = await queryOne('SELECT user_id FROM personal_trackers WHERE id = $1', [req.params.id]);
+    if (!owner) return res.status(404).json({ error: 'Трекер не найден' });
+    if (owner.user_id !== req.userId) return res.status(403).json({ error: 'Нет прав' });
     const { title, avatarIcon, avatarCustom, daysCount, practices, deletedPracticeIds } = req.body;
     await query(
       'UPDATE personal_trackers SET title=$1, avatar_icon=$2, avatar_custom=$3, days_count=$4 WHERE id=$5',

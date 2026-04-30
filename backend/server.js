@@ -13,6 +13,13 @@ import fileRoutes from './routes/files.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+// A-6: refuse to start in production without an explicit CORS_ORIGIN.
+// Wildcard fallback would let any origin call our authenticated API.
+if (process.env.NODE_ENV === 'production' && !process.env.CORS_ORIGIN) {
+  console.error('[InStep] FATAL: CORS_ORIGIN must be set in production');
+  process.exit(1);
+}
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || '127.0.0.1';

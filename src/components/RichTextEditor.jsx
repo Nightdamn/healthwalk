@@ -307,21 +307,49 @@ export default function RichTextEditor({ content, onChange, placeholder = 'На�
   );
 }
 
-// Read-only renderer for theory content
+// X-2: iframe src is gated to a tiny allow-list of embed hosts. This is
+// installed once per module load; running purify with a hook attached
+// validates every iframe in every TheoryContent render.
+const IFRAME_HOSTS = /^https:\/\/(www\.)?(youtube\.com|youtube-nocookie\.com|drive\.google\.com|meet\.instep\.life)\//i;
+DOMPurify.addHook('uponSanitizeElement', (node, data) => {
+  if (data.tagName === 'iframe') {
+    const src = node.getAttribute('src') || '';
+    if (!IFRAME_HOSTS.test(src)) {
+      // Strip the offending iframe entirely.
+      node.parentNode?.removeChild(node);
+    }
+  }
+});
+
+// Read-only renderer for theory content.
+// X-1/X-2: tightened DOMPurify config — `style` removed (CSS injection),
+// iframe `src` restricted to a whitelist of trusted embed hosts only.
+// A-7: same-origin /api/files/media URLs are rewritten with ?token=<jwt> so
+// <img>/<video>/<iframe> tags work after the media endpoint went auth-only.
 export function TheoryContent({ html }) {
-  const cleanHtml = DOMPurify.sanitize(html || '', {
-    ALLOWED_TAGS: [
-      'p', 'h2', 'h3', 'ul', 'ol', 'li', 'a', 'img', 'em', 'strong', 'u', 'blockquote', 'hr', 'br',
-      'video', 'source', 'iframe',
-    ],
-    ALLOWED_ATTR: [
-      'href', 'src', 'alt', 'target', 'rel', 'class',
-      'controls', 'playsinline', 'preload', 'poster', 'type',
-      'width', 'height', 'frameborder', 'allow', 'allowfullscreen', 'data-embed', 'style',
-    ],
-    ADD_TAGS: ['iframe'],
-    ADD_ATTR: ['allow', 'allowfullscreen', 'frameborder'],
-  });
+  const cleanHtml = React.useMemo(() => {
+    const sanitized = DOMPurify.sanitize(html || '', {
+      ALLOWED_TAGS: [
+        'p', 'h2', 'h3', 'ul', 'ol', 'li', 'a', 'img', 'em', 'strong', 'u', 'blockquote', 'hr', 'br',
+        'video', 'source', 'iframe',
+      ],
+      ALLOWED_ATTR: [
+        'href', 'src', 'alt', 'target', 'rel', 'class',
+        'controls', 'playsinline', 'preload', 'poster', 'type',
+        'width', 'height', 'frameborder', 'allow', 'allowfullscreen', 'data-embed',
+      ],
+      ADD_ATTR: ['allow', 'allowfullscreen', 'frameborder'],
+    });
+    // Rewrite media URLs to carry the auth token. Same-origin /api/files/media/
+    // is now requireAuthOrQueryToken; without ?token= the embedded tag would
+    // 401 silently and show a broken image.
+    const token = typeof localStorage !== 'undefined' ? localStorage.getItem('is_token') : null;
+    if (!token) return sanitized;
+    return sanitized.replace(
+      /(src=["'])(\/api\/files\/media\/[^"'?#]+)(["'])/g,
+      (_m, before, url, after) => `${before}${url}?token=${encodeURIComponent(token)}${after}`,
+    );
+  }, [html]);
   return (
     <div style={{ fontSize: 14, lineHeight: 1.7, color: '#1a1a2e' }}>
       <div className="theory-content" dangerouslySetInnerHTML={{ __html: cleanHtml }} />

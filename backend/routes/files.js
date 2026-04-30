@@ -131,7 +131,30 @@ router.post('/upload/:courseId/:activityId', requireAuth, upload.single('video')
 router.get('/video/:courseId/:activityId/:filename', requireAuthOrQueryToken, async (req, res) => {
   try {
     const { courseId, activityId, filename } = req.params;
+    // A-9: hardened path validation. UUIDs only for courseId/activityId,
+    // basename-only for filename, and a containment assertion after path.join
+    // so encoded traversal can't escape UPLOADS_DIR.
+    const uuid = /^[a-zA-Z0-9_-]+$/;
+    if (!uuid.test(courseId) || !uuid.test(activityId)
+        || path.basename(filename) !== filename || filename.includes('\x00')) {
+      return res.status(400).json({ error: 'Bad path' });
+    }
     const filePath = path.join(UPLOADS_DIR, courseId, activityId, filename);
+    if (!filePath.startsWith(UPLOADS_DIR + path.sep)) {
+      return res.status(400).json({ error: 'Bad path' });
+    }
+
+    // A-8: only the course owner or someone enrolled may stream the video.
+    // Any auth'd user could otherwise read any video they know the path of.
+    const c = await queryOne('SELECT owner_id FROM courses WHERE id = $1', [courseId]);
+    if (!c) return res.status(404).json({ error: 'Course not found' });
+    if (c.owner_id !== req.userId) {
+      const enroll = await queryOne(
+        'SELECT 1 FROM course_enrollments WHERE course_id = $1 AND user_id = $2',
+        [courseId, req.userId]
+      );
+      if (!enroll) return res.status(403).json({ error: 'Нет доступа' });
+    }
 
     try {
       await fs.access(filePath);
@@ -314,17 +337,27 @@ router.post('/upload-media', requireAuth, mediaUpload.single('file'), async (req
   }
 });
 
-// ── GET /api/files/media/:userId/:filename — public, embedded in HTML ──
-router.get('/media/:userId/:filename', async (req, res) => {
+// ── GET /api/files/media/:userId/:filename ──
+// A-7: previously open. <img src="..."> embedded in theory HTML can't send
+// Authorization headers, so we accept the same ?token= query fallback as
+// /video/. Theory media inherits whatever access the surrounding course
+// already grants — anyone with the URL had to receive it via the course.
+router.get('/media/:userId/:filename', requireAuthOrQueryToken, async (req, res) => {
   try {
     const { userId, filename } = req.params;
-    if (!/^[a-z0-9-]+$/i.test(userId) || filename.includes('..') || filename.includes('/')) {
+    // A-9: hardened path validation. Reject anything that could escape the
+    // MEDIA_DIR root via .. segments, encoded slashes, or null bytes.
+    const safeBasename = path.basename(filename) === filename;
+    if (!/^[a-z0-9-]+$/i.test(userId) || !safeBasename || filename.includes('\x00')) {
       return res.status(400).json({ error: 'Bad path' });
     }
     const filePath = path.join(MEDIA_DIR, userId, filename);
+    if (!filePath.startsWith(MEDIA_DIR + path.sep)) {
+      return res.status(400).json({ error: 'Bad path' });
+    }
     try { await fs.access(filePath); }
     catch { return res.status(404).json({ error: 'Not found' }); }
-    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    res.setHeader('Cache-Control', 'private, max-age=31536000, immutable');
     res.sendFile(filePath);
   } catch (err) {
     console.error('[Files] Serve media:', err);
