@@ -235,7 +235,12 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted })
       );
       setVideoUploadingId(null);
       setUploadProgress(0);
-      if (result.error) { setError(`Ошибка импорта Drive: ${result.error}`); return; }
+      if (result.error) {
+        const msg = `Не удалось импортировать видео с Google Drive:\n${result.error}\n\nЕсли файл больше 500 МБ — сожмите его до меньшего размера или загрузите на YouTube как «Доступ по ссылке».`;
+        setError(`Ошибка импорта Drive: ${result.error}`);
+        alert(msg);
+        return;
+      }
       setVideos(prev => [...prev, result.data]);
       if (result.data?.duration_sec) {
         await syncActivityDuration(activityId, result.data.duration_sec);
