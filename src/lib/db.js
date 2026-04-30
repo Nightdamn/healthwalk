@@ -513,8 +513,11 @@ export async function importDriveVideo(courseId, activityId, url, firstDay, last
   const token = localStorage.getItem('is_token');
   const apiUrl = import.meta.env.VITE_API_URL || '';
   const poll = async () => {
-    const res = await fetch(`${apiUrl}/api/files/import-drive/${jobId}`, {
-      headers: { 'Authorization': `Bearer ${token}` },
+    // cache:no-store + cache-busting query so we never get a 304 (which fetch
+    // surfaces as ok=false and broke the polling loop early).
+    const res = await fetch(`${apiUrl}/api/files/import-drive/${jobId}?t=${Date.now()}`, {
+      headers: { 'Authorization': `Bearer ${token}`, 'Cache-Control': 'no-cache' },
+      cache: 'no-store',
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.json();

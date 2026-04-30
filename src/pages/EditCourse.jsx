@@ -244,6 +244,11 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted })
         alert(msg);
         return;
       }
+      if (!result.data || !result.data.id) {
+        setError('Импорт завершился, но данные видео не вернулись. Перезагрузите страницу.');
+        alert('Импорт завершился, но данные видео не вернулись. Перезагрузите страницу.');
+        return;
+      }
       setVideos(prev => [...prev, result.data]);
       if (result.data?.duration_sec) {
         await syncActivityDuration(activityId, result.data.duration_sec);

@@ -290,6 +290,9 @@ router.post('/import-drive', requireAuth, async (req, res) => {
 router.get('/import-drive/:jobId', requireAuth, (req, res) => {
   const job = driveJobs.get(req.params.jobId);
   if (!job) return res.status(404).json({ error: 'Job not found' });
+  // Polling endpoint — disable caching so the browser doesn't re-emit a 304
+  // when the JSON body happens to be identical to the previous tick.
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
   res.json(job);
 });
 
