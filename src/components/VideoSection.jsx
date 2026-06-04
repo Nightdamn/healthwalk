@@ -249,10 +249,15 @@ export default function VideoSection({
       {actVideos.length > 0 && !formOpen && (
         allCovered ? (
           <div style={{
-            padding: '7px 10px', borderRadius: 8, fontSize: 11, fontWeight: 500,
-            background: 'rgba(0,0,0,0.03)', color: '#888', textAlign: 'center',
+            padding: '7px 10px', borderRadius: 8, fontSize: 11, fontWeight: 600,
+            background: 'rgba(39,174,96,0.08)', border: '1px solid rgba(39,174,96,0.25)',
+            color: GREEN, display: 'flex', alignItems: 'center', gap: 6,
           }}>
-            Все дни покрыты видео ({actFirst}–{actLast})
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <polyline points="3,8.5 6.5,12 13,4" stroke={GREEN} strokeWidth="2"
+                strokeLinecap="round" strokeLinejoin="miter" fill="none"/>
+            </svg>
+            Видео есть для всех дней практики
           </div>
         ) : (
           <button onClick={() => setFormOpen(true)} disabled={globalUploading}
