@@ -536,9 +536,6 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted })
             marginTop: 24, padding: '16px', borderRadius: 14,
             border: '1.5px solid rgba(231,76,60,0.2)', background: 'rgba(231,76,60,0.03)',
           }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: '#e74c3c', marginBottom: 8 }}>
-              Опасная зона
-            </div>
             <div style={{ fontSize: 13, color: '#888', marginBottom: 12 }}>
               Курс можно удалить только если в нём нет учеников (кроме создателя).
             </div>
@@ -573,11 +570,38 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted })
 }
 
 function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon, videos, courseId, videoUploadingId, uploadProgress, uploadPhase, activityId: propActivityId, onVideoUpload, onAddLink, onDeleteVideo, calls, onCreateCall, onDeleteCall }) {
+  // Draft call. As soon as date + time + duration are all valid the row is
+  // auto-saved (debounced ~700ms) and the form resets — no Save button.
   const [showCallForm, setShowCallForm] = useState(false);
   const [callDay, setCallDay] = useState(1);
   const [callDate, setCallDate] = useState('');
   const [callTime, setCallTime] = useState('10:00');
   const [callDuration, setCallDuration] = useState(30);
+  const [callSaving, setCallSaving] = useState(false);
+  const savedDraftRef = useRef('');
+
+  // Auto-save call draft when all fields valid (debounced)
+  useEffect(() => {
+    if (!showCallForm) return;
+    if (!callDate || !callTime || !callDay || !callDuration) return;
+    const key = `${callDay}|${callDate}|${callTime}|${callDuration}`;
+    if (savedDraftRef.current === key || callSaving) return;
+    const t = setTimeout(async () => {
+      const scheduledAt = new Date(`${callDate}T${callTime}:00`).toISOString();
+      if (isNaN(Date.parse(scheduledAt))) return;
+      setCallSaving(true);
+      savedDraftRef.current = key;
+      try {
+        await onCreateCall(activity.activityId || propActivityId, callDay, scheduledAt, callDuration);
+        // Reset draft so a new entry can be added without re-opening the form
+        setCallDate('');
+        setCallTime('10:00');
+      } catch {}
+      setCallSaving(false);
+    }, 700);
+    return () => clearTimeout(t);
+  }, [showCallForm, callDay, callDate, callTime, callDuration, callSaving, activity.activityId, propActivityId, onCreateCall]);
+
   const numChange = (field) => (e) => {
     const raw = e.target.value;
     if (raw === '') { onUpdate(field, ''); return; }
@@ -771,20 +795,16 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon,
                       style={{ ...inputStyle, width: 50, padding: '4px 6px', fontSize: 11 }} />
                   </div>
                 </div>
-                <div style={{ display: 'flex', gap: 4 }}>
-                  <button onClick={() => {
-                    if (!callDate) return;
-                    const scheduledAt = new Date(`${callDate}T${callTime}:00`).toISOString();
-                    onCreateCall(activity.activityId || propActivityId, callDay, scheduledAt, callDuration);
-                    setShowCallForm(false);
-                  }} style={{
-                    padding: '6px 10px', borderRadius: 8, border: 'none',
-                    background: '#9b59b6', color: '#fff', fontSize: 11, fontWeight: 600, cursor: 'pointer',
-                  }}>Создать</button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
+                  <span style={{ fontSize: 10, color: callSaving ? '#9b59b6' : '#aaa' }}>
+                    {callSaving
+                      ? 'Сохранение...'
+                      : (callDate ? '✓ Сохранится автоматически' : 'Заполните дату — звонок сохранится автоматически')}
+                  </span>
                   <button onClick={() => setShowCallForm(false)} style={{
-                    padding: '6px 8px', borderRadius: 8, border: 'none',
+                    marginLeft: 'auto', padding: '4px 8px', borderRadius: 6, border: 'none',
                     background: 'rgba(0,0,0,0.05)', color: '#999', fontSize: 11, cursor: 'pointer',
-                  }}>Отмена</button>
+                  }}>Закрыть</button>
                 </div>
               </div>
             ) : (
