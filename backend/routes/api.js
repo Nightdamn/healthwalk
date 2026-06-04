@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import jwt from 'jsonwebtoken';
-import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
+import rateLimit from 'express-rate-limit';
 import { query, queryOne, execute } from '../db.js';
 import { requireAuth } from '../middleware.js';
 
@@ -13,7 +13,8 @@ const messageLimiter = rateLimit({
   max: 30,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => req.userId || ipKeyGenerator(req.ip),
+  keyGenerator: (req) => req.userId || req.ip,
+  validate: { keyGeneratorIpFallback: false }, // we already fall back to req.ip ourselves
   message: { success: false, error: 'Слишком много сообщений за минуту' },
 });
 

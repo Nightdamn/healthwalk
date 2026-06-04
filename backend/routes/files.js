@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import multer from 'multer';
-import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
+import rateLimit from 'express-rate-limit';
 import path from 'path';
 import fs from 'fs/promises';
 import { createWriteStream } from 'fs';
@@ -18,7 +18,8 @@ const driveImportLimiter = rateLimit({
   max: 10,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => req.userId || ipKeyGenerator(req.ip),
+  keyGenerator: (req) => req.userId || req.ip,
+  validate: { keyGeneratorIpFallback: false },
   message: { error: 'Слишком много импортов с Drive. Попробуйте через час.' },
 });
 
