@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 import { query, queryOne } from '../db.js';
 import { signToken, requireAuth } from '../middleware.js';
 
@@ -81,26 +82,61 @@ router.post('/login', loginLimiter, async (req, res) => {
   }
 });
 
+// Pinned redirect URI — never derived from req headers (spoofable Host header).
+// APP_URL must be set in .env (e.g. https://instep.life).
+function googleRedirectUri() {
+  const base = process.env.APP_URL;
+  if (!base) throw new Error('APP_URL env var missing — required for Google OAuth');
+  return `${base.replace(/\/+$/, '')}/api/auth/google/callback`;
+}
+
+// In-memory OAuth state store. {state -> {createdAt}}. 10 min TTL.
+// Single Node process so a Map is fine; on multi-process upgrade move to Redis.
+const oauthStates = new Map();
+const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
+function issueOauthState() {
+  const s = crypto.randomBytes(32).toString('base64url');
+  oauthStates.set(s, Date.now());
+  // Lazy cleanup of expired entries
+  for (const [k, t] of oauthStates) {
+    if (Date.now() - t > OAUTH_STATE_TTL_MS) oauthStates.delete(k);
+  }
+  return s;
+}
+function consumeOauthState(s) {
+  if (!s || !oauthStates.has(s)) return false;
+  const t = oauthStates.get(s);
+  oauthStates.delete(s);
+  return Date.now() - t <= OAUTH_STATE_TTL_MS;
+}
+
 // ── GET /api/auth/google ── redirect to Google OAuth
 router.get('/google', (req, res) => {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   if (!clientId) return res.status(500).json({ error: 'Google OAuth не настроен' });
 
-  const redirectUri = `${process.env.APP_URL || req.protocol + '://' + req.get('host')}/api/auth/google/callback`;
+  let redirectUri;
+  try { redirectUri = googleRedirectUri(); }
+  catch (err) { return res.status(500).json({ error: err.message }); }
+
+  const state = issueOauthState();
   const scope = encodeURIComponent('openid email profile');
-  const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${scope}&access_type=offline&prompt=select_account`;
+  const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${scope}&access_type=offline&prompt=select_account&state=${state}`;
   res.redirect(url);
 });
 
 // ── GET /api/auth/google/callback ── handle Google OAuth callback
 router.get('/google/callback', async (req, res) => {
   try {
-    const { code } = req.query;
+    const { code, state } = req.query;
     if (!code) return res.status(400).send('No code');
+    if (!consumeOauthState(state)) {
+      return res.status(400).send('Invalid or expired OAuth state — повторите вход');
+    }
 
     const clientId = process.env.GOOGLE_CLIENT_ID;
     const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-    const redirectUri = `${process.env.APP_URL || req.protocol + '://' + req.get('host')}/api/auth/google/callback`;
+    const redirectUri = googleRedirectUri();
 
     // Exchange code for tokens
     const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
