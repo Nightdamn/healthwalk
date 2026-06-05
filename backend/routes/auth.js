@@ -167,23 +167,6 @@ router.get('/google/callback', async (req, res) => {
         'INSERT INTO users (email, display_name, avatar_url, provider, provider_id) VALUES ($1, $2, $3, $4, $5) RETURNING *',
         [profile.email.toLowerCase(), profile.name || profile.email.split('@')[0], profile.picture || null, 'google', profile.id]
       );
-
-      // Check pending roles
-      const pendingRole = await queryOne('SELECT role, assigned_by FROM pending_roles WHERE email = $1', [profile.email.toLowerCase()]);
-      if (pendingRole) {
-        await queryOne('INSERT INTO user_roles (user_id, role, assigned_by) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO UPDATE SET role = $2', [user.id, pendingRole.role, pendingRole.assigned_by]);
-        await query('DELETE FROM pending_roles WHERE email = $1', [profile.email.toLowerCase()]);
-      }
-
-      // Check pending invitations
-      const invitations = await query('SELECT id, course_id, role, invited_by FROM pending_invitations WHERE email = $1', [profile.email.toLowerCase()]);
-      for (const inv of invitations) {
-        await queryOne(
-          'INSERT INTO course_enrollments (course_id, user_id, role, invited_by) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING',
-          [inv.course_id, user.id, inv.role, inv.invited_by]
-        );
-      }
-      if (invitations.length) await query('DELETE FROM pending_invitations WHERE email = $1', [profile.email.toLowerCase()]);
     } else {
       // Update avatar/name if changed
       await query(
@@ -191,6 +174,24 @@ router.get('/google/callback', async (req, res) => {
         [profile.name, profile.picture, profile.id, user.id]
       );
     }
+
+    // Apply pending role / invitations on EVERY login (not just first registration).
+    // If admin assigned a role after the user already logged in once, this picks it up
+    // on her next visit. Same idea for course invitations.
+    const pendingRole = await queryOne('SELECT role, assigned_by FROM pending_roles WHERE email = $1', [profile.email.toLowerCase()]);
+    if (pendingRole) {
+      await queryOne('INSERT INTO user_roles (user_id, role, assigned_by) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO UPDATE SET role = $2', [user.id, pendingRole.role, pendingRole.assigned_by]);
+      await query('DELETE FROM pending_roles WHERE email = $1', [profile.email.toLowerCase()]);
+    }
+
+    const invitations = await query('SELECT id, course_id, role, invited_by FROM pending_invitations WHERE email = $1', [profile.email.toLowerCase()]);
+    for (const inv of invitations) {
+      await queryOne(
+        'INSERT INTO course_enrollments (course_id, user_id, role, invited_by) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING',
+        [inv.course_id, user.id, inv.role, inv.invited_by]
+      );
+    }
+    if (invitations.length) await query('DELETE FROM pending_invitations WHERE email = $1', [profile.email.toLowerCase()]);
 
     const token = signToken({ id: user.id, email: user.email });
 
