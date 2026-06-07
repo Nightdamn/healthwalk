@@ -795,12 +795,27 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
                     <div style={{ fontSize: 14, color: '#666' }}>
                       {scheduled.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })}, {scheduled.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
                     </div>
+                    <div style={{ fontSize: 11, color: '#aaa', marginTop: 2 }}>
+                      по вашему часовому поясу
+                    </div>
                     {activeCall.duration_min && (
                       <div style={{ fontSize: 13, color: '#999', marginTop: 4 }}>
                         Длительность: {activeCall.duration_min} мин
                       </div>
                     )}
                   </div>
+
+                  {/* Trainer's description of the upcoming call */}
+                  {activity.descriptionHtml && (
+                    <div style={{
+                      width: '100%', maxWidth: 560, padding: '14px 18px',
+                      borderRadius: 14, background: 'rgba(255,255,255,0.7)',
+                      backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
+                      border: '1px solid rgba(0,0,0,0.06)',
+                    }}>
+                      <TheoryContent html={activity.descriptionHtml} />
+                    </div>
+                  )}
 
                   {!canJoin && (
                     <div style={{

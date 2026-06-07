@@ -579,6 +579,18 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon,
   const [callDuration, setCallDuration] = useState(30);
   const [callSaving, setCallSaving] = useState(false);
   const savedDraftRef = useRef('');
+  // Trainer's browser timezone — drives the "Asia/Krasnoyarsk (GMT+7)" hint
+  // shown under the call form. Stored time still goes to UTC via toISOString.
+  const trainerTz = (() => {
+    try {
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const offMin = -new Date().getTimezoneOffset();
+      const sign = offMin >= 0 ? '+' : '-';
+      const hh = Math.floor(Math.abs(offMin) / 60);
+      const mm = Math.abs(offMin) % 60;
+      return `${tz}, GMT${sign}${hh}${mm ? ':' + String(mm).padStart(2, '0') : ''}`;
+    } catch { return 'локальный'; }
+  })();
 
   // Auto-save call draft when all fields valid (debounced)
   useEffect(() => {
@@ -780,8 +792,17 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon,
                 <div style={{ display: 'flex', gap: 4, marginBottom: 4, flexWrap: 'wrap' }}>
                   <div>
                     <span style={{ fontSize: 10, color: '#999' }}>День:</span>
-                    <input type="number" value={callDay} min={1} max={maxDay}
-                      onChange={e => setCallDay(parseInt(e.target.value) || 1)}
+                    <input type="number" value={callDay === '' ? '' : callDay} min={1} max={maxDay}
+                      onChange={e => {
+                        const v = e.target.value;
+                        if (v === '') { setCallDay(''); return; }
+                        const n = parseInt(v);
+                        if (!isNaN(n)) setCallDay(n);
+                      }}
+                      onBlur={() => {
+                        const n = parseInt(callDay);
+                        setCallDay(isNaN(n) || n < 1 ? 1 : Math.min(n, maxDay));
+                      }}
                       style={{ ...inputStyle, width: 50, padding: '4px 6px', fontSize: 11 }} />
                   </div>
                   <div>
@@ -798,10 +819,22 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon,
                   </div>
                   <div>
                     <span style={{ fontSize: 10, color: '#999' }}>Мин:</span>
-                    <input type="number" value={callDuration} min={5} max={180}
-                      onChange={e => setCallDuration(parseInt(e.target.value) || 30)}
+                    <input type="number" value={callDuration === '' ? '' : callDuration} min={5} max={180}
+                      onChange={e => {
+                        const v = e.target.value;
+                        if (v === '') { setCallDuration(''); return; }
+                        const n = parseInt(v);
+                        if (!isNaN(n)) setCallDuration(n);
+                      }}
+                      onBlur={() => {
+                        const n = parseInt(callDuration);
+                        setCallDuration(isNaN(n) || n < 5 ? 30 : Math.min(n, 180));
+                      }}
                       style={{ ...inputStyle, width: 50, padding: '4px 6px', fontSize: 11 }} />
                   </div>
+                </div>
+                <div style={{ fontSize: 10, color: '#aaa', marginTop: 4 }}>
+                  Время указывается в вашем часовом поясе ({trainerTz}). У учеников отобразится в их собственном.
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
                   <span style={{ fontSize: 10, color: callSaving ? '#9b59b6' : '#aaa' }}>
