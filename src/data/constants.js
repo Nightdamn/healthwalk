@@ -40,6 +40,21 @@ export const formatTime = (s) => {
   return `${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
 };
 
+// Format a UTC ISO string in an explicit minute-offset timezone (e.g. 180 = MSK).
+// Browser tz is ignored — `tzMin` comes from user_settings (the profile, which
+// is the only reliable source when users may be on VPN).
+const MONTHS_SHORT = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+export function formatInTz(utcIsoString, tzMin) {
+  if (!utcIsoString) return '';
+  const t = new Date(utcIsoString).getTime() + (Number(tzMin) || 0) * 60000;
+  const d = new Date(t);
+  const day = d.getUTCDate();
+  const mon = MONTHS_SHORT[d.getUTCMonth()];
+  const hh = String(d.getUTCHours()).padStart(2, '0');
+  const mm = String(d.getUTCMinutes()).padStart(2, '0');
+  return `${day} ${mon}, ${hh}:${mm}`;
+}
+
 /**
  * Вычисляет текущий день курса (1-30).
  * День начинается в dayStartHour и заканчивается в dayStartHour следующего дня.

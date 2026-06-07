@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import Layout from '../components/Layout';
 import IconPicker from '../components/IconPicker';
 import { getIconPath } from '../data/iconCatalog';
+import { formatInTz } from '../data/constants';
 import { btnBack, glass, pageWrapper, topBar, topBarTitle } from '../styles/shared';
 import {
   loadCourseForEdit, canDeleteCourse, deleteCourse,
@@ -126,7 +127,7 @@ function emptyActivity(daysCount) {
   return { dbId: null, label: '', iconNum: 'health/1', practiceType: 'media', descriptionHtml: '', firstDay: 1, lastDay: daysCount, durationMin: 10, intervalDays: 1, _key: Date.now() + Math.random() };
 }
 
-export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted }) {
+export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, tzOffsetMin }) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [daysCount, setDaysCount] = useState(30);
@@ -521,7 +522,8 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted })
             onDeleteVideo={handleDeleteVideo}
             calls={calls}
             onCreateCall={handleCreateCall}
-            onDeleteCall={handleDeleteCall} />
+            onDeleteCall={handleDeleteCall}
+            tzOffsetMin={tzOffsetMin} />
         ))}
 
         <button onClick={addActivity} style={{
@@ -569,7 +571,7 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted })
   );
 }
 
-function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon, videos, courseId, videoUploadingId, uploadProgress, uploadPhase, activityId: propActivityId, onVideoUpload, onAddLink, onDeleteVideo, calls, onCreateCall, onDeleteCall }) {
+function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon, videos, courseId, videoUploadingId, uploadProgress, uploadPhase, activityId: propActivityId, onVideoUpload, onAddLink, onDeleteVideo, calls, onCreateCall, onDeleteCall, tzOffsetMin }) {
   // Draft call. As soon as date + time + duration are all valid the row is
   // auto-saved (debounced ~700ms) and the form resets — no Save button.
   const [showCallForm, setShowCallForm] = useState(false);
@@ -579,17 +581,16 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon,
   const [callDuration, setCallDuration] = useState(30);
   const [callSaving, setCallSaving] = useState(false);
   const savedDraftRef = useRef('');
-  // Trainer's browser timezone — drives the "Asia/Krasnoyarsk (GMT+7)" hint
-  // shown under the call form. Stored time still goes to UTC via toISOString.
-  const trainerTz = (() => {
-    try {
-      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-      const offMin = -new Date().getTimezoneOffset();
-      const sign = offMin >= 0 ? '+' : '-';
-      const hh = Math.floor(Math.abs(offMin) / 60);
-      const mm = Math.abs(offMin) % 60;
-      return `${tz}, GMT${sign}${hh}${mm ? ':' + String(mm).padStart(2, '0') : ''}`;
-    } catch { return 'локальный'; }
+  // Trainer's timezone comes from THEIR profile (user_settings.tz_offset_min),
+  // NOT from the browser — VPNs make browser tz unreliable; profile is the
+  // single source of truth. Default fallback: Moscow (UTC+3, offset=180).
+  const tzMin = Number.isFinite(tzOffsetMin) ? tzOffsetMin : 180;
+  const trainerTzLabel = (() => {
+    const sign = tzMin >= 0 ? '+' : '-';
+    const abs = Math.abs(tzMin);
+    const hh = Math.floor(abs / 60);
+    const mm = abs % 60;
+    return `GMT${sign}${hh}${mm ? ':' + String(mm).padStart(2, '0') : ''}`;
   })();
 
   // Auto-save call draft when all fields valid (debounced)
@@ -599,8 +600,14 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon,
     const key = `${callDay}|${callDate}|${callTime}|${callDuration}`;
     if (savedDraftRef.current === key || callSaving) return;
     const t = setTimeout(async () => {
-      const scheduledAt = new Date(`${callDate}T${callTime}:00`).toISOString();
-      if (isNaN(Date.parse(scheduledAt))) return;
+      // Interpret trainer's input as wall-clock time in HER profile tz, not
+      // in browser tz. naive_utc = same digits parsed as UTC; subtract the
+      // profile offset → real UTC moment.
+      const [y, mo, d] = callDate.split('-').map(Number);
+      const [h, mi] = callTime.split(':').map(Number);
+      const naiveUtcMs = Date.UTC(y, mo - 1, d, h, mi, 0);
+      if (!isFinite(naiveUtcMs)) return;
+      const scheduledAt = new Date(naiveUtcMs - tzMin * 60000).toISOString();
       setCallSaving(true);
       savedDraftRef.current = key;
       try {
@@ -773,7 +780,7 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon,
               }}>
                 <span style={{ fontSize: 14 }}>📞</span>
                 <span style={{ flex: 1, color: '#555' }}>
-                  День {c.day} — {new Date(c.scheduled_at).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                  День {c.day} — {formatInTz(c.scheduled_at, tzMin)}
                   {' '}({c.duration_min} мин)
                 </span>
                 <span style={{
@@ -834,7 +841,8 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon,
                   </div>
                 </div>
                 <div style={{ fontSize: 10, color: '#aaa', marginTop: 4 }}>
-                  Время указывается в вашем часовом поясе ({trainerTz}). У учеников отобразится в их собственном.
+                  Время указывается в вашем часовом поясе из Профиля ({trainerTzLabel}).
+                  У учеников отобразится в их собственном.
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
                   <span style={{ fontSize: 10, color: callSaving ? '#9b59b6' : '#aaa' }}>

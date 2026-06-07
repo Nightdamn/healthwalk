@@ -1,6 +1,6 @@
 import React, { useRef, useCallback, useEffect, useState } from 'react';
 import Layout from '../components/Layout';
-import { formatTime } from '../data/constants';
+import { formatTime, formatInTz } from '../data/constants';
 import { btnBack } from '../styles/shared';
 import { extractYoutubeId, extractDriveId } from '../components/VideoSection';
 import { TheoryContent } from '../components/RichTextEditor';
@@ -12,7 +12,8 @@ const BALL_R = 10;
 const GREEN = "#27ae60";
 const GREEN_PALE = "rgba(39,174,96,0.2)";
 
-export default function TimerPage({ activity, timerSeconds, timerPaused, currentDay, onPause, onBack, onDone, onSeek, video, videoUrl, onDurationDetected, activeCall, getCallToken }) {
+export default function TimerPage({ activity, timerSeconds, timerPaused, currentDay, onPause, onBack, onDone, onSeek, video, videoUrl, onDurationDetected, activeCall, getCallToken, tzOffsetMin }) {
+  const tzMin = Number.isFinite(tzOffsetMin) ? tzOffsetMin : 180;
   const totalSec = video?.duration_sec || activity.duration * 60;
   const elapsed = totalSec - timerSeconds;
   const hasStarted = elapsed > 0;
@@ -793,10 +794,10 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
                       Запланированный звонок
                     </div>
                     <div style={{ fontSize: 14, color: '#666' }}>
-                      {scheduled.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })}, {scheduled.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
+                      {formatInTz(activeCall.scheduled_at, tzMin)}
                     </div>
                     <div style={{ fontSize: 11, color: '#aaa', marginTop: 2 }}>
-                      по вашему часовому поясу
+                      по вашему часовому поясу из Профиля
                     </div>
                     {activeCall.duration_min && (
                       <div style={{ fontSize: 13, color: '#999', marginTop: 4 }}>
