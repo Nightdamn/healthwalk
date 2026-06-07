@@ -652,13 +652,21 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon,
       </div>
 
       {/* Description / theory text */}
-      {(activity.practiceType === 'theory' || activity.practiceType === 'call') && (
+      {(activity.practiceType === 'theory' || activity.practiceType === 'call' || activity.practiceType === 'media') && (
         <div style={{ marginBottom: 8 }}>
-          <label style={{ ...labelStyle, fontSize: 11 }}>{activity.practiceType === 'theory' ? 'Текст теории' : 'Описание'}</label>
+          <label style={{ ...labelStyle, fontSize: 11 }}>{
+            activity.practiceType === 'theory' ? 'Текст теории'
+            : activity.practiceType === 'call' ? 'Описание'
+            : 'Введение к уроку (необязательно)'
+          }</label>
           <RichTextEditor
             content={activity.descriptionHtml || ''}
             onChange={val => onUpdate('descriptionHtml', val)}
-            placeholder={activity.practiceType === 'theory' ? 'Содержание теоретического материала...' : 'Описание онлайн-практики...'} />
+            placeholder={
+              activity.practiceType === 'theory' ? 'Содержание теоретического материала...'
+              : activity.practiceType === 'call' ? 'Описание онлайн-практики...'
+              : 'Краткое введение, инструкция, контекст для практики...'
+            } />
         </div>
       )}
 

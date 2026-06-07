@@ -28,7 +28,7 @@ const VideoNode = Node.create({
     return ['video', mergeAttributes(HTMLAttributes, {
       controls: 'true',
       playsinline: 'true',
-      preload: 'metadata',
+      preload: 'auto',
       style: 'max-width:100%;border-radius:8px;display:block;margin:8px 0;',
     })];
   },

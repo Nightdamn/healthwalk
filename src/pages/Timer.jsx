@@ -1106,6 +1106,12 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
           </div>
         )}
 
+        {/* Lesson intro — collapsible. Trainer fills it in EditCourse for
+            media practices. Auto-collapses the moment the timer starts. */}
+        {activity.descriptionHtml && (
+          <LessonIntro html={activity.descriptionHtml} timerPaused={timerPaused} />
+        )}
+
         {/* Timer circle */}
         <div ref={containerRef}
           style={{ position: "relative", width: 200, height: 200, marginBottom: 36, touchAction: "none" }}>
@@ -1225,5 +1231,46 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
         </div>
       </div>
     </Layout>
+  );
+}
+
+// Collapsible intro shown above the timer on media practices. Header acts
+// as a chevron toggle; expanded body is full TheoryContent (HTML rich text,
+// inline images/videos). Auto-collapses on timer start so the timer stays
+// visible without the user having to fold it back manually.
+function LessonIntro({ html, timerPaused }) {
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!timerPaused) setOpen(false);
+  }, [timerPaused]);
+  return (
+    <div style={{
+      width: '100%', marginBottom: 16,
+      borderRadius: 14, background: 'rgba(255,255,255,0.65)',
+      backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
+      border: '1px solid rgba(0,0,0,0.06)', overflow: 'hidden',
+    }}>
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        style={{
+          width: '100%', padding: '10px 14px', border: 'none', background: 'transparent',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#1a1a2e',
+        }}
+      >
+        <span>Введение к уроку</span>
+        <span style={{
+          fontSize: 11, color: '#888',
+          transform: open ? 'rotate(180deg)' : 'rotate(0deg)',
+          transition: 'transform 0.2s',
+        }}>▼</span>
+      </button>
+      {open && (
+        <div style={{ padding: '4px 14px 14px' }}>
+          <TheoryContent html={html} />
+        </div>
+      )}
+    </div>
   );
 }
