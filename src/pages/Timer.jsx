@@ -905,7 +905,7 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
                   pointerEvents: 'none',
                 }}
                 playsInline
-                preload="metadata"
+                preload="auto"
                 controlsList="nodownload nofullscreen noremoteplayback"
                 disablePictureInPicture
                 onContextMenu={(e) => e.preventDefault()}
@@ -928,7 +928,7 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
                   pointerEvents: 'none',
                 }}
                 playsInline
-                preload="metadata"
+                preload="auto"
                 controlsList="nodownload nofullscreen noremoteplayback"
                 disablePictureInPicture
                 onContextMenu={(e) => e.preventDefault()}
