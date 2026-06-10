@@ -10,18 +10,33 @@ const GREEN = '#27ae60';
 //   3. Click ↑ on the right     → onUpload()  (opens a hidden file input)
 export default function AvatarPicker({ src, onPick, onUpload, fileInputRef, onFileChange }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-      <button onClick={onPick}
-        title="Выбрать из наших значков"
-        aria-label="Выбрать из наших значков"
-        style={miniBtn}>
-        {/* magnifier */}
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#888"
-          strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <circle cx="11" cy="11" r="7" />
-          <line x1="21" y1="21" x2="16.65" y2="16.65" />
-        </svg>
-      </button>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+      {/* Two icon buttons stacked vertically on the LEFT of the avatar */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <button onClick={onPick}
+          title="Выбрать из наших значков"
+          aria-label="Выбрать из наших значков"
+          style={miniBtn}>
+          {/* magnifier */}
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#888"
+            strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="11" cy="11" r="7" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+          </svg>
+        </button>
+
+        <button onClick={onUpload}
+          title="Загрузить из галереи (SVG / PNG / JPG, до 1 МБ)"
+          aria-label="Загрузить картинку с устройства"
+          style={miniBtn}>
+          {/* up arrow */}
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#888"
+            strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 19V5" />
+            <polyline points="5 12 12 5 19 12" />
+          </svg>
+        </button>
+      </div>
 
       <button onClick={onPick}
         title="Изменить значок"
@@ -37,18 +52,6 @@ export default function AvatarPicker({ src, onPick, onUpload, fileInputRef, onFi
           : <span style={{ fontSize: 28 }}>📚</span>}
       </button>
 
-      <button onClick={onUpload}
-        title="Загрузить из галереи (SVG / PNG / JPG, до 1 МБ)"
-        aria-label="Загрузить картинку с устройства"
-        style={miniBtn}>
-        {/* up arrow */}
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#888"
-          strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M12 19V5" />
-          <polyline points="5 12 12 5 19 12" />
-        </svg>
-      </button>
-
       <input
         ref={fileInputRef}
         type="file"
@@ -60,8 +63,9 @@ export default function AvatarPicker({ src, onPick, onUpload, fileInputRef, onFi
   );
 }
 
+// 29 + 6 + 29 = 64 → same height as the avatar so the trio aligns neatly.
 const miniBtn = {
-  width: 28, height: 28, borderRadius: 8, padding: 0,
+  width: 29, height: 29, borderRadius: 8, padding: 0,
   border: '1px solid rgba(0,0,0,0.12)', background: '#fff',
   cursor: 'pointer',
   display: 'flex', alignItems: 'center', justifyContent: 'center',
