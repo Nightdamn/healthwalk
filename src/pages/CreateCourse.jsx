@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import Layout from '../components/Layout';
 import IconPicker from '../components/IconPicker';
+import AvatarPicker, { processAvatarFile } from '../components/AvatarPicker';
 import { getIconPath } from '../data/iconCatalog';
 import { btnBack, glass, pageWrapper, topBar, topBarTitle } from '../styles/shared';
 import { createCourseWithActivities, addVideoLink } from '../lib/db';
@@ -50,11 +51,12 @@ export default function CreateCoursePage({ user, onBack, onCreated }) {
 
   const handleAvatarUpload = (e) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file) return;
-    if (!file.name.toLowerCase().endsWith('.svg')) { setError('Поддерживается только SVG'); return; }
-    const reader = new FileReader();
-    reader.onload = (ev) => { setAvatarCustom(ev.target.result); setAvatarIcon(null); };
-    reader.readAsDataURL(file);
+    processAvatarFile(file, (dataUrl) => {
+      setAvatarCustom(dataUrl);
+      setAvatarIcon(null);
+    }, setError);
   };
 
   const handleCreate = async () => {
@@ -121,23 +123,13 @@ export default function CreateCoursePage({ user, onBack, onCreated }) {
         {/* Avatar + Title + Description */}
         <div style={{ ...glass, borderRadius: 18, padding: '20px 16px', marginBottom: 16 }}>
           <div style={{ display: 'flex', gap: 14, alignItems: 'center', marginBottom: 16 }}>
-            <div style={{ position: 'relative', flexShrink: 0 }}>
-              <button onClick={() => setPickerTarget('avatar')} style={{
-                width: 64, height: 64, borderRadius: 16, border: `2px solid ${GREEN}`,
-                background: '#fafafa', cursor: 'pointer', padding: 6,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}>
-                {avatarSrc
-                  ? <img src={avatarSrc} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
-                  : <span style={{ fontSize: 28 }}>📚</span>}
-              </button>
-              <button onClick={() => fileRef.current?.click()} style={{
-                position: 'absolute', bottom: -4, right: -4, width: 24, height: 24,
-                borderRadius: 12, background: GREEN, color: '#fff', border: 'none',
-                fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}>↑</button>
-              <input ref={fileRef} type="file" accept=".svg" style={{ display: 'none' }} onChange={handleAvatarUpload} />
-            </div>
+            <AvatarPicker
+              src={avatarSrc}
+              onPick={() => setPickerTarget('avatar')}
+              onUpload={() => fileRef.current?.click()}
+              fileInputRef={fileRef}
+              onFileChange={handleAvatarUpload}
+            />
             <div style={{ flex: 1 }}>
               <label style={labelStyle}>Название курса</label>
               <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Мой курс" style={inputStyle} />
