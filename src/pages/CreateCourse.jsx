@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import Layout from '../components/Layout';
 import IconPicker from '../components/IconPicker';
 import AvatarPicker, { processAvatarFile } from '../components/AvatarPicker';
@@ -42,6 +42,38 @@ export default function CreateCoursePage({ user, onBack, onCreated }) {
   const [error, setError] = useState('');
   const [pickerTarget, setPickerTarget] = useState(null);
   const fileRef = useRef();
+  const autoCreatingRef = useRef(false);
+
+  // Auto-create the course on the server as soon as a title is entered.
+  // Debounced 700ms. After the API returns we hand off to EditCourse via
+  // onCreated() — the rest of the form (avatar tweaks, activities, video
+  // uploads) lives there with full autosave + dbId-aware video block.
+  useEffect(() => {
+    if (autoCreatingRef.current) return;
+    const t = title.trim();
+    if (!t) return;
+    const timer = setTimeout(async () => {
+      if (autoCreatingRef.current) return;
+      autoCreatingRef.current = true;
+      setLoading(true);
+      const course = await createCourseWithActivities(user.id, {
+        title: t,
+        description: '',
+        avatarIcon: avatarCustom ? null : avatarIcon,
+        avatarCustom,
+        daysCount: 30,
+        activities: [],
+      });
+      if (course?.id) {
+        onCreated(course);
+      } else {
+        autoCreatingRef.current = false;
+        setLoading(false);
+        setError(course?.error || 'Не удалось создать курс');
+      }
+    }, 700);
+    return () => clearTimeout(timer);
+  }, [title]);
 
   const updateActivity = (idx, field, val) => {
     setActivities(prev => prev.map((a, i) => i === idx ? { ...a, [field]: val } : a));
@@ -406,7 +438,9 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon,
         )}
 
         <div style={{ fontSize: 10, color: '#bbb', marginTop: 4 }}>
-          Загрузка файлов доступна после сохранения курса
+          {title.trim()
+            ? 'Курс сохраняется автоматически. Загрузка файлов будет доступна после первого сохранения.'
+            : 'Введите название курса — он создастся автоматически и появится возможность загружать видео.'}
         </div>
       </div>
       )}
