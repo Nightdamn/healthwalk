@@ -3,7 +3,7 @@ import Layout from '../components/Layout';
 import Footer from '../components/Footer';
 import { getIconPath } from '../data/iconCatalog';
 import { btnBack, glass } from '../styles/shared';
-import { effectiveFirstDay } from '../data/constants';
+import { isActivityScheduled } from '../data/constants';
 
 const GREEN = '#27ae60';
 
@@ -64,9 +64,7 @@ export default function DetailsPage({ progress, currentDay, elapsedTime, getElap
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 6 }}>
                 {Array.from({ length: daysTotal }, (_, i) => {
                   const day = i + 1;
-                  const effFirst = effectiveFirstDay(act.firstDay, act.createdAt, studentJoinedAt);
-                  const inRange = day >= effFirst && day <= act.lastDay
-                    && (act.intervalDays ? (day - act.firstDay) % act.intervalDays === 0 : true)
+                  const inRange = isActivityScheduled(act, day, studentJoinedAt)
                     && !exclusions[`${act.id}_${day}`];
                   const done = progress[day]?.[act.id];
                   const isToday = day === currentDay;

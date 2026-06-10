@@ -132,6 +132,42 @@ export function effectiveFirstDay(originalFirstDay, activityCreatedAt, joinedAt)
   return Math.max(base, studentDayAtTime(joinedAt, activityCreatedAt));
 }
 
+// Single source of truth for "is activity A scheduled on day D".
+// Layers (in order):
+//   1. Effective first_day (drops days student already passed when activity
+//      was added later — see effectiveFirstDay).
+//   2. last_day window.
+//   3. interval_days step from the ORIGINAL first_day (so the pattern is
+//      stable across students).
+//   4. extra_days: trainer explicitly turned this day ON outside the interval.
+//   5. excluded_days: trainer explicitly turned this day OFF — wins over
+//      everything else.
+// `activity` keys can be either camelCase (frontend shape: firstDay, lastDay,
+// intervalDays, excludedDays, extraDays, createdAt) or snake_case (raw DB
+// rows). Both are accepted.
+export function isActivityScheduled(activity, day, joinedAt) {
+  if (!activity || !Number.isFinite(day)) return false;
+  const firstDay = activity.firstDay ?? activity.first_day ?? 1;
+  const lastDay  = activity.lastDay  ?? activity.last_day  ?? 30;
+  const interval = activity.intervalDays ?? activity.interval_days ?? 1;
+  const excluded = activity.excludedDays ?? activity.excluded_days ?? [];
+  const extra    = activity.extraDays    ?? activity.extra_days    ?? [];
+  const createdAt = activity.createdAt   ?? activity.created_at;
+
+  if (excluded.includes(day)) return false;
+  if (extra.includes(day)) {
+    // Extra still respects the "added after student passed this day" clamp
+    // — otherwise a freshly-added extra-day on day 1 would suddenly appear
+    // in day 1 of a student who's already on day 7.
+    const effFirst = effectiveFirstDay(firstDay, createdAt, joinedAt);
+    return day >= effFirst;
+  }
+  const effFirst = effectiveFirstDay(firstDay, createdAt, joinedAt);
+  if (day < effFirst || day > lastDay) return false;
+  const step = Math.max(1, interval);
+  return ((day - firstDay) % step) === 0;
+}
+
 /**
  * Возвращает ISO дату начала курса (первый день в dayStartHour).
  */

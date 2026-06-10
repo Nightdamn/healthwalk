@@ -92,6 +92,7 @@ router.get('/items', async (req, res) => {
           descriptionHtml: a.description_html || null, firstDay: a.first_day || 1,
           lastDay: a.last_day || e.days_count, intervalDays: a.interval_days || 1,
           createdAt: a.created_at,
+          excludedDays: a.excluded_days || [], extraDays: a.extra_days || [],
         })),
       });
     }
@@ -114,6 +115,7 @@ router.get('/items', async (req, res) => {
           descriptionHtml: a.description_html || null, firstDay: a.first_day || 1,
           lastDay: a.last_day || c.days_count, intervalDays: a.interval_days || 1,
           createdAt: a.created_at,
+          excludedDays: a.excluded_days || [], extraDays: a.extra_days || [],
         })),
       });
     }
@@ -452,7 +454,7 @@ router.patch('/activities/:id', async (req, res) => {
     const days = await queryOne('SELECT days_count FROM courses WHERE id = $1', [act.course_id]);
     const daysCount = days?.days_count || 30;
 
-    const { label, iconNum, practiceType, descriptionHtml, firstDay, lastDay, durationMin, intervalDays, sortOrder } = req.body || {};
+    const { label, iconNum, practiceType, descriptionHtml, firstDay, lastDay, durationMin, intervalDays, sortOrder, excludedDays, extraDays } = req.body || {};
     const sets = [];
     const params = [];
     let i = 1;
@@ -483,6 +485,18 @@ router.patch('/activities/:id', async (req, res) => {
     }
     if (sortOrder !== undefined && sortOrder !== null && sortOrder !== '') {
       sets.push(`sort_order=$${i++}`); params.push(parseInt(sortOrder) || 0);
+    }
+    // Sanitize day-override arrays: ints only, dedup, sort, clamp to [1, daysCount].
+    const sanitizeDays = (arr) => Array.from(new Set(
+      (Array.isArray(arr) ? arr : [])
+        .map(x => parseInt(x))
+        .filter(n => Number.isFinite(n) && n >= 1 && n <= daysCount)
+    )).sort((a, b) => a - b);
+    if (Array.isArray(excludedDays)) {
+      sets.push(`excluded_days=$${i++}`); params.push(sanitizeDays(excludedDays));
+    }
+    if (Array.isArray(extraDays)) {
+      sets.push(`extra_days=$${i++}`); params.push(sanitizeDays(extraDays));
     }
     if (sets.length === 0) return res.json({ ok: true });
     params.push(req.params.id);

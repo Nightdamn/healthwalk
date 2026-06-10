@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import Layout from '../components/Layout';
 import Footer from '../components/Footer';
 import { LogoFull } from '../components/Icons';
-import { MOTTOS, effectiveFirstDay } from '../data/constants';
+import { MOTTOS, isActivityScheduled } from '../data/constants';
 import { getIconPath } from '../data/iconCatalog';
 import { glass } from '../styles/shared';
 
@@ -69,16 +69,14 @@ export default function Dashboard({
   const allActivities = [...(activeItem?.activities || []), ...customActivities];
   const daysTotal = activeItem?.daysCount || 30;
 
-  // Helper: check if an activity is scheduled on a given day (respects interval + exclusions).
-  // Activities added to a course after the student already passed certain days
-  // shouldn't appear in those past days for that student — clamp via effectiveFirstDay.
+  // Helper: check if an activity is scheduled on a given day. Combines:
+  //   • trainer-level interval + excluded/extra overrides (per activity)
+  //   • per-student exclusions (student_activity_exclusions, prop `exclusions`)
+  //   • effective first_day clamp (activities added later don't appear on
+  //     days the student has already passed)
   const studentJoinedAt = activeItem?.startDate;
   const isActivityOnDay = (a, day) => {
-    const effFirst = effectiveFirstDay(a.firstDay, a.createdAt, studentJoinedAt);
-    if (day < effFirst || day > a.lastDay) return false;
-    const interval = a.intervalDays || 1;
-    if ((day - a.firstDay) % interval !== 0) return false;
-    // Check exclusion
+    if (!isActivityScheduled(a, day, studentJoinedAt)) return false;
     if (exclusions[`${a.id}_${day}`]) return false;
     return true;
   };

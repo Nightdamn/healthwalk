@@ -10,7 +10,7 @@ const PRACTICE_TYPE_OPTIONS = [
   { value: 'call', label: 'Онлайн с мастером' },
 ];
 import { getIconPath } from '../data/iconCatalog';
-import { getCourseDay, effectiveFirstDay } from '../data/constants';
+import { getCourseDay, isActivityScheduled } from '../data/constants';
 import { btnBack, glass, pageWrapper, topBar, topBarTitle } from '../styles/shared';
 import {
   getCourseStudentsInfo, getCourseAllStudentsProgress,
@@ -130,17 +130,10 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
   const activities = (course?.course_activities || []).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
   const daysCount = course?.days_count || 30;
 
-  // Per-student check: activity is scheduled on day d, taking into account
-  // its effective first day for THIS student (activities added later don't
-  // appear in days the student has already passed).
-  const isActOnDayForStudent = (a, d, joinedAt) => {
-    const origFirst = a.first_day || 1;
-    const last = a.last_day || daysCount;
-    const effFirst = effectiveFirstDay(origFirst, a.created_at, joinedAt);
-    if (d < effFirst || d > last) return false;
-    const interval = a.interval_days || 1;
-    return (d - origFirst) % interval === 0;
-  };
+  // Per-student check: activity is scheduled on day d. Uses the shared
+  // isActivityScheduled helper which already covers interval, excluded_days,
+  // extra_days and the effective first_day clamp.
+  const isActOnDayForStudent = (a, d, joinedAt) => isActivityScheduled(a, d, joinedAt);
 
   // Calculate stats for a student: elapsed days (based on joined_at) and completion
   const getStudentStats = (student) => {
@@ -565,15 +558,7 @@ function StudentDetails({
   const [addSaving, setAddSaving] = useState(false);
   const [showIconPicker, setShowIconPicker] = useState(false);
 
-  const isActOnDay = (a, d) => {
-    const origFirst = a.first_day || 1;
-    const last = a.last_day || daysCount;
-    const effFirst = effectiveFirstDay(origFirst, a.created_at, studentJoinedAt);
-    if (d < effFirst || d > last) return false;
-    const interval = a.interval_days || 0;
-    if (interval === 0) return d === origFirst;
-    return (d - origFirst) % interval === 0;
-  };
+  const isActOnDay = (a, d) => isActivityScheduled(a, d, studentJoinedAt);
 
   // Merge course activities + custom activities for this student
   const allActs = [

@@ -92,6 +92,8 @@ CREATE TABLE IF NOT EXISTS course_activities (
   first_day INTEGER DEFAULT 1,
   last_day INTEGER,
   interval_days INTEGER NOT NULL DEFAULT 1,
+  excluded_days INTEGER[] NOT NULL DEFAULT '{}',
+  extra_days INTEGER[] NOT NULL DEFAULT '{}',
   sort_order INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(course_id, activity_id)

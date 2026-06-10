@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import Layout from '../components/Layout';
 import IconPicker from '../components/IconPicker';
 import AvatarPicker, { processAvatarFile } from '../components/AvatarPicker';
+import ScheduleCalendar, { toggleDayInActivity } from '../components/ScheduleCalendar';
 import { getIconPath } from '../data/iconCatalog';
 import { formatInTz } from '../data/constants';
 import { btnBack, glass, pageWrapper, topBar, topBarTitle } from '../styles/shared';
@@ -125,7 +126,7 @@ function SaveStatusBadge({ status }) {
 }
 
 function emptyActivity(daysCount) {
-  return { dbId: null, label: '', iconNum: 'health/1', practiceType: 'media', descriptionHtml: '', firstDay: 1, lastDay: daysCount, durationMin: 10, intervalDays: 1, _key: Date.now() + Math.random() };
+  return { dbId: null, label: '', iconNum: 'health/1', practiceType: 'media', descriptionHtml: '', firstDay: 1, lastDay: daysCount, durationMin: 10, intervalDays: 1, excludedDays: [], extraDays: [], _key: Date.now() + Math.random() };
 }
 
 export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, tzOffsetMin }) {
@@ -192,6 +193,8 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
         lastDay: a.last_day || course.days_count,
         durationMin: a.duration_min || 10,
         intervalDays: a.interval_days || 1,
+        excludedDays: Array.isArray(a.excluded_days) ? a.excluded_days : [],
+        extraDays: Array.isArray(a.extra_days) ? a.extra_days : [],
         _key: a.id,
       }));
     setActivities(acts);
@@ -310,6 +313,15 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
     const dbId = activities[idx]?.dbId;
     setActivities(prev => prev.map((a, i) => (i === idx ? { ...a, [field]: val } : a)));
     if (dbId) scheduleActivityPatch(dbId, { [field]: val });
+  };
+
+  // Calendar tap: compute new excluded/extra arrays atomically and PATCH both.
+  const toggleActivityDay = (idx, day) => {
+    const act = activities[idx];
+    if (!act) return;
+    const next = toggleDayInActivity(act, day);
+    setActivities(prev => prev.map((a, i) => (i === idx ? { ...a, ...next } : a)));
+    if (act.dbId) scheduleActivityPatch(act.dbId, next);
   };
 
   const removeActivity = async (idx) => {
@@ -499,6 +511,7 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
         {activities.map((a, idx) => (
           <ActivityCard key={a._key} activity={a} index={idx} maxDay={daysCount}
             onUpdate={(f, v) => updateActivity(idx, f, v)}
+            onToggleDay={(day) => toggleActivityDay(idx, day)}
             onRemove={() => removeActivity(idx)}
             onPickIcon={() => setPickerTarget(idx)}
             videos={videos} courseId={courseId}
@@ -560,7 +573,7 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
   );
 }
 
-function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon, videos, courseId, videoUploadingId, uploadProgress, uploadPhase, activityId: propActivityId, onVideoUpload, onAddLink, onDeleteVideo, calls, onCreateCall, onDeleteCall, tzOffsetMin }) {
+function ActivityCard({ activity, index, maxDay, onUpdate, onToggleDay, onRemove, onPickIcon, videos, courseId, videoUploadingId, uploadProgress, uploadPhase, activityId: propActivityId, onVideoUpload, onAddLink, onDeleteVideo, calls, onCreateCall, onDeleteCall, tzOffsetMin }) {
   // Draft call. As soon as date + time + duration are all valid the row is
   // auto-saved (debounced ~700ms) and the form resets — no Save button.
   const [showCallForm, setShowCallForm] = useState(false);
@@ -704,6 +717,19 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onRemove, onPickIcon,
           </div>
         </div>
       </div>
+
+      {/* Visual day calendar — same look as in TrainerCabinet. Reflects the
+          combined interval + extra/excluded state above, and clicks here
+          edit the extras/excludes layer atomically. */}
+      <ScheduleCalendar
+        daysCount={maxDay}
+        firstDay={activity.firstDay}
+        lastDay={activity.lastDay}
+        intervalDays={activity.intervalDays}
+        excludedDays={activity.excludedDays || []}
+        extraDays={activity.extraDays || []}
+        onToggle={(day) => onToggleDay?.(day)}
+      />
 
       {/* Duration (hidden for theory and call — call duration is set per scheduled session) */}
       {activity.practiceType !== 'theory' && activity.practiceType !== 'call' && (
