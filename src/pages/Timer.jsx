@@ -890,8 +890,10 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
           <div style={{ width: 42 }} />
         </div>
 
-        {/* Video player or placeholder */}
-        {hasVideo ? (
+        {/* Video player — rendered only when a video is actually attached.
+            For media practices without a video the page falls through to
+            intro (if any) + timer; no empty placeholder. */}
+        {hasVideo && (
           <div ref={videoContainerRef} style={{
             width: "100%",
             // In fullscreen the container IS the screen — fill it and center
@@ -1103,16 +1105,6 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
                 )}
               </div>
             )}
-          </div>
-        ) : (
-          <div style={{
-            width: "100%", aspectRatio: "16/9", background: "rgba(255,255,255,0.6)", backdropFilter: "blur(20px)",
-            borderRadius: 20, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 24,
-            border: "1px solid rgba(255,255,255,0.7)", boxShadow: "0 8px 32px rgba(0,0,0,0.04)",
-            flexDirection: "column", gap: 8, overflow: "hidden",
-          }}>
-            <div style={{ color: "#bbb", fontSize: 40 }}>▶</div>
-            <span style={{ color: "#aaa", fontSize: 13, fontWeight: 500 }}>Видеоурок дня {currentDay}</span>
           </div>
         )}
 

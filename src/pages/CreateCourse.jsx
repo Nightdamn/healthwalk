@@ -10,7 +10,7 @@ import RichTextEditor from '../components/RichTextEditor';
 import Dropdown from '../components/Dropdown';
 
 const PRACTICE_TYPE_OPTIONS = [
-  { value: 'media', label: 'Практика с медиа' },
+  { value: 'media', label: 'Практика' },
   { value: 'theory', label: 'Текстовая теория' },
   { value: 'call', label: 'Онлайн с мастером' },
 ];
