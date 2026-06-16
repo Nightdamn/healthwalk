@@ -413,7 +413,52 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
   const onDaysCountChange = (v) => {
     setDaysCount(v);
     const n = parseInt(v);
-    if (!isNaN(n) && n >= 1) scheduleMetaSave({ daysCount: Math.min(n, 365) });
+    if (isNaN(n) || n < 1) return;
+    const clamped = Math.min(n, 365);
+    scheduleMetaSave({ daysCount: clamped });
+
+    // When the course gets SHORTER, clamp anything that pokes past the new
+    // tail (firstDay/lastDay, plus excluded/extra days). Activities that
+    // already fit (e.g. days 1–10 in a 16-day course) are left untouched.
+    // Growing the course never touches existing schedules.
+    setActivities(prev => prev.map(a => {
+      const oldFirst = a.firstDay ?? 1;
+      const oldLast = a.lastDay ?? clamped;
+      const oldExc = a.excludedDays || [];
+      const oldExt = a.extraDays || [];
+      const newFirst = Math.min(oldFirst, clamped);
+      const newLast = Math.min(oldLast, clamped);
+      const newExc = oldExc.filter(d => d <= clamped);
+      const newExt = oldExt.filter(d => d <= clamped);
+      const changed = newFirst !== oldFirst || newLast !== oldLast
+        || newExc.length !== oldExc.length || newExt.length !== oldExt.length;
+      if (!changed) return a;
+      if (a.dbId) {
+        scheduleActivityPatch(a.dbId, {
+          firstDay: newFirst, lastDay: newLast,
+          excludedDays: newExc, extraDays: newExt,
+        });
+      }
+      return { ...a, firstDay: newFirst, lastDay: newLast, excludedDays: newExc, extraDays: newExt };
+    }));
+    setVideos(prev => prev.map(v => {
+      const oldFirst = v.first_day || 1;
+      const oldLast = v.last_day || clamped;
+      const oldExc = v.excluded_days || [];
+      const oldExt = v.extra_days || [];
+      const newFirst = Math.min(oldFirst, clamped);
+      const newLast = Math.min(oldLast, clamped);
+      const newExc = oldExc.filter(d => d <= clamped);
+      const newExt = oldExt.filter(d => d <= clamped);
+      const changed = newFirst !== oldFirst || newLast !== oldLast
+        || newExc.length !== oldExc.length || newExt.length !== oldExt.length;
+      if (!changed) return v;
+      saverRef.current.schedule(`video-${v.id}`, () => patchVideo(v.id, {
+        firstDay: newFirst, lastDay: newLast,
+        excludedDays: newExc, extraDays: newExt,
+      }));
+      return { ...v, first_day: newFirst, last_day: newLast, excluded_days: newExc, extra_days: newExt };
+    }));
   };
   const onAvatarIconChange = (icon) => {
     setAvatarIcon(icon); setAvatarCustom(null);
