@@ -190,6 +190,42 @@ export function isActivityScheduled(activity, day, joinedAt) {
   return ((day - firstDay) % step) === 0;
 }
 
+// Take a schedule (firstDay, lastDay, intervalDays, excludedDays, extraDays)
+// and tighten it so the numeric inputs match what the calendar visually shows.
+// Recomputes the actual ON-days from the current state, then collapses the
+// window to [min..max] of those days and trims excluded/extra entries that
+// fall outside that new window (they're now moot).
+//
+// Example: practice was day 1–10 every day; trainer taps off days 1..6 in
+// the calendar → excluded_days=[1..6]. After normalize: firstDay=7, lastDay=10,
+// excluded_days=[]. Numeric inputs now agree with the calendar.
+//
+// Returns null if the toggle left zero ON-days (caller should keep the
+// previous window so the activity stays editable).
+export function normalizeSchedule(item, maxDay) {
+  const fd = item.firstDay ?? item.first_day ?? 1;
+  const ld = item.lastDay ?? item.last_day ?? maxDay;
+  const iv = Math.max(1, item.intervalDays ?? item.interval_days ?? 1);
+  const excluded = new Set(item.excludedDays ?? item.excluded_days ?? []);
+  const extra = new Set(item.extraDays ?? item.extra_days ?? []);
+  const onDays = [];
+  for (let d = 1; d <= maxDay; d++) {
+    if (excluded.has(d)) continue;
+    if (extra.has(d)) { onDays.push(d); continue; }
+    if (d < fd || d > ld) continue;
+    if (((d - fd) % iv) === 0) onDays.push(d);
+  }
+  if (onDays.length === 0) return null;
+  const newFirst = onDays[0];
+  const newLast = onDays[onDays.length - 1];
+  return {
+    firstDay: newFirst,
+    lastDay: newLast,
+    excludedDays: [...excluded].filter(d => d >= newFirst && d <= newLast).sort((a, b) => a - b),
+    extraDays: [...extra].filter(d => d >= newFirst && d <= newLast).sort((a, b) => a - b),
+  };
+}
+
 /**
  * Возвращает ISO дату начала курса (первый день в dayStartHour).
  */

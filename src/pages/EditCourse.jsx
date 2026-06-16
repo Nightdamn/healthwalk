@@ -4,7 +4,7 @@ import IconPicker from '../components/IconPicker';
 import AvatarPicker, { processAvatarFile } from '../components/AvatarPicker';
 import ScheduleCalendar, { toggleDayInActivity } from '../components/ScheduleCalendar';
 import { getIconPath } from '../data/iconCatalog';
-import { formatInTz, isActivityScheduled } from '../data/constants';
+import { formatInTz, isActivityScheduled, normalizeSchedule } from '../data/constants';
 import { btnBack, glass, pageWrapper, topBar, topBarTitle } from '../styles/shared';
 import {
   loadCourseForEdit, canDeleteCourse, deleteCourse,
@@ -174,29 +174,60 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
 
     setTitle(course.title || '');
     setDescription(course.description || '');
-    setDaysCount(course.days_count || 30);
+    const dc = course.days_count || 30;
+    setDaysCount(dc);
     setAvatarIcon(course.avatar_icon || 'health/1');
     setAvatarCustom(course.avatar_custom || null);
-    setVideos(vids);
     setCalls(callsData || []);
+
+    // Defensive clamp on load: legacy rows may have first_day/last_day past
+    // the current days_count (e.g. course was shortened by an older client
+    // that didn't cascade). Clamp in local state AND quietly PATCH so the
+    // numeric inputs/calendar agree from the first render. Same for videos.
+    const clampedVideos = (vids || []).map(v => {
+      const newFirst = Math.min(v.first_day || 1, dc);
+      const newLast = Math.min(v.last_day || dc, dc);
+      const newExc = (v.excluded_days || []).filter(d => d <= dc);
+      const newExt = (v.extra_days || []).filter(d => d <= dc);
+      if (newFirst === v.first_day && newLast === v.last_day
+          && newExc.length === (v.excluded_days || []).length
+          && newExt.length === (v.extra_days || []).length) {
+        return v;
+      }
+      patchVideo(v.id, { firstDay: newFirst, lastDay: newLast, excludedDays: newExc, extraDays: newExt });
+      return { ...v, first_day: newFirst, last_day: newLast, excluded_days: newExc, extra_days: newExt };
+    });
+    setVideos(clampedVideos);
 
     const acts = (course.course_activities || [])
       .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
-      .map(a => ({
-        dbId: a.id,
-        activityId: a.activity_id,
-        label: a.label,
-        iconNum: a.icon_num || 'health/1',
-        practiceType: a.practice_type || 'media',
-        descriptionHtml: a.description_html || '',
-        firstDay: a.first_day || 1,
-        lastDay: a.last_day || course.days_count,
-        durationMin: a.duration_min || 10,
-        intervalDays: a.interval_days || 1,
-        excludedDays: Array.isArray(a.excluded_days) ? a.excluded_days : [],
-        extraDays: Array.isArray(a.extra_days) ? a.extra_days : [],
-        _key: a.id,
-      }));
+      .map(a => {
+        const newFirst = Math.min(a.first_day || 1, dc);
+        const newLast = Math.min(a.last_day || dc, dc);
+        const newExc = (Array.isArray(a.excluded_days) ? a.excluded_days : []).filter(d => d <= dc);
+        const newExt = (Array.isArray(a.extra_days) ? a.extra_days : []).filter(d => d <= dc);
+        const drift = newFirst !== (a.first_day || 1) || newLast !== (a.last_day || dc)
+          || newExc.length !== (a.excluded_days || []).length
+          || newExt.length !== (a.extra_days || []).length;
+        if (drift) {
+          patchActivity(a.id, { firstDay: newFirst, lastDay: newLast, excludedDays: newExc, extraDays: newExt });
+        }
+        return {
+          dbId: a.id,
+          activityId: a.activity_id,
+          label: a.label,
+          iconNum: a.icon_num || 'health/1',
+          practiceType: a.practice_type || 'media',
+          descriptionHtml: a.description_html || '',
+          firstDay: newFirst,
+          lastDay: newLast,
+          durationMin: a.duration_min || 10,
+          intervalDays: a.interval_days || 1,
+          excludedDays: newExc,
+          extraDays: newExt,
+          _key: a.id,
+        };
+      });
     setActivities(acts);
     if (withSpinner) setLoading(false);
   }, [courseId]);
@@ -289,16 +320,25 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
   };
 
   // Per-video day-override toggle from the mini-calendar under each video.
-  // Update local state optimistically (UI repaints instantly), then PATCH.
+  // Same normalization as toggleActivityDay — collapse the window around the
+  // resulting ON-days so first_day/last_day match what's visible.
   const handlePatchVideo = async (videoId, fields) => {
-    setVideos(prev => prev.map(v => v.id === videoId
-      ? {
-          ...v,
-          ...(Array.isArray(fields.excludedDays) ? { excluded_days: fields.excludedDays } : {}),
-          ...(Array.isArray(fields.extraDays)    ? { extra_days:    fields.extraDays    } : {}),
-        }
-      : v));
-    const result = await patchVideo(videoId, fields);
+    const current = videos.find(v => v.id === videoId);
+    if (!current) return;
+    const merged = {
+      firstDay: current.first_day, lastDay: current.last_day, intervalDays: current.interval_days,
+      excludedDays: current.excluded_days || [], extraDays: current.extra_days || [],
+      ...fields,
+    };
+    const normalized = normalizeSchedule(merged, daysCount) || merged;
+    setVideos(prev => prev.map(v => v.id === videoId ? {
+      ...v,
+      first_day: normalized.firstDay,
+      last_day: normalized.lastDay,
+      excluded_days: normalized.excludedDays,
+      extra_days: normalized.extraDays,
+    } : v));
+    const result = await patchVideo(videoId, normalized);
     if (result?.error) setError(`Ошибка: ${result.error}`);
   };
 
@@ -329,13 +369,17 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
     if (dbId) scheduleActivityPatch(dbId, { [field]: val });
   };
 
-  // Calendar tap: compute new excluded/extra arrays atomically and PATCH both.
+  // Calendar tap: compute new excluded/extra arrays AND collapse first/last
+  // around the resulting ON-days so the numeric inputs stay in sync with what
+  // the calendar shows (excluding leading/trailing days collapses the window
+  // rather than just hiding them).
   const toggleActivityDay = (idx, day) => {
     const act = activities[idx];
     if (!act) return;
     const next = toggleDayInActivity(act, day);
-    setActivities(prev => prev.map((a, i) => (i === idx ? { ...a, ...next } : a)));
-    if (act.dbId) scheduleActivityPatch(act.dbId, next);
+    const normalized = normalizeSchedule({ ...act, ...next }, daysCount) || next;
+    setActivities(prev => prev.map((a, i) => (i === idx ? { ...a, ...normalized } : a)));
+    if (act.dbId) scheduleActivityPatch(act.dbId, normalized);
   };
 
   const removeActivity = async (idx) => {
