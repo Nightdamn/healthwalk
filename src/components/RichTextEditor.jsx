@@ -71,6 +71,37 @@ const IframeNode = Node.create({
   },
 });
 
+// Our /api/files/media/<id> endpoint is auth-only; an <img>/<video> tag
+// rendered inside the editor needs ?token=<jwt> on the src or the browser
+// silently 401s and shows the broken-image icon. We rewrite both directions:
+//   IN  (load/insert) — append ?token=… so the editor previews the file
+//   OUT (onUpdate / save) — strip ?token=… so the stored HTML stays clean
+// (the token would otherwise rot in the DB).
+function addTokenToMediaSrc(html) {
+  if (!html) return html;
+  const token = typeof localStorage !== 'undefined' ? localStorage.getItem('is_token') : null;
+  if (!token) return html;
+  return html.replace(
+    /(src=["'])(\/api\/files\/media\/[^"'?#]+)(["'])/g,
+    (_m, before, url, after) => `${before}${url}?token=${encodeURIComponent(token)}${after}`,
+  );
+}
+
+function stripTokenFromMediaSrc(html) {
+  if (!html) return html;
+  return html.replace(
+    /(src=["'])(\/api\/files\/media\/[^"'?#]+)\?token=[^"']+(["'])/g,
+    '$1$2$3',
+  );
+}
+
+function withTokenIfMedia(src) {
+  if (!src || !src.startsWith('/api/files/media/')) return src;
+  const token = typeof localStorage !== 'undefined' ? localStorage.getItem('is_token') : null;
+  if (!token) return src;
+  return `${src}?token=${encodeURIComponent(token)}`;
+}
+
 const btnStyle = (active) => ({
   padding: '4px 8px', border: 'none', borderRadius: 6,
   background: active ? 'rgba(39,174,96,0.15)' : 'transparent',
@@ -200,10 +231,11 @@ function Toolbar({ editor }) {
     try {
       const result = await uploadTheoryMedia(file);
       if (result?.url) {
+        const src = withTokenIfMedia(result.url);
         if (result.kind === 'image') {
-          editor.chain().focus().setImage({ src: result.url }).run();
+          editor.chain().focus().setImage({ src }).run();
         } else {
-          editor.chain().focus().setVideo({ src: result.url }).run();
+          editor.chain().focus().setVideo({ src }).run();
         }
         setPicker(null);
       }
@@ -263,29 +295,41 @@ export default function RichTextEditor({ content, onChange, placeholder = 'На�
       IframeNode,
       Placeholder.configure({ placeholder }),
     ],
-    content: content || '',
+    content: addTokenToMediaSrc(content || ''),
     onUpdate: ({ editor }) => {
-      onChange(editor.getHTML());
+      // Save the canonical (token-less) HTML so the DB doesn't store a
+      // user-specific JWT that would rot.
+      onChange(stripTokenFromMediaSrc(editor.getHTML()));
     },
   });
 
-  // Sync content when switching between activities
+  // Sync content when switching between activities — and re-inject token
+  // so that media previews keep working after the parent reloads.
   useEffect(() => {
     if (editor && content !== undefined) {
-      const currentHtml = editor.getHTML();
-      if (currentHtml !== content && content !== null) {
-        editor.commands.setContent(content || '');
+      const currentClean = stripTokenFromMediaSrc(editor.getHTML());
+      if (currentClean !== content && content !== null) {
+        editor.commands.setContent(addTokenToMediaSrc(content || ''));
       }
     }
   }, [content, editor]);
 
   return (
     <div style={{
-      border: '1.5px solid rgba(0,0,0,0.08)', borderRadius: 12, overflow: 'visible',
+      border: '1.5px solid rgba(0,0,0,0.08)', borderRadius: 12, overflow: 'hidden',
       background: 'rgba(255,255,255,0.7)', position: 'relative',
+      display: 'flex', flexDirection: 'column',
+      // Cap visible height; content scrolls inside so the toolbar stays
+      // in reach even for long articles (no more scroll-up-to-reach-bold).
+      maxHeight: '70vh',
     }}>
       <Toolbar editor={editor} />
-      <div style={{ padding: '12px 14px', minHeight: 120 }}>
+      <div style={{
+        padding: '12px 14px', minHeight: 120,
+        overflowY: 'auto', flex: 1,
+        // iOS momentum scroll
+        WebkitOverflowScrolling: 'touch',
+      }}>
         <EditorContent editor={editor} />
       </div>
       <style>{`
