@@ -257,7 +257,7 @@ export default function Dashboard({
       <div style={{ minHeight: '100vh', padding: '0 20px 32px', position: 'relative', zIndex: 1 }}>
 
         {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: 52, marginBottom: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: 'calc(env(safe-area-inset-top, 0px) + 12px)', marginBottom: 24 }}>
           <div>
             <div style={{ fontSize: 22, fontWeight: 700, color: '#1a1a2e' }}>{user?.name}</div>
             {activeItem && (

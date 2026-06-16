@@ -23,19 +23,23 @@ export const btnPrimary = {
   transition: "transform 0.15s, opacity 0.15s",
 };
 
+// Thin, flat back chevron — no white pill, no shadow. Footprint stays at
+// 42x42 so existing `<div style={{width:42}}/>` spacers keep the title
+// visually centered across every page that uses topBar.
 export const btnBack = {
-  background: "rgba(255,255,255,0.7)",
-  backdropFilter: "blur(12px)",
-  border: "1px solid rgba(255,255,255,0.6)",
-  borderRadius: 12,
+  background: "transparent",
+  border: "none",
+  padding: 0,
   width: 42,
   height: 42,
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
   cursor: "pointer",
-  fontSize: 18,
+  fontSize: 26,
+  fontWeight: 300,
   color: "#1a1a2e",
+  lineHeight: 1,
 };
 
 export const pageWrapper = {
@@ -45,11 +49,14 @@ export const pageWrapper = {
   zIndex: 1,
 };
 
+// Compact top bar: 12px base + iOS safe-area (notch) on PWA. Used to be 52px
+// flat which looked like wasted space on desktop and on devices without a
+// notch.
 export const topBar = {
   display: "flex",
   alignItems: "center",
-  paddingTop: 52,
-  marginBottom: 24,
+  paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)",
+  marginBottom: 16,
 };
 
 export const topBarTitle = {

@@ -593,8 +593,8 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
       <Layout>
         <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", padding: "0 24px", position: "relative", zIndex: 1 }}>
           {/* Top bar */}
-          <div style={{ width: "100%", display: "flex", alignItems: "center", paddingTop: 52, marginBottom: 20 }}>
-            <button onClick={onBack} style={btnBack}>←</button>
+          <div style={{ width: "100%", display: "flex", alignItems: "center", paddingTop: 'calc(env(safe-area-inset-top, 0px) + 12px)', marginBottom: 20 }}>
+            <button onClick={onBack} style={btnBack}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M15 6l-6 6 6 6" stroke="#1a1a2e" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg></button>
             <h2 style={{ flex: 1, textAlign: "center", fontSize: 18, fontWeight: 600, color: "#1a1a2e", margin: 0 }}>{activity.label}</h2>
             <div style={{ width: 42 }} />
           </div>
@@ -647,8 +647,8 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
       <Layout>
         <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", padding: "0 24px", position: "relative", zIndex: 1 }}>
           {/* Top bar */}
-          <div style={{ width: "100%", display: "flex", alignItems: "center", paddingTop: 52, marginBottom: 20 }}>
-            <button onClick={onBack} style={btnBack}>←</button>
+          <div style={{ width: "100%", display: "flex", alignItems: "center", paddingTop: 'calc(env(safe-area-inset-top, 0px) + 12px)', marginBottom: 20 }}>
+            <button onClick={onBack} style={btnBack}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M15 6l-6 6 6 6" stroke="#1a1a2e" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg></button>
             <h2 style={{ flex: 1, textAlign: "center", fontSize: 18, fontWeight: 600, color: "#1a1a2e", margin: 0 }}>{activity.label}</h2>
             <div style={{ width: 42 }} />
           </div>
@@ -884,8 +884,8 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
     <Layout>
       <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", padding: "0 24px", position: "relative", zIndex: 1 }}>
         {/* Top bar */}
-        <div style={{ width: "100%", display: "flex", alignItems: "center", paddingTop: 52, marginBottom: 20 }}>
-          <button onClick={onBack} style={btnBack}>←</button>
+        <div style={{ width: "100%", display: "flex", alignItems: "center", paddingTop: 'calc(env(safe-area-inset-top, 0px) + 12px)', marginBottom: 20 }}>
+          <button onClick={onBack} style={btnBack}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M15 6l-6 6 6 6" stroke="#1a1a2e" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg></button>
           <h2 style={{ flex: 1, textAlign: "center", fontSize: 18, fontWeight: 600, color: "#1a1a2e", margin: 0 }}>{activity.label}</h2>
           <div style={{ width: 42 }} />
         </div>

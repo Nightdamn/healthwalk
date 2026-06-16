@@ -138,7 +138,7 @@ export default function EditTrackerPage({ trackerId, onBack, onSaved }) {
     <Layout>
       <div style={pageWrapper}>
         <div style={topBar}>
-          <button onClick={onBack} style={btnBack}>←</button>
+          <button onClick={onBack} style={btnBack}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M15 6l-6 6 6 6" stroke="#1a1a2e" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg></button>
           <h2 style={topBarTitle}>Редактировать трекер</h2>
           <div style={{ width: 42 }} />
         </div>
