@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import { Node, mergeAttributes } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
@@ -314,6 +314,41 @@ export default function RichTextEditor({ content, onChange, placeholder = 'На�
     }
   }, [content, editor]);
 
+  // Custom scroll indicator on the right edge — native scrollbars on iOS
+  // are overlay-and-fade, which hides the fact that the editor scrolls.
+  // We render a thin always-visible track + thumb whenever content
+  // overflows.
+  const scrollRef = useRef(null);
+  const [scroll, setScroll] = useState({ visible: false, topPct: 0, heightPct: 0 });
+  const recomputeScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const { scrollTop, scrollHeight, clientHeight } = el;
+    if (scrollHeight <= clientHeight + 1) {
+      setScroll(s => (s.visible ? { visible: false, topPct: 0, heightPct: 0 } : s));
+      return;
+    }
+    const heightPct = Math.max(8, (clientHeight / scrollHeight) * 100);
+    const topPct = (scrollTop / scrollHeight) * 100;
+    setScroll({ visible: true, topPct, heightPct });
+  }, []);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    recomputeScroll();
+    el.addEventListener('scroll', recomputeScroll, { passive: true });
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(recomputeScroll) : null;
+    ro?.observe(el);
+    // Editor mutations don't fire scroll/resize; rerun on content updates.
+    const onUp = () => recomputeScroll();
+    editor?.on('update', onUp);
+    return () => {
+      el.removeEventListener('scroll', recomputeScroll);
+      ro?.disconnect();
+      editor?.off('update', onUp);
+    };
+  }, [editor, recomputeScroll]);
+
   return (
     <div style={{
       border: '1.5px solid rgba(0,0,0,0.08)', borderRadius: 12, overflow: 'hidden',
@@ -324,15 +359,34 @@ export default function RichTextEditor({ content, onChange, placeholder = 'На�
       maxHeight: '70vh',
     }}>
       <Toolbar editor={editor} />
-      <div style={{
-        padding: '12px 14px', minHeight: 120,
-        overflowY: 'auto', flex: 1,
-        // iOS momentum scroll
-        WebkitOverflowScrolling: 'touch',
-      }}>
-        <EditorContent editor={editor} />
+      <div style={{ position: 'relative', flex: 1, minHeight: 0 }}>
+        <div ref={scrollRef} style={{
+          padding: '12px 14px', minHeight: 120,
+          overflowY: 'auto', height: '100%',
+          // iOS momentum scroll
+          WebkitOverflowScrolling: 'touch',
+          // Hide native scrollbar — we draw our own.
+          scrollbarWidth: 'none',
+        }} className="rte-scroll">
+          <EditorContent editor={editor} />
+        </div>
+        {scroll.visible && (
+          <div aria-hidden="true" style={{
+            position: 'absolute', top: 6, bottom: 6, right: 3, width: 4,
+            borderRadius: 2, background: 'rgba(0,0,0,0.04)',
+            pointerEvents: 'none',
+          }}>
+            <div style={{
+              position: 'absolute', left: 0, right: 0,
+              top: `${scroll.topPct}%`, height: `${scroll.heightPct}%`,
+              borderRadius: 2, background: 'rgba(39,174,96,0.45)',
+              transition: 'top 0.08s linear',
+            }} />
+          </div>
+        )}
       </div>
       <style>{`
+        .rte-scroll::-webkit-scrollbar { width: 0; height: 0; }
         .tiptap { outline: none; font-size: 14px; line-height: 1.6; color: #1a1a2e; }
         .tiptap p { margin: 0 0 8px; }
         .tiptap h2 { font-size: 18px; font-weight: 700; margin: 16px 0 8px; }
