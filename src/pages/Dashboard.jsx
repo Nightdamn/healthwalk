@@ -514,7 +514,9 @@ export default function Dashboard({
                           }} />
                         </div>
                         <div style={{ fontSize: 11, color: '#bbb', marginTop: 6, fontWeight: 500 }}>
-                          {done ? `${act.durationMin} из ${act.durationMin} мин • Выполнено`
+                          {act.practiceType === 'theory' ? (done ? 'Выполнено' : 'Не выполнено')
+                            : act.practiceType === 'call' ? (done ? 'Выполнено' : 'Запланировано')
+                            : done ? `${act.durationMin} из ${act.durationMin} мин • Выполнено`
                             : elapsedSec > 0 ? `${elapsedMin}:${String(elapsedRemSec).padStart(2, '0')} из ${act.durationMin} мин`
                             : `0 из ${act.durationMin} мин`}
                         </div>
@@ -788,7 +790,11 @@ function CourseMapView({ progress, allActivities, daysTotal, isActivityOnDay, cu
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
                         <img src={getIconPath(act.iconNum)} alt="" style={{ width: 28, height: 28, borderRadius: 8 }} />
                         <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: '#1a1a2e' }}>{act.label}</span>
-                        <span style={{ fontSize: 12, color: '#aaa' }}>{act.durationMin} мин</span>
+                        <span style={{ fontSize: 12, color: '#aaa' }}>
+                          {act.practiceType === 'theory' ? 'Теория'
+                            : act.practiceType === 'call' ? 'Онлайн'
+                            : `${act.durationMin} мин`}
+                        </span>
                         {done && (
                           <div style={{ width: 22, height: 22, borderRadius: '50%', background: GREEN, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                             <svg width="12" height="12" viewBox="0 0 16 16"><polyline points="3,8.5 6.5,12 13,4" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" fill="none" /></svg>

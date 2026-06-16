@@ -710,7 +710,10 @@ function StudentDetails({
               const mins = p?.elapsed ? Math.floor(p.elapsed / 60) : 0;
               const secs = p?.elapsed ? p.elapsed % 60 : 0;
               const target = a.duration_min || 10;
-              const timePct = Math.min(100, Math.round((mins / target) * 100));
+              const isInstant = a.practice_type === 'theory' || a.practice_type === 'call';
+              const timePct = isInstant
+                ? (p?.completed ? 100 : 0)
+                : Math.min(100, Math.round((mins / target) * 100));
               const isSaving = saving === a.id;
               return (
                 <div key={a.id} style={{
@@ -730,9 +733,13 @@ function StudentDetails({
                     </div>
                   </div>
                   <span style={{ fontSize: 11, color: p?.completed ? GREEN : mins > 0 ? ORANGE : '#ccc', fontWeight: 600, flexShrink: 0 }}>
-                    {p?.completed ? `✓ ${mins}м` : mins > 0 ? `${mins}:${String(secs).padStart(2, '0')}` : '—'}
+                    {isInstant
+                      ? (p?.completed ? '✓' : '—')
+                      : p?.completed ? `✓ ${mins}м` : mins > 0 ? `${mins}:${String(secs).padStart(2, '0')}` : '—'}
                   </span>
-                  <span style={{ fontSize: 10, color: '#bbb', flexShrink: 0 }}>/{target}м</span>
+                  {!isInstant && (
+                    <span style={{ fontSize: 10, color: '#bbb', flexShrink: 0 }}>/{target}м</span>
+                  )}
                   {/* Mark/unmark completion — past + current day */}
                   {canMarkCompletion && onToggleCompletion && (
                     <button
