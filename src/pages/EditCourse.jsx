@@ -454,17 +454,23 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
 
   const onTitleChange = (v) => { setTitle(v); scheduleMetaSave({ title: v }); };
   const onDescriptionChange = (v) => { setDescription(v); scheduleMetaSave({ description: v }); };
+  // Light path: while the trainer is typing, only update local state + the
+  // debounced meta save. Clamping is destructive (collapses lastDay down to
+  // every intermediate digit, e.g. "12" passes through "1" first), so it
+  // runs ONLY on commit — see commitDaysCount below.
   const onDaysCountChange = (v) => {
     setDaysCount(v);
     const n = parseInt(v);
+    if (!isNaN(n) && n >= 1) scheduleMetaSave({ daysCount: Math.min(n, 365) });
+  };
+
+  // Heavy path: called on input blur after the trainer is done typing.
+  // Walks activities + videos and trims anything that overflows the new
+  // course tail. Schedules that already fit are untouched.
+  const commitDaysCount = (rawValue) => {
+    const n = parseInt(rawValue);
     if (isNaN(n) || n < 1) return;
     const clamped = Math.min(n, 365);
-    scheduleMetaSave({ daysCount: clamped });
-
-    // When the course gets SHORTER, clamp anything that pokes past the new
-    // tail (firstDay/lastDay, plus excluded/extra days). Activities that
-    // already fit (e.g. days 1–10 in a 16-day course) are left untouched.
-    // Growing the course never touches existing schedules.
     setActivities(prev => prev.map(a => {
       const oldFirst = a.firstDay ?? 1;
       const oldLast = a.lastDay ?? clamped;
@@ -602,6 +608,10 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
               const v = parseInt(daysCount);
               const clamped = isNaN(v) || v < 1 ? 1 : Math.min(v, 365);
               if (clamped !== daysCount) onDaysCountChange(clamped);
+              // Apply destructive clamping (activity/video lastDay trim) only
+              // after the trainer commits — typing "12" passes through "1"
+              // and an immediate clamp would collapse everything to day 1.
+              commitDaysCount(clamped);
             }}
             style={{ ...inputStyle, width: 100 }} />
         </div>
