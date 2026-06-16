@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import ScheduleCalendar, { toggleDayInVideo } from './ScheduleCalendar';
 
 const GREEN = '#27ae60';
 
@@ -76,12 +77,20 @@ function videoDisplayName(v) {
   return v.video_url.split('/').pop();
 }
 
-// Days covered by a list of videos, taking interval into account.
+// Days covered by a list of videos. Takes interval + per-video extra/excluded
+// overrides into account (same rules as isVideoScheduled).
 function buildCoverage(videos) {
   const days = new Set();
   for (const v of videos) {
     const iv = Math.max(1, v.interval_days || 1);
-    for (let d = v.first_day; d <= v.last_day; d += iv) days.add(d);
+    const excluded = new Set(v.excluded_days || []);
+    const extra = v.extra_days || [];
+    for (let d = v.first_day; d <= v.last_day; d += iv) {
+      if (!excluded.has(d)) days.add(d);
+    }
+    for (const d of extra) {
+      if (!excluded.has(d)) days.add(d);
+    }
   }
   return days;
 }
@@ -104,7 +113,9 @@ function findFreeRange(coverage, from, to) {
 export default function VideoSection({
   videos, courseId, activityId, maxDay,
   defaultFirstDay = 1, defaultLastDay = null, defaultIntervalDays = 1,
-  onUpload, onAddLink, onDelete, uploading, uploadProgress, uploadPhase, globalUploading,
+  activityScheduledDays, // optional Set<number> — activity-level enabled days for pale-state
+  onUpload, onAddLink, onDelete, onPatchVideo,
+  uploading, uploadProgress, uploadPhase, globalUploading,
 }) {
   const [showLinkInput, setShowLinkInput] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
@@ -190,55 +201,76 @@ export default function VideoSection({
         <div style={{ marginBottom: 8 }}>
           {actVideos.map(v => (
             <div key={v.id} style={{
-              display: 'flex', alignItems: 'center', gap: 8,
               padding: '8px 10px', marginBottom: 4, borderRadius: 10,
               background: deletingId === v.id ? 'rgba(231,76,60,0.06)' : 'rgba(0,0,0,0.02)',
               border: deletingId === v.id ? '1px solid rgba(231,76,60,0.15)' : '1px solid transparent',
               fontSize: 12, transition: 'all 0.2s',
             }}>
-              {v.video_type === 'youtube' && extractYoutubeId(v.video_url) ? (
-                <img
-                  src={`https://img.youtube.com/vi/${extractYoutubeId(v.video_url)}/mqdefault.jpg`}
-                  alt=""
-                  style={{ width: 48, height: 36, borderRadius: 4, objectFit: 'cover', flexShrink: 0 }}
-                />
-              ) : (
-                <span style={{ fontSize: 14, width: 48, textAlign: 'center', flexShrink: 0 }}>{videoTypeIcon(v.video_type)}</span>
-              )}
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ color: '#555', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {videoDisplayName(v)}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                {v.video_type === 'youtube' && extractYoutubeId(v.video_url) ? (
+                  <img
+                    src={`https://img.youtube.com/vi/${extractYoutubeId(v.video_url)}/mqdefault.jpg`}
+                    alt=""
+                    style={{ width: 48, height: 36, borderRadius: 4, objectFit: 'cover', flexShrink: 0 }}
+                  />
+                ) : (
+                  <span style={{ fontSize: 14, width: 48, textAlign: 'center', flexShrink: 0 }}>{videoTypeIcon(v.video_type)}</span>
+                )}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ color: '#555', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {videoDisplayName(v)}
+                  </div>
+                  <div style={{ color: '#999', fontSize: 11 }}>
+                    День {v.first_day}–{v.last_day}
+                    {v.interval_days > 1 ? ` • каждые ${v.interval_days} дн.` : ''}
+                    {v.file_size ? ` • ${formatFileSize(v.file_size)}` : ''}
+                    {v.duration_sec ? ` • ${Math.floor(v.duration_sec / 60)}:${String(v.duration_sec % 60).padStart(2, '0')}` : ''}
+                  </div>
                 </div>
-                <div style={{ color: '#999', fontSize: 11 }}>
-                  День {v.first_day}–{v.last_day}
-                  {v.interval_days > 1 ? ` • каждые ${v.interval_days} дн.` : ''}
-                  {v.file_size ? ` • ${formatFileSize(v.file_size)}` : ''}
-                  {v.duration_sec ? ` • ${Math.floor(v.duration_sec / 60)}:${String(v.duration_sec % 60).padStart(2, '0')}` : ''}
-                </div>
+                {deletingId === v.id ? (
+                  <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                    <button onClick={async () => {
+                      await onDelete(v.id, v.video_url, v.video_type);
+                      setDeletingId(null);
+                    }} style={{
+                      padding: '4px 10px', borderRadius: 6, border: 'none',
+                      background: '#e74c3c', color: '#fff', fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                    }}>Да</button>
+                    <button onClick={() => setDeletingId(null)} style={{
+                      padding: '4px 8px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.1)',
+                      background: '#fff', color: '#888', fontSize: 11, cursor: 'pointer',
+                    }}>Нет</button>
+                  </div>
+                ) : (
+                  <button onClick={() => setDeletingId(v.id)}
+                    title="Удалить видео"
+                    style={{
+                      background: 'none', border: 'none', color: '#e74c3c', cursor: 'pointer',
+                      fontSize: 13, padding: '2px 4px', opacity: 0.5, flexShrink: 0,
+                    }}>
+                    Удалить
+                  </button>
+                )}
               </div>
-              {deletingId === v.id ? (
-                <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-                  <button onClick={async () => {
-                    await onDelete(v.id, v.video_url, v.video_type);
-                    setDeletingId(null);
-                  }} style={{
-                    padding: '4px 10px', borderRadius: 6, border: 'none',
-                    background: '#e74c3c', color: '#fff', fontSize: 11, fontWeight: 600, cursor: 'pointer',
-                  }}>Да</button>
-                  <button onClick={() => setDeletingId(null)} style={{
-                    padding: '4px 8px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.1)',
-                    background: '#fff', color: '#888', fontSize: 11, cursor: 'pointer',
-                  }}>Нет</button>
-                </div>
-              ) : (
-                <button onClick={() => setDeletingId(v.id)}
-                  title="Удалить видео"
-                  style={{
-                    background: 'none', border: 'none', color: '#e74c3c', cursor: 'pointer',
-                    fontSize: 13, padding: '2px 4px', opacity: 0.5, flexShrink: 0,
-                  }}>
-                  Удалить
-                </button>
+
+              {/* Per-video day calendar. Green = video active on day,
+                  mid-grey = practice active but this video doesn't cover,
+                  pale = practice doesn't run on this day. Click toggles. */}
+              {onPatchVideo && (
+                <ScheduleCalendar
+                  daysCount={maxDay}
+                  firstDay={v.first_day}
+                  lastDay={v.last_day}
+                  intervalDays={v.interval_days}
+                  excludedDays={v.excluded_days || []}
+                  extraDays={v.extra_days || []}
+                  enabledDays={activityScheduledDays || null}
+                  hint="Зелёный — это видео идёт в этот день, серый — другое видео или ничего, бледный — практика в этот день не назначена."
+                  onToggle={(day) => {
+                    const next = toggleDayInVideo(v, day);
+                    onPatchVideo(v.id, next);
+                  }}
+                />
               )}
             </div>
           ))}

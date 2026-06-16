@@ -1116,6 +1116,50 @@ router.patch('/videos/:id/duration', async (req, res) => {
   } catch (err) { res.json({ ok: false }); }
 });
 
+// PATCH /videos/:id — update editable scheduling fields on a video row.
+// Currently used by the per-video day-calendar to write back excluded_days /
+// extra_days when trainer taps days. Field whitelist + per-row clamp keeps
+// the surface narrow.
+router.patch('/videos/:id', async (req, res) => {
+  try {
+    const v = await queryOne('SELECT course_id FROM activity_videos WHERE id = $1', [req.params.id]);
+    if (!v) return res.status(404).json({ error: 'Not found' });
+    if (!await isTrainer(req.userId, v.course_id)) return res.status(403).json({ error: 'Нет прав' });
+    const course = await queryOne('SELECT days_count FROM courses WHERE id = $1', [v.course_id]);
+    const daysCount = course?.days_count || 30;
+
+    const { firstDay, lastDay, intervalDays, excludedDays, extraDays } = req.body || {};
+    const sets = []; const params = []; let i = 1;
+    if (firstDay !== undefined && firstDay !== '' && firstDay !== null) {
+      const n = Math.max(1, Math.min(parseInt(firstDay) || 1, daysCount));
+      sets.push(`first_day=$${i++}`); params.push(n);
+    }
+    if (lastDay !== undefined && lastDay !== '' && lastDay !== null) {
+      const n = Math.max(1, Math.min(parseInt(lastDay) || daysCount, daysCount));
+      sets.push(`last_day=$${i++}`); params.push(n);
+    }
+    if (intervalDays !== undefined && intervalDays !== '' && intervalDays !== null) {
+      const n = Math.max(1, parseInt(intervalDays) || 1);
+      sets.push(`interval_days=$${i++}`); params.push(n);
+    }
+    const sanitizeDays = (arr) => Array.from(new Set(
+      (Array.isArray(arr) ? arr : [])
+        .map(x => parseInt(x))
+        .filter(n => Number.isFinite(n) && n >= 1 && n <= daysCount)
+    )).sort((a, b) => a - b);
+    if (Array.isArray(excludedDays)) {
+      sets.push(`excluded_days=$${i++}`); params.push(sanitizeDays(excludedDays));
+    }
+    if (Array.isArray(extraDays)) {
+      sets.push(`extra_days=$${i++}`); params.push(sanitizeDays(extraDays));
+    }
+    if (sets.length === 0) return res.json({ ok: true });
+    params.push(req.params.id);
+    await query(`UPDATE activity_videos SET ${sets.join(', ')} WHERE id=$${i}`, params);
+    res.json({ ok: true });
+  } catch (err) { console.error(err); res.status(500).json({ error: err.message }); }
+});
+
 // ═══════════════════════════════════════════════════════════
 // ACTIVITY CALLS (online sessions via Jitsi Meet)
 // ═══════════════════════════════════════════════════════════

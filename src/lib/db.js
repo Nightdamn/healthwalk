@@ -565,6 +565,14 @@ export async function deleteActivityVideo(videoId, videoUrl, videoType) {
   }
 }
 
+export async function patchVideo(videoId, fields) {
+  try {
+    return await apiPatch(`/api/videos/${videoId}`, fields);
+  } catch (err) {
+    return { error: err.message };
+  }
+}
+
 export async function updateVideoDuration(videoId, durationSec) {
   try {
     await apiPatch(`/api/videos/${videoId}/duration`, { durationSec });
@@ -591,15 +599,21 @@ export async function getActivityVideos(courseId) {
 
 export function getVideoForDay(videos, activityId, day) {
   const matching = videos
-    .filter(v => {
-      if (v.activity_id !== activityId) return false;
-      if (day < v.first_day || day > v.last_day) return false;
-      const interval = v.interval_days || 1;
-      if (interval <= 1) return true;
-      return (day - v.first_day) % interval === 0;
-    })
+    .filter(v => v.activity_id === activityId && isVideoScheduledRaw(v, day))
     .sort((a, b) => b.sort_order - a.sort_order);
   return matching[0] || null;
+}
+
+// Inline copy of isVideoScheduled to avoid pulling the whole constants module
+// into this lib (db.js is import-heavy as it is).
+function isVideoScheduledRaw(v, day) {
+  const excluded = v.excluded_days || [];
+  const extra    = v.extra_days || [];
+  if (excluded.includes(day)) return false;
+  if (extra.includes(day)) return true;
+  if (day < v.first_day || day > v.last_day) return false;
+  const step = Math.max(1, v.interval_days || 1);
+  return ((day - v.first_day) % step) === 0;
 }
 
 export async function getVideoSignedUrl(filePath) {

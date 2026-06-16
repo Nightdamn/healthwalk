@@ -4,13 +4,13 @@ import IconPicker from '../components/IconPicker';
 import AvatarPicker, { processAvatarFile } from '../components/AvatarPicker';
 import ScheduleCalendar, { toggleDayInActivity } from '../components/ScheduleCalendar';
 import { getIconPath } from '../data/iconCatalog';
-import { formatInTz } from '../data/constants';
+import { formatInTz, isActivityScheduled } from '../data/constants';
 import { btnBack, glass, pageWrapper, topBar, topBarTitle } from '../styles/shared';
 import {
   loadCourseForEdit, canDeleteCourse, deleteCourse,
   getActivityVideos, uploadActivityVideo, addVideoLink, importDriveVideo, deleteActivityVideo,
   getActivityCalls, createActivityCall, deleteActivityCall,
-  updateActivityDuration, updateVideoDuration,
+  updateActivityDuration, updateVideoDuration, patchVideo,
   patchCourseMeta, createActivity, patchActivity, deleteActivity,
 } from '../lib/db';
 import { createAutoSaver } from '../lib/autoSave';
@@ -288,6 +288,20 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
     setVideos(prev => prev.filter(v => v.id !== videoId));
   };
 
+  // Per-video day-override toggle from the mini-calendar under each video.
+  // Update local state optimistically (UI repaints instantly), then PATCH.
+  const handlePatchVideo = async (videoId, fields) => {
+    setVideos(prev => prev.map(v => v.id === videoId
+      ? {
+          ...v,
+          ...(Array.isArray(fields.excludedDays) ? { excluded_days: fields.excludedDays } : {}),
+          ...(Array.isArray(fields.extraDays)    ? { extra_days:    fields.extraDays    } : {}),
+        }
+      : v));
+    const result = await patchVideo(videoId, fields);
+    if (result?.error) setError(`Ошибка: ${result.error}`);
+  };
+
   const handleCreateCall = async (activityId, day, scheduledAt, durationMin) => {
     const result = await createActivityCall(courseId, activityId, day, scheduledAt, durationMin);
     if (result.error) { setError(`Ошибка: ${result.error}`); return; }
@@ -522,6 +536,7 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
             onVideoUpload={(file, fd, ld, iv) => handleVideoUpload(a.dbId || a._key, file, fd, ld, iv)}
             onAddLink={(url, type, fd, ld, iv) => handleAddLink(a.dbId || a._key, url, type, fd, ld, iv)}
             onDeleteVideo={handleDeleteVideo}
+            onPatchVideo={handlePatchVideo}
             calls={calls}
             onCreateCall={handleCreateCall}
             onDeleteCall={handleDeleteCall}
@@ -573,7 +588,7 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
   );
 }
 
-function ActivityCard({ activity, index, maxDay, onUpdate, onToggleDay, onRemove, onPickIcon, videos, courseId, videoUploadingId, uploadProgress, uploadPhase, activityId: propActivityId, onVideoUpload, onAddLink, onDeleteVideo, calls, onCreateCall, onDeleteCall, tzOffsetMin }) {
+function ActivityCard({ activity, index, maxDay, onUpdate, onToggleDay, onRemove, onPickIcon, videos, courseId, videoUploadingId, uploadProgress, uploadPhase, activityId: propActivityId, onVideoUpload, onAddLink, onDeleteVideo, onPatchVideo, calls, onCreateCall, onDeleteCall, tzOffsetMin }) {
   // Draft call. As soon as date + time + duration are all valid the row is
   // auto-saved (debounced ~700ms) and the form resets — no Save button.
   const [showCallForm, setShowCallForm] = useState(false);
@@ -759,24 +774,34 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onToggleDay, onRemove
 
       {/* Video section — for media practice. Activities are auto-created in DB
           on add so dbId is always available; no more "save first" wall. */}
-      {activity.practiceType === 'media' && courseId && activity.dbId && (
-        <VideoSection
-          videos={videos}
-          courseId={courseId}
-          activityId={activity.dbId}
-          maxDay={maxDay}
-          defaultFirstDay={activity.firstDay || 1}
-          defaultLastDay={activity.lastDay || maxDay}
-          defaultIntervalDays={activity.intervalDays || 1}
-          onUpload={onVideoUpload}
-          onAddLink={onAddLink}
-          onDelete={onDeleteVideo}
-          uploading={videoUploadingId === activity.dbId}
-          uploadProgress={videoUploadingId === activity.dbId ? uploadProgress : 0}
-          uploadPhase={videoUploadingId === activity.dbId ? uploadPhase : 'downloading'}
-          globalUploading={!!videoUploadingId}
-        />
-      )}
+      {activity.practiceType === 'media' && courseId && activity.dbId && (() => {
+        // Pre-compute the set of days where the practice itself is active —
+        // VideoSection uses it to render "pale" cells for off-practice days.
+        const activeDays = new Set();
+        for (let d = 1; d <= maxDay; d++) {
+          if (isActivityScheduled(activity, d)) activeDays.add(d);
+        }
+        return (
+          <VideoSection
+            videos={videos}
+            courseId={courseId}
+            activityId={activity.dbId}
+            maxDay={maxDay}
+            defaultFirstDay={activity.firstDay || 1}
+            defaultLastDay={activity.lastDay || maxDay}
+            defaultIntervalDays={activity.intervalDays || 1}
+            activityScheduledDays={activeDays}
+            onUpload={onVideoUpload}
+            onAddLink={onAddLink}
+            onDelete={onDeleteVideo}
+            onPatchVideo={onPatchVideo}
+            uploading={videoUploadingId === activity.dbId}
+            uploadProgress={videoUploadingId === activity.dbId ? uploadProgress : 0}
+            uploadPhase={videoUploadingId === activity.dbId ? uploadPhase : 'downloading'}
+            globalUploading={!!videoUploadingId}
+          />
+        );
+      })()}
 
       {/* Call scheduling */}
       {activity.practiceType === 'call' && courseId && activity.dbId && (() => {

@@ -145,6 +145,28 @@ export function effectiveFirstDay(originalFirstDay, activityCreatedAt, joinedAt)
 // `activity` keys can be either camelCase (frontend shape: firstDay, lastDay,
 // intervalDays, excludedDays, extraDays, createdAt) or snake_case (raw DB
 // rows). Both are accepted.
+// Same shape as isActivityScheduled but for an activity_videos row. Videos
+// don't get the per-student effective-first-day clamp (a video is attached to
+// the course, not to a particular student's join date), so this is the simpler
+// of the two: interval + extra/excluded.
+//   inInterval = day in [first_day..last_day] AND (day-first_day) % interval == 0
+//   on         = (inInterval OR day ∈ extra_days) AND day ∉ excluded_days
+// Accepts both camelCase (frontend) and snake_case (raw DB) keys.
+export function isVideoScheduled(video, day) {
+  if (!video || !Number.isFinite(day)) return false;
+  const firstDay = video.firstDay ?? video.first_day ?? 1;
+  const lastDay  = video.lastDay  ?? video.last_day  ?? 30;
+  const interval = video.intervalDays ?? video.interval_days ?? 1;
+  const excluded = video.excludedDays ?? video.excluded_days ?? [];
+  const extra    = video.extraDays    ?? video.extra_days    ?? [];
+
+  if (excluded.includes(day)) return false;
+  if (extra.includes(day)) return true;
+  if (day < firstDay || day > lastDay) return false;
+  const step = Math.max(1, interval);
+  return ((day - firstDay) % step) === 0;
+}
+
 export function isActivityScheduled(activity, day, joinedAt) {
   if (!activity || !Number.isFinite(day)) return false;
   const firstDay = activity.firstDay ?? activity.first_day ?? 1;

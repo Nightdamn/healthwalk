@@ -252,6 +252,8 @@ CREATE TABLE IF NOT EXISTS activity_videos (
   first_day INT NOT NULL DEFAULT 1,
   last_day INT NOT NULL DEFAULT 1,
   interval_days INT NOT NULL DEFAULT 1 CHECK (interval_days >= 1),
+  excluded_days INTEGER[] NOT NULL DEFAULT '{}',
+  extra_days    INTEGER[] NOT NULL DEFAULT '{}',
   sort_order INT NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );

@@ -492,7 +492,18 @@ export default function Dashboard({
                               {elapsedSec > 0 ? 'Продолжить' : 'Начать'}
                             </button>
                           ) : (
-                            <div style={{ fontSize: 12, color: '#bbb', fontWeight: 500 }}>Не выполнено</div>
+                            // Past day, never started — show a pale check inside a pale circle
+                            // (visually parallel to the green "done" check, just muted).
+                            <div title="Не выполнено" style={{
+                              width: 28, height: 28, borderRadius: '50%',
+                              border: '1.5px solid rgba(0,0,0,0.12)', background: 'transparent',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            }}>
+                              <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                                <polyline points="3,8.5 6.5,12 13,4" stroke="rgba(0,0,0,0.18)"
+                                  strokeWidth="2" strokeLinecap="round" strokeLinejoin="miter" fill="none"/>
+                              </svg>
+                            </div>
                           )}
                         </div>
                         <div style={{ height: 4, background: 'rgba(0,0,0,0.04)', borderRadius: 2, overflow: 'hidden' }}>
