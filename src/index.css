@@ -10,6 +10,11 @@ html {
   -webkit-text-size-adjust: 100%;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  /* Резерв под sticky-шапку: когда браузер автоскроллит к фокусированному
+     полю (input/textarea/TipTap caret через scrollIntoView), он отступает
+     это значение от верха. Иначе TipTap при фокусе подтаскивает курсор
+     ровно под шапку, и визуально кажется, что шапка прыгнула. */
+  scroll-padding-top: 80px;
 }
 
 body {
