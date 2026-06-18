@@ -109,7 +109,7 @@ function SaveStatusBadge({ status }) {
       <span title="Сохранение..." style={{
         fontSize: 12, color: '#27ae60', fontWeight: 600,
         whiteSpace: 'nowrap',
-      }}>Сохранение…</span>
+      }}>Сохр.</span>
     );
   }
   if (status === 'error') {

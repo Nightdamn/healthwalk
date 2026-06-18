@@ -8,7 +8,11 @@ export default function Layout({ children }) {
         minHeight: "100vh",
         background: "linear-gradient(160deg, #fafbfc 0%, #f0f2f5 30%, #e8ecf1 60%, #f5f7fa 100%)",
         position: "relative",
-        overflow: "hidden",
+        // overflow: 'hidden' ломал position:sticky на дочерней шапке.
+        // Orbs ниже — position:fixed, привязаны к viewport, им клиппер
+        // не нужен. overflowX:'clip' гасит горизонтальный leak без
+        // сцепления sticky по вертикали.
+        overflowX: "clip",
         maxWidth: 430,
         margin: "0 auto",
         boxShadow: "0 0 80px rgba(0,0,0,0.06)",
