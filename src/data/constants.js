@@ -83,6 +83,59 @@ export function getCourseDay(startDateISO, tzOffsetMin = null, dayStartHour = DA
   return Math.max(1, Math.min(nowDayIdx - startDayIdx + 1, maxDays));
 }
 
+// v22 calendar binding + access window.
+// Возвращает богатый статус курса для одного timestamp:
+//   day                — целое 1..maxDays если курс идёт; 0 если ещё не начался;
+//                        maxDays если завершён (фиксируется на последнем дне).
+//   isUpcoming         — true если today < startDate (курс виден через план,
+//                        но дни не идут, можно ставить overview = «начнётся
+//                        через N дней»).
+//   isFinished         — true если today > startDate + daysCount - 1
+//   isAccessExpired    — true если isFinished И today > endDate + accessDaysAfter
+//                        (accessDaysAfter=null => никогда не expires).
+// Когда accessDaysAfter === null/undefined — материалы бессрочно после конца.
+export function getCourseDayInfo(startDateISO, daysCount = DAYS_TOTAL,
+                                 accessDaysAfter = null,
+                                 tzOffsetMin = null,
+                                 dayStartHour = DAY_START_HOUR) {
+  const empty = { day: 1, isUpcoming: false, isFinished: false,
+                  isAccessExpired: false, daysUntilStart: 0,
+                  daysSinceFinish: 0 };
+  if (!startDateISO) return empty;
+
+  const now = new Date();
+  const offsetMin = tzOffsetMin !== null ? tzOffsetMin : -(now.getTimezoneOffset());
+  const nowShifted = now.getTime() + offsetMin * 60 * 1000 - dayStartHour * 60 * 60 * 1000;
+  const nowDayIdx = Math.floor(nowShifted / 86400000);
+
+  let startDayIdx;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(startDateISO)) {
+    const [y, m, d] = startDateISO.split('-').map(Number);
+    startDayIdx = Math.floor(Date.UTC(y, m - 1, d) / 86400000);
+  } else {
+    const startShifted = new Date(startDateISO).getTime() + offsetMin * 60 * 1000 - dayStartHour * 60 * 60 * 1000;
+    startDayIdx = Math.floor(startShifted / 86400000);
+  }
+
+  const rawDay = nowDayIdx - startDayIdx + 1;
+  const lastDayIdx = startDayIdx + daysCount - 1;
+  const isUpcoming = rawDay < 1;
+  const isFinished = rawDay > daysCount;
+  const daysSinceFinish = isFinished ? (nowDayIdx - lastDayIdx) : 0;
+  const isAccessExpired = isFinished
+    && accessDaysAfter !== null && accessDaysAfter !== undefined
+    && daysSinceFinish > Number(accessDaysAfter);
+  const day = isUpcoming ? 0 : Math.min(rawDay, daysCount);
+  return {
+    day,
+    isUpcoming,
+    isFinished,
+    isAccessExpired,
+    daysUntilStart: isUpcoming ? (1 - rawDay) : 0,
+    daysSinceFinish,
+  };
+}
+
 /**
  * Возвращает true если курс полностью завершён (все дни прошли).
  */

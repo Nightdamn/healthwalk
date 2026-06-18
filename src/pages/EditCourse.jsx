@@ -133,6 +133,13 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [daysCount, setDaysCount] = useState(30);
+  // v22 calendar binding: if true — все ученики стартуют относительно
+  // startDate, иначе с момента joined_at каждого. accessDaysAfter — окно
+  // доступа к материалам ПОСЛЕ окончания (NULL = бессрочно, 0 = ровно
+  // в день окончания, N>0 = N дней после).
+  const [boundToCalendar, setBoundToCalendar] = useState(false);
+  const [startDate, setStartDate] = useState('');
+  const [accessDaysAfter, setAccessDaysAfter] = useState('');
   const [avatarIcon, setAvatarIcon] = useState('health/1');
   const [avatarCustom, setAvatarCustom] = useState(null);
   const [activities, setActivities] = useState([]);
@@ -176,6 +183,10 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
     setDescription(course.description || '');
     const dc = course.days_count || 30;
     setDaysCount(dc);
+    setBoundToCalendar(!!course.bound_to_calendar);
+    // Date input wants YYYY-MM-DD; trim ISO timestamp if backend ever returns full.
+    setStartDate((course.start_date || '').slice(0, 10));
+    setAccessDaysAfter(course.access_days_after == null ? '' : String(course.access_days_after));
     setAvatarIcon(course.avatar_icon || 'health/1');
     setAvatarCustom(course.avatar_custom || null);
     setCalls(callsData || []);
@@ -454,6 +465,22 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
 
   const onTitleChange = (v) => { setTitle(v); scheduleMetaSave({ title: v }); };
   const onDescriptionChange = (v) => { setDescription(v); scheduleMetaSave({ description: v }); };
+  const onBoundToCalendarChange = (v) => {
+    setBoundToCalendar(v);
+    // Если выключают привязку — start_date остаётся в БД на случай
+    // повторного включения (не очищаем).
+    scheduleMetaSave({ boundToCalendar: v });
+  };
+  const onStartDateChange = (v) => {
+    setStartDate(v);
+    scheduleMetaSave({ startDate: v || null });
+  };
+  const onAccessDaysAfterChange = (v) => {
+    setAccessDaysAfter(v);
+    const n = v === '' ? null : Math.max(0, parseInt(v));
+    if (v !== '' && !Number.isFinite(n)) return;
+    scheduleMetaSave({ accessDaysAfter: n });
+  };
   // Light path: while the trainer is typing, only update local state + the
   // debounced meta save. Clamping is destructive (collapses lastDay down to
   // every intermediate digit, e.g. "12" passes through "1" first), so it
@@ -614,6 +641,41 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
               commitDaysCount(clamped);
             }}
             style={{ ...inputStyle, width: 100 }} />
+
+          {/* v22 calendar binding */}
+          <div style={{ marginTop: 14, padding: 12, borderRadius: 12, background: 'rgba(0,0,0,0.02)' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 14, fontWeight: 600, color: '#1a1a2e' }}>
+              <input type="checkbox" checked={boundToCalendar}
+                onChange={e => onBoundToCalendarChange(e.target.checked)} />
+              Привязать начало к дате
+            </label>
+            <div style={{ fontSize: 12, color: '#888', marginTop: 4, marginLeft: 24 }}>
+              Курс будет виден ученикам в плане, но дни пойдут только с указанной даты.
+            </div>
+            {boundToCalendar && (
+              <div style={{ marginTop: 10, marginLeft: 24 }}>
+                <label style={{ ...labelStyle, fontSize: 12 }}>Дата начала</label>
+                <input type="date" value={startDate}
+                  onChange={e => onStartDateChange(e.target.value)}
+                  style={{ ...inputStyle, width: 180 }} />
+              </div>
+            )}
+          </div>
+
+          {/* v22 access window after course end */}
+          <div style={{ marginTop: 12, padding: 12, borderRadius: 12, background: 'rgba(0,0,0,0.02)' }}>
+            <label style={{ ...labelStyle, fontSize: 13 }}>
+              Материалы доступны после окончания (дней)
+            </label>
+            <div style={{ fontSize: 12, color: '#888', marginBottom: 6 }}>
+              Сколько дней после окончания курса ученик ещё видит материалы и практики.
+              Пусто = бессрочно, 0 = только в день окончания.
+            </div>
+            <input type="number" min={0} max={3650} placeholder="бессрочно"
+              value={accessDaysAfter}
+              onChange={e => onAccessDaysAfterChange(e.target.value)}
+              style={{ ...inputStyle, width: 140 }} />
+          </div>
         </div>
 
         {/* Activities */}

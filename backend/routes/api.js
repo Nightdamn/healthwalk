@@ -243,10 +243,22 @@ router.post('/role/assign', async (req, res) => {
 
 router.post('/courses', async (req, res) => {
   try {
-    const { title, description, avatarIcon, avatarCustom, daysCount, activities } = req.body;
+    const {
+      title, description, avatarIcon, avatarCustom, daysCount, activities,
+      boundToCalendar, startDate, accessDaysAfter,
+    } = req.body;
+    // start_date is meaningful only when bound_to_calendar=TRUE; we still
+    // store it if provided so toggling the checkbox later doesn't lose the date.
     const course = await queryOne(
-      'INSERT INTO courses (owner_id, title, description, days_count, avatar_icon, avatar_custom) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
-      [req.userId, title, description || '', daysCount, avatarIcon || null, avatarCustom || null]
+      `INSERT INTO courses
+         (owner_id, title, description, days_count, avatar_icon, avatar_custom,
+          bound_to_calendar, start_date, access_days_after)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+      [req.userId, title, description || '', daysCount,
+       avatarIcon || null, avatarCustom || null,
+       !!boundToCalendar,
+       startDate || null,
+       (typeof accessDaysAfter === 'number' && accessDaysAfter >= 0) ? accessDaysAfter : null]
     );
 
     if (activities?.length) {
@@ -382,7 +394,10 @@ router.patch('/courses/:id/meta', async (req, res) => {
     if (!course) return res.status(404).json({ error: 'Курс не найден' });
     if (course.owner_id !== req.userId) return res.status(403).json({ error: 'Нет прав' });
 
-    const { title, description, daysCount, avatarIcon, avatarCustom } = req.body || {};
+    const {
+      title, description, daysCount, avatarIcon, avatarCustom,
+      boundToCalendar, startDate, accessDaysAfter,
+    } = req.body || {};
     const sets = [];
     const params = [];
     let i = 1;
@@ -398,6 +413,19 @@ router.patch('/courses/:id/meta', async (req, res) => {
     }
     if (avatarIcon !== undefined && !avatarCustom) {
       sets.push(`avatar_icon=$${i++}`); params.push(avatarIcon || null);
+    }
+    // v22 calendar binding + access window. Optional, may arrive separately.
+    if (boundToCalendar !== undefined) {
+      sets.push(`bound_to_calendar=$${i++}`); params.push(!!boundToCalendar);
+    }
+    if (startDate !== undefined) {
+      // empty string / null -> clear date
+      sets.push(`start_date=$${i++}`); params.push(startDate || null);
+    }
+    if (accessDaysAfter !== undefined) {
+      const n = (accessDaysAfter === null || accessDaysAfter === '')
+        ? null : Math.max(0, parseInt(accessDaysAfter));
+      sets.push(`access_days_after=$${i++}`); params.push(Number.isFinite(n) ? n : null);
     }
     if (sets.length === 0) return res.json({ ok: true });
     sets.push(`updated_at=NOW()`);

@@ -74,6 +74,13 @@ CREATE TABLE IF NOT EXISTS courses (
   avatar_icon TEXT,
   avatar_custom TEXT,
   is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  -- Календарная привязка (v22). Когда TRUE — все ученики стартуют относительно
+  -- courses.start_date (а не joined_at). Курс виден до start_date через
+  -- план, но дни не идут. access_days_after — материалы доступны N дней
+  -- после окончания (start_date + days_count - 1). NULL = бессрочно.
+  bound_to_calendar BOOLEAN NOT NULL DEFAULT FALSE,
+  start_date DATE,
+  access_days_after INTEGER CHECK (access_days_after IS NULL OR access_days_after >= 0),
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
