@@ -171,10 +171,23 @@ export default function App() {
           setDayStartHour(settings.day_start_hour ?? DAY_START_HOUR);
         }
 
-        // Restore active context
+        // Restore active context.
+        //   1) server-side user_settings.active_type/_id (canonical)
+        //   2) localStorage fallback per user (instant, survives even if
+        //      a previous saveActiveContext failed network-side)
+        //   3) first available item
         let active = null;
         if (settings?.active_type && settings?.active_id) {
           active = items.find(it => it.type === settings.active_type && it.id === settings.active_id);
+        }
+        if (!active) {
+          try {
+            const raw = localStorage.getItem(`hw.activeCtx.${user.id}`);
+            if (raw) {
+              const saved = JSON.parse(raw);
+              active = items.find(it => it.type === saved.type && it.id === saved.id);
+            }
+          } catch (_) {}
         }
         if (!active && items.length > 0) active = items[0];
 
@@ -228,6 +241,14 @@ export default function App() {
   const handleSwitchContext = useCallback(async (item) => {
     if (!user?.id || item.id === activeItem?.id) return;
     setActiveItem(item);
+    // Write to localStorage synchronously BEFORE the network call so a
+    // reload mid-flight still picks up the latest choice.
+    try {
+      localStorage.setItem(
+        `hw.activeCtx.${user.id}`,
+        JSON.stringify({ type: item.type, id: item.id }),
+      );
+    } catch (_) {}
     await saveActiveContext(user.id, item.type, item.id);
 
     const loadPromises = [
