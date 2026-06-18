@@ -23,23 +23,30 @@ export const btnPrimary = {
   transition: "transform 0.15s, opacity 0.15s",
 };
 
-// Thin, flat back chevron — no white pill, no shadow. Footprint stays at
-// 42x42 so existing `<div style={{width:42}}/>` spacers keep the title
-// visually centered across every page that uses topBar.
+// Back button: subtle circle (glass background + thin border), enlarged
+// chevron inside. Footprint stays at 42x42 so existing
+// `<div style={{width:42}}/>` spacers keep the title visually centered
+// across every page that uses topBar — but visually it's now bigger,
+// more clickable, and reads as a tappable affordance instead of a faint
+// hint.
 export const btnBack = {
-  background: "transparent",
-  border: "none",
+  background: "rgba(255,255,255,0.7)",
+  backdropFilter: "blur(12px)",
+  WebkitBackdropFilter: "blur(12px)",
+  border: "1px solid rgba(0,0,0,0.06)",
   padding: 0,
   width: 42,
   height: 42,
+  borderRadius: "50%",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
   cursor: "pointer",
   fontSize: 26,
-  fontWeight: 300,
+  fontWeight: 400,
   color: "#1a1a2e",
   lineHeight: 1,
+  boxShadow: "0 2px 8px rgba(0,0,0,0.04)",
 };
 
 export const pageWrapper = {

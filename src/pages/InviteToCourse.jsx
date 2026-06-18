@@ -46,7 +46,7 @@ export default function InvitePage({ user, onBack }) {
     <Layout>
       <div style={{ minHeight: "100vh", padding: "0 20px", position: "relative", zIndex: 1 }}>
         <div style={{ display: "flex", alignItems: "center", paddingTop: 'calc(env(safe-area-inset-top, 0px) + 12px)', marginBottom: 24 }}>
-          <button onClick={onBack} style={btnBack}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M15 6l-6 6 6 6" stroke="#1a1a2e" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg></button>
+          <button onClick={onBack} style={btnBack}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M15 6l-6 6 6 6" stroke="#1a1a2e" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg></button>
           <h2 style={{ flex: 1, textAlign: "center", fontSize: 20, fontWeight: 700, color: "#1a1a2e", margin: 0 }}>
             Пригласить
           </h2>
