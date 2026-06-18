@@ -257,7 +257,7 @@ export default function Dashboard({
       <div style={{ minHeight: '100vh', padding: '0 20px 32px', position: 'relative', zIndex: 1 }}>
 
         {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: 'calc(env(safe-area-inset-top, 0px) + 12px)', marginBottom: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, zIndex: 100, paddingTop: 'calc(env(safe-area-inset-top, 0px) + 12px)', paddingBottom: 12, paddingLeft: 20, paddingRight: 20, marginLeft: -20, marginRight: -20, background: 'rgba(255,255,255,0.72)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', borderBottom: '1px solid rgba(0,0,0,0.04)', marginBottom: 24 }}>
           <div>
             <div style={{ fontSize: 22, fontWeight: 700, color: '#1a1a2e' }}>{user?.name}</div>
             {activeItem && (

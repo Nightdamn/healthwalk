@@ -56,14 +56,28 @@ export const pageWrapper = {
   zIndex: 1,
 };
 
-// Compact top bar: 12px base + iOS safe-area (notch) on PWA. Used to be 52px
-// flat which looked like wasted space on desktop and on devices without a
-// notch.
+// Sticky top bar: всегда наверху при скролле. Прозрачный фон с blur,
+// чтобы контент за ним красиво размывался. 12px base padding + iOS
+// safe-area (notch) на PWA. negative margin-x'ом + padding-x'ом
+// «выходим» за pageWrapper'овский padding 20px, чтобы шапка тянулась
+// от края до края (а не висела узкой полоской посередине).
 export const topBar = {
+  position: "sticky",
+  top: 0,
+  zIndex: 100,
   display: "flex",
   alignItems: "center",
   paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)",
+  paddingBottom: 12,
+  paddingLeft: 20,
+  paddingRight: 20,
+  marginLeft: -20,
+  marginRight: -20,
   marginBottom: 16,
+  background: "rgba(255,255,255,0.72)",
+  backdropFilter: "blur(20px)",
+  WebkitBackdropFilter: "blur(20px)",
+  borderBottom: "1px solid rgba(0,0,0,0.04)",
 };
 
 export const topBarTitle = {
