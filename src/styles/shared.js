@@ -51,19 +51,27 @@ export const btnBack = {
 
 export const pageWrapper = {
   minHeight: "100vh",
-  padding: "0 20px 32px",
+  // top padding = высота fixed-шапки (см. topBar ниже) + safe-area, чтобы
+  // контент не подлезал под неё. base 12 + контент 42 (кнопка) + base 12 +
+  // 16 запас «как был marginBottom у sticky» = 82.
+  padding: "calc(env(safe-area-inset-top, 0px) + 82px) 20px 32px",
   position: "relative",
   zIndex: 1,
 };
 
-// Sticky top bar: всегда наверху при скролле. Прозрачный фон с blur,
-// чтобы контент за ним красиво размывался. 12px base padding + iOS
-// safe-area (notch) на PWA. negative margin-x'ом + padding-x'ом
-// «выходим» за pageWrapper'овский padding 20px, чтобы шапка тянулась
-// от края до края (а не висела узкой полоской посередине).
+// Top bar: ЖЁСТКО прибит к верху viewport (position: fixed). Sticky-
+// вариант ломался из-за сочетания ancestor overflow + браузерных
+// scrollIntoView при фокусе на инпутах/редакторе TipTap (шапка
+// «уезжала» при клике в поле). Fixed работает безусловно — не зависит
+// от containing block и scroll-контекста. Привязан к 430px фрейму
+// Layout'а через left:50% + translateX(-50%) + max-width.
 export const topBar = {
-  position: "sticky",
+  position: "fixed",
   top: 0,
+  left: "50%",
+  transform: "translateX(-50%)",
+  width: "100%",
+  maxWidth: 430,
   zIndex: 100,
   display: "flex",
   alignItems: "center",
@@ -71,10 +79,7 @@ export const topBar = {
   paddingBottom: 12,
   paddingLeft: 20,
   paddingRight: 20,
-  marginLeft: -20,
-  marginRight: -20,
-  marginBottom: 16,
-  background: "rgba(255,255,255,0.72)",
+  background: "rgba(255,255,255,0.78)",
   backdropFilter: "blur(20px)",
   WebkitBackdropFilter: "blur(20px)",
   borderBottom: "1px solid rgba(0,0,0,0.04)",
