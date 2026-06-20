@@ -16,6 +16,8 @@ import EditCoursePage from './pages/EditCourse';
 import EditTrackerPage from './pages/EditTracker';
 import TrainerCabinetPage from './pages/TrainerCabinet';
 import Layout from './components/Layout';
+import { MenuProvider } from './components/MenuContext';
+import MenuDrawer from './components/MenuDrawer';
 import { DAY_START_HOUR, getCourseDay, isCourseFinished } from './data/constants';
 import { isAuthenticated, getMe, signOut as authSignOut, checkOAuthCallback, setToken } from './lib/supabase';
 import {
@@ -579,7 +581,8 @@ export default function App() {
     );
   }
 
-  switch (screen) {
+  const renderPage = () => {
+    switch (screen) {
     case 'login': return <LoginPage onLogin={handleLogin} />;
     case 'timer': return (
       <TimerPage activity={activeActivity} timerSeconds={timerSeconds} timerPaused={timerPaused}
@@ -613,5 +616,24 @@ export default function App() {
         exclusions={exclusions} customActivities={customActivities}
         unreadCount={unreadCount} courseFinished={courseFinished} />
     );
-  }
+    }
+  };
+
+  // login-страница рендерится без MenuProvider (там нет шапки / меню)
+  if (screen === 'login') return renderPage();
+
+  return (
+    <MenuProvider>
+      {renderPage()}
+      <MenuDrawer
+        user={user}
+        userRole={userRole}
+        availableItems={availableItems}
+        activeItem={activeItem}
+        onSwitchContext={handleSwitchContext}
+        onNavigate={setScreen}
+        unreadCount={unreadCount}
+      />
+    </MenuProvider>
+  );
 }

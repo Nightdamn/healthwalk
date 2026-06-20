@@ -1,8 +1,9 @@
+import TopBar from '../components/TopBar';
 import React, { useRef } from 'react';
 import Layout from '../components/Layout';
 import Footer from '../components/Footer';
 import { getIconPath } from '../data/iconCatalog';
-import { btnBack, glass } from '../styles/shared';
+import { glass } from '../styles/shared';
 import { isActivityScheduled } from '../data/constants';
 
 const GREEN = '#27ae60';
@@ -38,11 +39,7 @@ export default function DetailsPage({ progress, currentDay, elapsedTime, getElap
   return (
     <Layout>
       <div style={{ minHeight: '100vh', padding: 'calc(env(safe-area-inset-top, 0px) + 82px) 20px', position: 'relative', zIndex: 1 }}>
-        <div style={{ display: 'flex', alignItems: 'center', position: 'fixed', top: 'var(--vv-top, 0px)', left: '50%', transform: 'translateX(-50%)', width: '100%', maxWidth: 430, zIndex: 100, paddingTop: 'calc(env(safe-area-inset-top, 0px) + 12px)', paddingBottom: 12, paddingLeft: 20, paddingRight: 20, background: 'rgba(255,255,255,0.72)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', borderBottom: '1px solid rgba(0,0,0,0.04)', marginBottom: 24 }}>
-          <button onClick={onBack} style={btnBack}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M15 6l-6 6 6 6" stroke="#1a1a2e" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg></button>
-          <h2 style={{ flex: 1, textAlign: 'center', fontSize: 20, fontWeight: 700, color: '#1a1a2e', margin: 0 }}>Детали прогресса</h2>
-          <div style={{ width: 42 }} />
-        </div>
+        <TopBar onBack={onBack} title="Детали прогресса" />
 
         {activeItem && (
           <div style={{ textAlign: 'center', marginBottom: 28, fontSize: 15, color: '#666', fontWeight: 500 }}>

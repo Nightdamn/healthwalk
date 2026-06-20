@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import Layout from '../components/Layout';
 import { getIconPath } from '../data/iconCatalog';
-import { btnBack, glass, pageWrapper, topBar, topBarTitle } from '../styles/shared';
+import { glass, pageWrapper } from '../styles/shared';
+import TopBar from '../components/TopBar';
 import { getMyTrackers, deleteTracker } from '../lib/db';
 
 const GREEN = '#27ae60';
@@ -30,11 +31,7 @@ export default function MyTrackersPage({ user, onBack, onNavigate, onEditTracker
     <Layout>
       <div style={pageWrapper}>
         {/* Top bar */}
-        <div style={topBar}>
-          <button onClick={onBack} style={btnBack}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M15 6l-6 6 6 6" stroke="#1a1a2e" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg></button>
-          <h2 style={topBarTitle}>Мои трекеры</h2>
-          <div style={{ width: 42 }} />
-        </div>
+        <TopBar onBack={onBack} title="Мои трекеры" />
 
         {loading ? (
           <div style={{ textAlign: 'center', padding: 40, color: '#aaa', fontSize: 14 }}>Загрузка...</div>

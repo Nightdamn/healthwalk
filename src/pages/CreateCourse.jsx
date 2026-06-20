@@ -3,7 +3,8 @@ import Layout from '../components/Layout';
 import IconPicker from '../components/IconPicker';
 import AvatarPicker, { processAvatarFile } from '../components/AvatarPicker';
 import { getIconPath } from '../data/iconCatalog';
-import { btnBack, glass, pageWrapper, topBar, topBarTitle } from '../styles/shared';
+import { glass, pageWrapper } from '../styles/shared';
+import TopBar from '../components/TopBar';
 import { createCourseWithActivities, addVideoLink } from '../lib/db';
 import { detectVideoType } from '../components/VideoSection';
 import RichTextEditor from '../components/RichTextEditor';
@@ -146,11 +147,7 @@ export default function CreateCoursePage({ user, onBack, onCreated }) {
   return (
     <Layout>
       <div style={pageWrapper}>
-        <div style={topBar}>
-          <button onClick={onBack} style={btnBack}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M15 6l-6 6 6 6" stroke="#1a1a2e" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg></button>
-          <h2 style={topBarTitle}>Создать курс</h2>
-          <div style={{ width: 42 }} />
-        </div>
+        <TopBar onBack={onBack} title="Создать курс" />
 
         {/* Avatar + Title + Description */}
         <div style={{ ...glass, borderRadius: 18, padding: '20px 16px', marginBottom: 16 }}>

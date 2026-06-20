@@ -11,7 +11,8 @@ const PRACTICE_TYPE_OPTIONS = [
 ];
 import { getIconPath } from '../data/iconCatalog';
 import { getCourseDay, isActivityScheduled } from '../data/constants';
-import { btnBack, glass, pageWrapper, topBar, topBarTitle } from '../styles/shared';
+import { glass, pageWrapper } from '../styles/shared';
+import TopBar from '../components/TopBar';
 import {
   getCourseStudentsInfo, getCourseAllStudentsProgress,
   inviteToCourse, toggleStudentPause, removeStudentFromCourse,
@@ -168,11 +169,7 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
   return (
     <Layout>
       <div style={pageWrapper}>
-        <div style={topBar}>
-          <button onClick={onBack} style={btnBack}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M15 6l-6 6 6 6" stroke="#1a1a2e" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg></button>
-          <h2 style={topBarTitle}>Кабинет тренера</h2>
-          <div style={{ width: 42 }} />
-        </div>
+        <TopBar onBack={onBack} title="Кабинет тренера" />
 
         {/* Course header */}
         <div style={{ ...glass, borderRadius: 18, padding: '16px', marginBottom: 16, display: 'flex', gap: 12, alignItems: 'center' }}>
