@@ -11,15 +11,26 @@ export default function Layout({ children }) {
   useEffect(() => {
     const vv = window.visualViewport;
     if (!vv) return;
+    let last = -1;
+    let raf = 0;
     const update = () => {
-      document.documentElement.style.setProperty('--vv-top', `${vv.offsetTop}px`);
+      raf = 0;
+      const off = Math.round(vv.offsetTop);
+      if (off === last) return; // skip noop, иначе шапка дрожит на mobile
+      last = off;
+      document.documentElement.style.setProperty('--vv-top', `${off}px`);
+    };
+    const schedule = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(update);
     };
     update();
-    vv.addEventListener('scroll', update);
-    vv.addEventListener('resize', update);
+    vv.addEventListener('scroll', schedule);
+    vv.addEventListener('resize', schedule);
     return () => {
-      vv.removeEventListener('scroll', update);
-      vv.removeEventListener('resize', update);
+      if (raf) cancelAnimationFrame(raf);
+      vv.removeEventListener('scroll', schedule);
+      vv.removeEventListener('resize', schedule);
     };
   }, []);
 

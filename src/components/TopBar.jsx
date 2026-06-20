@@ -16,7 +16,12 @@ export default function TopBar({ onBack, title, right }) {
       position: 'fixed',
       top: 'var(--vv-top, 0px)',
       left: '50%',
-      transform: 'translateX(-50%)',
+      // translateZ(0) выкидывает шапку в отдельный GPU-слой — без него
+      // mobile-браузеры пересчитывают layout при каждом scroll/таче
+      // (особенно с backdrop-filter), и шапка визуально «дрожит».
+      // willChange закрепляет слой даже когда transform статичен.
+      transform: 'translate3d(-50%, 0, 0)',
+      willChange: 'transform',
       width: '100%',
       maxWidth: 430,
       zIndex: 100,
