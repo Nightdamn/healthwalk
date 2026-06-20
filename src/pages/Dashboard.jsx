@@ -257,15 +257,15 @@ export default function Dashboard({
       <div style={{ minHeight: '100vh', padding: 'calc(env(safe-area-inset-top, 0px) + 82px) 20px 32px', position: 'relative', zIndex: 1 }}>
 
         {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'fixed', top: 0, left: '50%', transform: 'translateX(-50%)', width: '100%', maxWidth: 430, zIndex: 100, paddingTop: 'calc(env(safe-area-inset-top, 0px) + 12px)', paddingBottom: 12, paddingLeft: 20, paddingRight: 20, marginLeft: -20, marginRight: -20, background: 'rgba(255,255,255,0.72)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', borderBottom: '1px solid rgba(0,0,0,0.04)', marginBottom: 24 }}>
-          <div>
-            <div style={{ fontSize: 22, fontWeight: 700, color: '#1a1a2e' }}>{user?.name}</div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'fixed', top: 0, left: '50%', transform: 'translateX(-50%)', width: '100%', maxWidth: 430, zIndex: 100, paddingTop: 'calc(env(safe-area-inset-top, 0px) + 12px)', paddingBottom: 12, paddingLeft: 20, paddingRight: 20, background: 'rgba(255,255,255,0.72)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', borderBottom: '1px solid rgba(0,0,0,0.04)', marginBottom: 24 }}>
+          <div style={{ minWidth: 0, paddingLeft: 4, paddingRight: 12, flex: 1 }}>
             {activeItem && (
-              <div style={{ fontSize: 12, color: '#888', marginTop: 2, display: 'flex', alignItems: 'center', gap: 6 }}>
-                {activeAvatarSrc && <img src={activeAvatarSrc} alt="" style={{ width: 16, height: 16, borderRadius: 4, objectFit: 'contain' }} />}
-                {activeItem.title}
+              <div style={{ fontSize: 18, fontWeight: 700, color: '#1a1a2e', display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {activeAvatarSrc && <img src={activeAvatarSrc} alt="" style={{ width: 22, height: 22, borderRadius: 6, objectFit: 'contain', flexShrink: 0 }} />}
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{activeItem.title}</span>
               </div>
             )}
+            <div style={{ fontSize: 12, color: '#888', marginTop: activeItem ? 2 : 0, fontWeight: 500 }}>{user?.name}</div>
           </div>
           <div style={{ position: 'relative' }}>
             <button onClick={() => setMenuOpen(true)}
