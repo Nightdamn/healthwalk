@@ -1,6 +1,28 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 
 export default function Layout({ children }) {
+  // iOS Safari: при фокусе на input/textarea/contenteditable открывается
+  // виртуальная клавиатура — visual viewport сжимается, layout viewport
+  // остаётся прежним. position:fixed top:0 прибит к layout viewport,
+  // и при скролле шапка визуально «уезжает» за пределы visual viewport.
+  // Реактивно подкручиваем top через CSS var --vv-top равный
+  // visualViewport.offsetTop. На Android/desktop offsetTop = 0, поведение
+  // не меняется.
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const update = () => {
+      document.documentElement.style.setProperty('--vv-top', `${vv.offsetTop}px`);
+    };
+    update();
+    vv.addEventListener('scroll', update);
+    vv.addEventListener('resize', update);
+    return () => {
+      vv.removeEventListener('scroll', update);
+      vv.removeEventListener('resize', update);
+    };
+  }, []);
+
   return (
     <div
       style={{

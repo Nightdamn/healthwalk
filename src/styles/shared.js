@@ -67,7 +67,10 @@ export const pageWrapper = {
 // Layout'а через left:50% + translateX(-50%) + max-width.
 export const topBar = {
   position: "fixed",
-  top: 0,
+  // --vv-top реактивно выставляется в Layout по visualViewport.offsetTop —
+  // на iOS Safari это компенсирует «уезжание» fixed-элемента при открытой
+  // виртуальной клавиатуре. На Android/desktop это 0.
+  top: "var(--vv-top, 0px)",
   left: "50%",
   transform: "translateX(-50%)",
   width: "100%",
