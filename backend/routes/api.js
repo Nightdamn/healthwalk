@@ -69,6 +69,7 @@ router.get('/items', async (req, res) => {
     const enrolled = await query(`
       SELECT ce.role, ce.joined_at,
              c.id, c.title, c.description, c.days_count, c.avatar_icon, c.avatar_custom, c.owner_id, c.created_at,
+             c.bound_to_calendar, c.start_date, c.access_days_after,
              (SELECT count(*) FROM course_enrollments WHERE course_id = c.id) AS enroll_count
       FROM course_enrollments ce
       JOIN courses c ON c.id = ce.course_id
