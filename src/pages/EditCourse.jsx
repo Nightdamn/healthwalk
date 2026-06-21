@@ -10,7 +10,7 @@ import TopBar from '../components/TopBar';
 import {
   loadCourseForEdit, canDeleteCourse, deleteCourse,
   getActivityVideos, uploadActivityVideo, addVideoLink, importDriveVideo, deleteActivityVideo,
-  getActivityCalls, createActivityCall, deleteActivityCall,
+  getActivityCalls, createActivityCall, deleteActivityCall, patchActivityCall,
   updateActivityDuration, updateVideoDuration, patchVideo,
   patchCourseMeta, createActivity, patchActivity, deleteActivity,
 } from '../lib/db';
@@ -367,6 +367,19 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
     setCalls(prev => prev.filter(c => c.id !== callId));
   };
 
+  const handlePatchCall = async (callId, fields) => {
+    // optimistic update
+    setCalls(prev => prev.map(c => c.id === callId ? {
+      ...c,
+      scheduled_at: fields.scheduledAt !== undefined ? fields.scheduledAt : c.scheduled_at,
+    } : c));
+    const result = await patchActivityCall(callId, fields);
+    if (result?.error) setError(`Ошибка: ${result.error}`);
+    else if (result?.data) {
+      setCalls(prev => prev.map(c => c.id === callId ? result.data : c));
+    }
+  };
+
   // ── Activity field auto-save ──
   // Backend payload uses camelCase same as our state — pass through directly.
   const scheduleActivityPatch = (dbId, fields) => {
@@ -697,6 +710,7 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
             calls={calls}
             onCreateCall={handleCreateCall}
             onDeleteCall={handleDeleteCall}
+            onPatchCall={handlePatchCall}
             tzOffsetMin={tzOffsetMin}
             boundToCalendar={boundToCalendar}
             courseStartDate={startDate} />
@@ -747,16 +761,161 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
   );
 }
 
-function ActivityCard({ activity, index, maxDay, onUpdate, onToggleDay, onRemove, onPickIcon, videos, courseId, videoUploadingId, uploadProgress, uploadPhase, activityId: propActivityId, onVideoUpload, onAddLink, onDeleteVideo, onPatchVideo, calls, onCreateCall, onDeleteCall, tzOffsetMin, boundToCalendar, courseStartDate }) {
-  // Draft call. As soon as date + time + duration are all valid the row is
-  // auto-saved (debounced ~700ms) and the form resets — no Save button.
-  const [showCallForm, setShowCallForm] = useState(false);
-  const [callDay, setCallDay] = useState(1);
-  const [callDate, setCallDate] = useState('');
-  const [callTime, setCallTime] = useState('10:00');
-  const [callDuration, setCallDuration] = useState(30);
-  const [callSaving, setCallSaving] = useState(false);
-  const savedDraftRef = useRef('');
+// Helpers: «День N курса» → YYYY-MM-DD (UTC-стабильно), и обратно.
+function dayToISODate(startDateISO, day) {
+  const [y, mo, d] = startDateISO.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, mo - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + (day - 1));
+  return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth()+1).padStart(2,'0')}-${String(dt.getUTCDate()).padStart(2,'0')}`;
+}
+
+function formatDayDateLong(isoDate) {
+  const [y, mo, d] = isoDate.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, mo - 1, d));
+  const W = ['Воскресенье','Понедельник','Вторник','Среда','Четверг','Пятница','Суббота'];
+  const M = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
+  return `${W[dt.getUTCDay()]}, ${dt.getUTCDate()} ${M[dt.getUTCMonth()]}`;
+}
+
+// Превращает (YYYY-MM-DD, HH:MM, tzMinutes) → ISO UTC момент,
+// интерпретируя время как wall-clock в указанном часовом поясе.
+function combineDateTimeInTz(isoDate, hhmm, tzMin) {
+  const [y, mo, d] = isoDate.split('-').map(Number);
+  const [h, mi] = hhmm.split(':').map(Number);
+  const naiveUtc = Date.UTC(y, mo - 1, d, h, mi, 0);
+  return new Date(naiveUtc - tzMin * 60000).toISOString();
+}
+
+// Достаёт HH:MM (в указанном tz) из ISO timestamp.
+function isoToHHMM(isoTimestamp, tzMin) {
+  const d = new Date(isoTimestamp);
+  const shifted = new Date(d.getTime() + tzMin * 60000);
+  return `${String(shifted.getUTCHours()).padStart(2,'0')}:${String(shifted.getUTCMinutes()).padStart(2,'0')}`;
+}
+
+// Список плановых дней активности — учитывает firstDay/lastDay/intervalDays
+// + excluded/extra дни. Не учитывает joinedAt (мы в редакторе курса, всех учеников).
+function getActivityScheduledDays(activity, maxDay) {
+  const days = [];
+  for (let d = 1; d <= maxDay; d++) {
+    if (isActivityScheduled(activity, d)) days.push(d);
+  }
+  return days;
+}
+
+function CallSchedule({ activity, maxDay, calls, courseId, tzMin, trainerTzLabel,
+                        boundToCalendar, courseStartDate,
+                        onCreateCall, onDeleteCall, onPatchCall }) {
+  const actId = activity.activityId || activity.dbId;
+  const actCalls = (calls || []).filter(c => c.activity_id === actId);
+  const scheduledDays = getActivityScheduledDays(activity, maxDay);
+
+  // Sync БД с расписанием активности: для каждого scheduled-дня без звонка
+  // создать звонок (10:00 default), для каждого звонка с днём вне расписания —
+  // удалить. Запускается на изменения scheduledDays и при каждом монтировании.
+  // Защита от race: используем ref-флаг чтобы не дёргать API параллельно.
+  const syncingRef = useRef(false);
+  useEffect(() => {
+    if (!boundToCalendar || !courseStartDate || !courseId) return;
+    if (syncingRef.current) return;
+    const dayToCall = new Map(actCalls.map(c => [c.day, c]));
+    const toCreate = scheduledDays.filter(d => !dayToCall.has(d));
+    const toDelete = actCalls.filter(c => !scheduledDays.includes(c.day));
+    if (!toCreate.length && !toDelete.length) return;
+    syncingRef.current = true;
+    (async () => {
+      try {
+        for (const d of toCreate) {
+          const scheduledAt = combineDateTimeInTz(dayToISODate(courseStartDate, d), '10:00', tzMin);
+          await onCreateCall(actId, d, scheduledAt, null);
+        }
+        for (const c of toDelete) {
+          await onDeleteCall(c.id);
+        }
+      } finally {
+        syncingRef.current = false;
+      }
+    })();
+  }, [boundToCalendar, courseStartDate, JSON.stringify(scheduledDays), actCalls.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Без bound_to_calendar: списка нет, показываем подсказку.
+  if (!boundToCalendar || !courseStartDate) {
+    return (
+      <div style={{ marginTop: 8, borderTop: '1px solid rgba(0,0,0,0.05)', paddingTop: 8 }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: '#aaa', marginBottom: 6, textTransform: 'uppercase' }}>
+          Расписание звонков
+        </div>
+        <div style={{ fontSize: 11, color: '#999', padding: '8px 10px', borderRadius: 8, background: 'rgba(0,0,0,0.03)', lineHeight: 1.5 }}>
+          Чтобы запланировать звонки, отметьте курс как привязанный к календарю и укажите дату начала — звонки появятся автоматически на отмеченные дни активности.
+        </div>
+      </div>
+    );
+  }
+
+  const sortedCalls = [...actCalls].sort((a, b) => a.day - b.day);
+
+  return (
+    <div style={{ marginTop: 8, borderTop: '1px solid rgba(0,0,0,0.05)', paddingTop: 8 }}>
+      <div style={{ fontSize: 11, fontWeight: 600, color: '#aaa', marginBottom: 6, textTransform: 'uppercase' }}>
+        Расписание звонков
+      </div>
+      {sortedCalls.length === 0 ? (
+        <div style={{ fontSize: 11, color: '#aaa', padding: '6px 8px' }}>
+          Отметьте дни активности выше — для каждого появится звонок.
+        </div>
+      ) : sortedCalls.map(c => (
+        <CallRow key={c.id} call={c} courseStartDate={courseStartDate} tzMin={tzMin}
+                 onPatch={(scheduledAt) => onPatchCall(c.id, { scheduledAt })} />
+      ))}
+      <div style={{ fontSize: 10, color: '#aaa', marginTop: 6 }}>
+        Время указывается в вашем часовом поясе из Профиля ({trainerTzLabel}). У учеников отобразится в их собственном. Длительность учитывается по факту окончания.
+      </div>
+    </div>
+  );
+}
+
+function CallRow({ call, courseStartDate, tzMin, onPatch }) {
+  const isoDate = dayToISODate(courseStartDate, call.day);
+  const initialTime = call.scheduled_at ? isoToHHMM(call.scheduled_at, tzMin) : '10:00';
+  const [time, setTime] = useState(initialTime);
+  const savedRef = useRef(initialTime);
+
+  // Если бэкенд вернул обновлённое значение — обновим локально.
+  useEffect(() => {
+    if (call.scheduled_at) {
+      const t = isoToHHMM(call.scheduled_at, tzMin);
+      if (t !== savedRef.current) { setTime(t); savedRef.current = t; }
+    }
+  }, [call.scheduled_at, tzMin]);
+
+  // Debounced patch на изменение времени.
+  useEffect(() => {
+    if (time === savedRef.current) return;
+    const t = setTimeout(() => {
+      const scheduledAt = combineDateTimeInTz(isoDate, time, tzMin);
+      savedRef.current = time;
+      onPatch(scheduledAt);
+    }, 500);
+    return () => clearTimeout(t);
+  }, [time]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px',
+      marginBottom: 4, borderRadius: 8, background: 'rgba(155,89,182,0.06)', fontSize: 12,
+    }}>
+      <span style={{ fontSize: 14 }}>📞</span>
+      <span style={{ flex: 1, color: '#555' }}>
+        День {call.day} — {formatDayDateLong(isoDate)}
+      </span>
+      <input type="time" value={time} onChange={e => setTime(e.target.value)}
+        style={{ width: 84, padding: '3px 6px', fontSize: 11, borderRadius: 6,
+                 border: '1px solid rgba(0,0,0,0.08)', background: '#fff' }} />
+    </div>
+  );
+}
+
+function ActivityCard({ activity, index, maxDay, onUpdate, onToggleDay, onRemove, onPickIcon, videos, courseId, videoUploadingId, uploadProgress, uploadPhase, activityId: propActivityId, onVideoUpload, onAddLink, onDeleteVideo, onPatchVideo, calls, onCreateCall, onDeleteCall, onPatchCall, tzOffsetMin, boundToCalendar, courseStartDate }) {
   // Trainer's timezone comes from THEIR profile (user_settings.tz_offset_min),
   // NOT from the browser — VPNs make browser tz unreliable; profile is the
   // single source of truth. Default fallback: Moscow (UTC+3, offset=180).
@@ -768,60 +927,6 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onToggleDay, onRemove
     const mm = abs % 60;
     return `GMT${sign}${hh}${mm ? ':' + String(mm).padStart(2, '0') : ''}`;
   })();
-
-  // Привязка к календарю: дата звонка вычисляется как
-  // course.start_date + (callDay - 1). Тренеру вводить дату не нужно —
-  // только день курса и время.
-  const autoDate = (boundToCalendar && courseStartDate && callDay)
-    ? (() => {
-        const [y, mo, d] = courseStartDate.split('-').map(Number);
-        const base = new Date(Date.UTC(y, mo - 1, d));
-        base.setUTCDate(base.getUTCDate() + (Number(callDay) - 1));
-        return `${base.getUTCFullYear()}-${String(base.getUTCMonth()+1).padStart(2,'0')}-${String(base.getUTCDate()).padStart(2,'0')}`;
-      })()
-    : null;
-  const autoDateLabel = (() => {
-    if (!autoDate) return '';
-    const [y, mo, d] = autoDate.split('-').map(Number);
-    const dt = new Date(Date.UTC(y, mo - 1, d));
-    const W = ['Воскресенье','Понедельник','Вторник','Среда','Четверг','Пятница','Суббота'];
-    const M = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
-    return `${W[dt.getUTCDay()]}, ${dt.getUTCDate()} ${M[dt.getUTCMonth()]}`;
-  })();
-
-  // sync вычисленной даты в callDate, чтобы существующий авто-сейв
-  // useEffect собрал её в scheduledAt как обычно.
-  useEffect(() => {
-    if (autoDate && callDate !== autoDate) setCallDate(autoDate);
-  }, [autoDate]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Auto-save call draft when all fields valid (debounced)
-  useEffect(() => {
-    if (!showCallForm) return;
-    if (!callDate || !callTime || !callDay || !callDuration) return;
-    const key = `${callDay}|${callDate}|${callTime}|${callDuration}`;
-    if (savedDraftRef.current === key || callSaving) return;
-    const t = setTimeout(async () => {
-      // Interpret trainer's input as wall-clock time in HER profile tz, not
-      // in browser tz. naive_utc = same digits parsed as UTC; subtract the
-      // profile offset → real UTC moment.
-      const [y, mo, d] = callDate.split('-').map(Number);
-      const [h, mi] = callTime.split(':').map(Number);
-      const naiveUtcMs = Date.UTC(y, mo - 1, d, h, mi, 0);
-      if (!isFinite(naiveUtcMs)) return;
-      const scheduledAt = new Date(naiveUtcMs - tzMin * 60000).toISOString();
-      setCallSaving(true);
-      savedDraftRef.current = key;
-      try {
-        await onCreateCall(activity.activityId || propActivityId, callDay, scheduledAt, callDuration);
-        // Reset draft so a new entry can be added without re-opening the form
-        setCallDate('');
-        setCallTime('10:00');
-      } catch {}
-      setCallSaving(false);
-    }, 700);
-    return () => clearTimeout(t);
-  }, [showCallForm, callDay, callDate, callTime, callDuration, callSaving, activity.activityId, propActivityId, onCreateCall]);
 
   const numChange = (field) => (e) => {
     const raw = e.target.value;
@@ -988,118 +1093,25 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onToggleDay, onRemove
         );
       })()}
 
-      {/* Call scheduling */}
-      {activity.practiceType === 'call' && courseId && activity.dbId && (() => {
-        const actId = activity.activityId || activity.dbId;
-        const actCalls = (calls || []).filter(c => c.activity_id === actId);
-        return (
-          <div style={{ marginTop: 8, borderTop: '1px solid rgba(0,0,0,0.05)', paddingTop: 8 }}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: '#aaa', marginBottom: 6, textTransform: 'uppercase' }}>
-              Расписание звонков
-            </div>
-
-            {actCalls.map(c => (
-              <div key={c.id} style={{
-                display: 'flex', alignItems: 'center', gap: 6, padding: '6px 8px',
-                marginBottom: 3, borderRadius: 8, background: 'rgba(155,89,182,0.06)', fontSize: 12,
-              }}>
-                <span style={{ fontSize: 14 }}>📞</span>
-                <span style={{ flex: 1, color: '#555' }}>
-                  День {c.day} — {formatInTz(c.scheduled_at, tzMin)}
-                  {' '}({c.duration_min} мин)
-                </span>
-                <span style={{
-                  fontSize: 10, padding: '2px 6px', borderRadius: 4,
-                  background: c.status === 'scheduled' ? 'rgba(39,174,96,0.1)' : 'rgba(0,0,0,0.05)',
-                  color: c.status === 'scheduled' ? '#27ae60' : '#999',
-                }}>{c.status === 'scheduled' ? 'Запланирован' : c.status}</span>
-                <button onClick={() => onDeleteCall(c.id)} style={{
-                  background: 'none', border: 'none', color: '#e74c3c', cursor: 'pointer', fontSize: 11, padding: '0 4px',
-                }}>✕</button>
-              </div>
-            ))}
-
-            {showCallForm ? (
-              <div style={{ marginBottom: 6 }}>
-                <div style={{ display: 'flex', gap: 4, marginBottom: 4, flexWrap: 'wrap' }}>
-                  <div>
-                    <span style={{ fontSize: 10, color: '#999' }}>День:</span>
-                    <input type="number" value={callDay === '' ? '' : callDay} min={1} max={maxDay}
-                      onChange={e => {
-                        const v = e.target.value;
-                        if (v === '') { setCallDay(''); return; }
-                        const n = parseInt(v);
-                        if (!isNaN(n)) setCallDay(n);
-                      }}
-                      onBlur={() => {
-                        const n = parseInt(callDay);
-                        setCallDay(isNaN(n) || n < 1 ? 1 : Math.min(n, maxDay));
-                      }}
-                      style={{ ...inputStyle, width: 50, padding: '4px 6px', fontSize: 11 }} />
-                  </div>
-                  {autoDate ? (
-                    <div style={{ display: 'flex', flexDirection: 'column' }}>
-                      <span style={{ fontSize: 10, color: '#999' }}>Дата (авто):</span>
-                      <span style={{ fontSize: 11, color: '#555', fontWeight: 600, padding: '4px 0' }}>{autoDateLabel}</span>
-                    </div>
-                  ) : (
-                    <div>
-                      <span style={{ fontSize: 10, color: '#999' }}>Дата:</span>
-                      <input type="date" value={callDate}
-                        onChange={e => setCallDate(e.target.value)}
-                        style={{ ...inputStyle, width: 130, padding: '4px 6px', fontSize: 11 }} />
-                    </div>
-                  )}
-                  <div>
-                    <span style={{ fontSize: 10, color: '#999' }}>Время:</span>
-                    <input type="time" value={callTime}
-                      onChange={e => setCallTime(e.target.value)}
-                      style={{ ...inputStyle, width: 80, padding: '4px 6px', fontSize: 11 }} />
-                  </div>
-                  <div>
-                    <span style={{ fontSize: 10, color: '#999' }}>Мин:</span>
-                    <input type="number" value={callDuration === '' ? '' : callDuration} min={5} max={180}
-                      onChange={e => {
-                        const v = e.target.value;
-                        if (v === '') { setCallDuration(''); return; }
-                        const n = parseInt(v);
-                        if (!isNaN(n)) setCallDuration(n);
-                      }}
-                      onBlur={() => {
-                        const n = parseInt(callDuration);
-                        setCallDuration(isNaN(n) || n < 5 ? 30 : Math.min(n, 180));
-                      }}
-                      style={{ ...inputStyle, width: 50, padding: '4px 6px', fontSize: 11 }} />
-                  </div>
-                </div>
-                <div style={{ fontSize: 10, color: '#aaa', marginTop: 4 }}>
-                  Время указывается в вашем часовом поясе из Профиля ({trainerTzLabel}).
-                  У учеников отобразится в их собственном.
-                  {autoDate && ' Дата считается от старта курса.'}
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
-                  <span style={{ fontSize: 10, color: callSaving ? '#9b59b6' : '#aaa' }}>
-                    {callSaving
-                      ? 'Сохранение...'
-                      : (callDate ? '✓ Сохранится автоматически' : 'Заполните дату — звонок сохранится автоматически')}
-                  </span>
-                  <button onClick={() => setShowCallForm(false)} style={{
-                    marginLeft: 'auto', padding: '4px 8px', borderRadius: 6, border: 'none',
-                    background: 'rgba(0,0,0,0.05)', color: '#999', fontSize: 11, cursor: 'pointer',
-                  }}>Закрыть</button>
-                </div>
-              </div>
-            ) : (
-              <button onClick={() => setShowCallForm(true)} style={{
-                width: '100%', padding: '7px 10px', borderRadius: 8,
-                border: '1px dashed rgba(155,89,182,0.3)', background: 'rgba(155,89,182,0.04)',
-                color: '#9b59b6', fontSize: 11, fontWeight: 600, cursor: 'pointer',
-              }}>+ Запланировать звонок</button>
-            )}
-
-          </div>
-        );
-      })()}
+      {/* Call scheduling — auto-synced со списком дней активности.
+          Звонки создаются автоматически для каждого scheduled дня курса
+          (только если курс bound_to_calendar + есть start_date). Тренер
+          меняет только время; день убран из расписания → звонок удаляется. */}
+      {activity.practiceType === 'call' && courseId && activity.dbId && (
+        <CallSchedule
+          activity={activity}
+          maxDay={maxDay}
+          calls={calls}
+          courseId={courseId}
+          tzMin={tzMin}
+          trainerTzLabel={trainerTzLabel}
+          boundToCalendar={boundToCalendar}
+          courseStartDate={courseStartDate}
+          onCreateCall={onCreateCall}
+          onDeleteCall={onDeleteCall}
+          onPatchCall={onPatchCall}
+        />
+      )}
     </div>
   );
 }
