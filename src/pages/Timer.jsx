@@ -536,8 +536,12 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
           userInfo: { displayName: callJoin.userName || 'Участник' },
           configOverwrite: {
             startWithAudioMuted: false,
-            prejoinPageEnabled: false,
-            prejoinConfig: { enabled: false },
+            // Prejoin страница с self-preview и явным запросом permissions —
+            // без неё браузер запрашивает доступ к камере/микрофону в фоне
+            // уже после входа в комнату, и юзер видит «отключённые»
+            // устройства до того как успеет нажать Allow.
+            prejoinPageEnabled: true,
+            prejoinConfig: { enabled: true, hideDisplayName: false },
             defaultLanguage: 'ru',
             disableDeepLinking: true,
             hideConferenceSubject: true,
