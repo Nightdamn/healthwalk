@@ -18,7 +18,7 @@ import TrainerCabinetPage from './pages/TrainerCabinet';
 import Layout from './components/Layout';
 import { MenuProvider } from './components/MenuContext';
 import MenuDrawer from './components/MenuDrawer';
-import { DAY_START_HOUR, getCourseDay, isCourseFinished } from './data/constants';
+import { DAY_START_HOUR, getCourseDay, getCourseDayInfo, isCourseFinished } from './data/constants';
 import { isAuthenticated, getMe, signOut as authSignOut, checkOAuthCallback, setToken } from './lib/supabase';
 import {
   loadUserSettings, saveUserSettings,
@@ -52,6 +52,10 @@ export default function App() {
   const [tzOffsetMin, setTzOffsetMin] = useState(() => -(new Date().getTimezoneOffset()));
   const [dayStartHour, setDayStartHour] = useState(DAY_START_HOUR);
   const [currentDay, setCurrentDay] = useState(1);
+  // Богатый статус для bound_to_calendar курсов: isUpcoming + daysUntilStart
+  // нужны Dashboard'у чтобы показать «До начала осталось N дней» вместо
+  // «День 1» (когда курс ещё впереди).
+  const [dayInfo, setDayInfo] = useState({ day: 1, isUpcoming: false, isFinished: false, isAccessExpired: false, daysUntilStart: 0, daysSinceFinish: 0 });
 
   // Dynamic context
   const [availableItems, setAvailableItems] = useState([]);
@@ -104,7 +108,15 @@ export default function App() {
     if (!activeItem) return;
     const startDate = activeItem.startDate || courseStartDate;
     if (!startDate) return;
-    const day = getCourseDay(startDate, tzOffsetMin, dayStartHour, activeItem.daysCount);
+    // Для трекеров (isUpcoming недоступен) или курсов без bound_to_calendar
+    // getCourseDayInfo всё равно вернёт корректный day; isUpcoming=false.
+    const info = getCourseDayInfo(startDate, activeItem.daysCount,
+                                  activeItem.accessDaysAfter,
+                                  tzOffsetMin, dayStartHour);
+    setDayInfo(info);
+    // Для дней «до старта» (isUpcoming) currentDay=0 — Dashboard сам решит,
+    // что показывать вместо «День X из N».
+    const day = info.day;
     setCurrentDay(prev => {
       if (prev !== day && user?.id) saveUserSettings(user.id, { current_day: day });
       return day;
@@ -614,7 +626,7 @@ export default function App() {
         getElapsedForDay={getElapsedForDay} onStartTimer={handleStartTimer} onNavigate={setScreen}
         activeItem={activeItem} availableItems={availableItems} onSwitchContext={handleSwitchContext}
         exclusions={exclusions} customActivities={customActivities}
-        unreadCount={unreadCount} courseFinished={courseFinished} />
+        unreadCount={unreadCount} courseFinished={courseFinished} dayInfo={dayInfo} />
     );
     }
   };

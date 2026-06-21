@@ -7,6 +7,15 @@ import { glass } from '../styles/shared';
 import { useMenu } from '../components/MenuContext';
 import { MenuButton } from '../components/TopBar';
 
+// Русский плюрализатор: 1 день, 2 дня, 5 дней.
+function plural(n, one, few, many) {
+  const a = Math.abs(n) % 100, b = a % 10;
+  if (a > 10 && a < 20) return many;
+  if (b > 1 && b < 5) return few;
+  if (b === 1) return one;
+  return many;
+}
+
 const WEEKDAYS = ['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'];
 const MONTHS_G = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
 
@@ -54,6 +63,7 @@ export default function Dashboard({
   activeItem, availableItems, onSwitchContext,
   exclusions = {}, customActivities = [],
   unreadCount = 0, courseFinished = false,
+  dayInfo = { isUpcoming: false, daysUntilStart: 0 },
 }) {
   const { openMenu } = useMenu();
   const [viewingDay, setViewingDay] = useState(null);
@@ -62,8 +72,13 @@ export default function Dashboard({
   const daysRowRef = useRef(null);
   const uidRef = useRef(Math.random().toString(36).slice(2, 8));
 
-  const activeDay = viewingDay ?? currentDay;
-  const isToday = activeDay === currentDay;
+  // Курс с bound_to_calendar ещё не начался — currentDay=0. Для UI всё
+  // считаем как «день 1» (чтобы карта дней показалась и активности
+  // первого дня были видны), но кнопки действий скрываем — см. isUpcoming.
+  const isUpcoming = !!dayInfo.isUpcoming;
+  const effectiveCurrentDay = isUpcoming ? 1 : currentDay;
+  const activeDay = viewingDay ?? effectiveCurrentDay;
+  const isToday = !isUpcoming && activeDay === currentDay;
 
   // Dynamic activities from active course/tracker + custom student activities
   const allActivities = [...(activeItem?.activities || []), ...customActivities];
@@ -188,24 +203,24 @@ export default function Dashboard({
                 {Array.from({ length: daysTotal }, (_, i) => {
                   const day = i + 1;
                   const allDone = isDayComplete(day);
-                  const isCurrent = !courseFinished && day === currentDay;
-                  const isFuture = !courseFinished && day > currentDay;
+                  const isCurrent = !courseFinished && !isUpcoming && day === currentDay;
+                  const isFuture = !courseFinished && (isUpcoming || day > currentDay);
                   const isPast = !isCurrent && !isFuture;
-                  const isClickable = !isFuture;
+                  // Все дни кликабельны — теорию/практику можно посмотреть в любом
+                  // дне, но кнопки «Начать»/«Изучено» рисуются только в isToday.
                   const practiceFrac = getPracticeFraction(day);
                   const showLine = day > 1;
                   const prevDay = day - 1;
-                  const lineGreen = courseFinished || prevDay < currentDay || (prevDay === currentDay && isDayComplete(prevDay));
+                  const lineGreen = courseFinished || (!isUpcoming && (prevDay < currentDay || (prevDay === currentDay && isDayComplete(prevDay))));
 
                   return (
                     <React.Fragment key={day}>
                       {showLine && <div style={{ width: 12, minWidth: 12, height: 2.5, background: lineGreen ? GREEN : 'rgba(0,0,0,0.06)', marginLeft: -3, marginRight: -3, zIndex: 0, flexShrink: 0 }} />}
                       <div data-day={day} onClick={() => {
-                          if (!isClickable) return;
-                          if (day === currentDay) { setViewingDay(null); setDashView('day'); }
+                          if (day === currentDay && !isUpcoming) { setViewingDay(null); setDashView('day'); }
                           else setViewingDay(day);
                         }}
-                        style={{ cursor: isClickable ? 'pointer' : 'default', flexShrink: 0, zIndex: 1, position: 'relative' }}>
+                        style={{ cursor: 'pointer', flexShrink: 0, zIndex: 1, position: 'relative' }}>
                         <DayCircle day={day} uid={uidRef.current} timePct={isCurrent ? timePct : (isPast ? 100 : 0)}
                           allDone={allDone} practicePct={practiceFrac} isPast={isPast} isCurrent={isCurrent} isFuture={isFuture} />
                       </div>
@@ -274,29 +289,44 @@ export default function Dashboard({
                 enrollRole={activeItem?.enrollRole}
                 userRole={userRole}
                 onBackToDay={() => setDashView('day')}
+                isUpcoming={isUpcoming}
               />
             ) : (
               <>
-                {/* ── 2. День X ── */}
-                <div style={{ ...glass, borderRadius: 18, padding: '18px 20px', marginBottom: 12 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
-                    <div>
-                      <div style={{ fontSize: 22, fontWeight: 800, color: '#1a1a2e' }}>День {activeDay}</div>
-                      <div style={{ fontSize: 13, color: '#999', fontWeight: 500, marginTop: 2 }}>{formatDayDate(dayDate)}</div>
+                {/* ── 2. День X (или счётчик до старта, если курс впереди) ── */}
+                {isUpcoming ? (
+                  <div style={{ ...glass, borderRadius: 18, padding: '24px 20px', marginBottom: 12, textAlign: 'center' }}>
+                    <div style={{ fontSize: 13, color: '#888', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8 }}>До старта курса</div>
+                    <div style={{ fontSize: 36, fontWeight: 800, color: '#1a1a2e', lineHeight: 1 }}>
+                      {dayInfo.daysUntilStart} <span style={{ fontSize: 16, fontWeight: 500, color: '#888' }}>{plural(dayInfo.daysUntilStart, 'день', 'дня', 'дней')}</span>
                     </div>
-                    <div style={{ fontSize: 13, color: '#888', fontWeight: 500, paddingTop: 4 }}>{completedCount} из {dayActivities.length}</div>
+                    {activeItem?.startDate && (
+                      <div style={{ fontSize: 13, color: '#999', fontWeight: 500, marginTop: 6 }}>
+                        Начало {formatDayDate(new Date(activeItem.startDate))}
+                      </div>
+                    )}
                   </div>
-                  <div style={{ height: 8, background: 'rgba(0,0,0,0.04)', borderRadius: 4, overflow: 'hidden', marginTop: 14, marginBottom: 8 }}>
-                    <div style={{
-                      height: '100%', width: `${dayPct}%`,
-                      background: dayPct >= 100 ? 'linear-gradient(90deg, #27ae60, #2ecc71)' : 'linear-gradient(90deg, #1a1a2e, #3a3a5e)',
-                      borderRadius: 4, transition: 'width 0.3s linear',
-                    }} />
+                ) : (
+                  <div style={{ ...glass, borderRadius: 18, padding: '18px 20px', marginBottom: 12 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
+                      <div>
+                        <div style={{ fontSize: 22, fontWeight: 800, color: '#1a1a2e' }}>День {activeDay}</div>
+                        <div style={{ fontSize: 13, color: '#999', fontWeight: 500, marginTop: 2 }}>{formatDayDate(dayDate)}</div>
+                      </div>
+                      <div style={{ fontSize: 13, color: '#888', fontWeight: 500, paddingTop: 4 }}>{completedCount} из {dayActivities.length}</div>
+                    </div>
+                    <div style={{ height: 8, background: 'rgba(0,0,0,0.04)', borderRadius: 4, overflow: 'hidden', marginTop: 14, marginBottom: 8 }}>
+                      <div style={{
+                        height: '100%', width: `${dayPct}%`,
+                        background: dayPct >= 100 ? 'linear-gradient(90deg, #27ae60, #2ecc71)' : 'linear-gradient(90deg, #1a1a2e, #3a3a5e)',
+                        borderRadius: 4, transition: 'width 0.3s linear',
+                      }} />
+                    </div>
+                    <div style={{ fontSize: 12, color: '#aaa', fontWeight: 500 }}>
+                      {dayPct >= 100 ? 'Все практики выполнены ✨' : `${Math.floor(elapsedSecDay / 60)} из ${Math.floor(totalSecDay / 60)} минут`}
+                    </div>
                   </div>
-                  <div style={{ fontSize: 12, color: '#aaa', fontWeight: 500 }}>
-                    {dayPct >= 100 ? 'Все практики выполнены ✨' : `${Math.floor(elapsedSecDay / 60)} из ${Math.floor(totalSecDay / 60)} минут`}
-                  </div>
-                </div>
+                )}
 
                 {/* ── 3. Девиз дня ── */}
                 <div style={{ ...glass, background: 'rgba(255,255,255,0.5)', borderRadius: 14, padding: '14px 20px', marginBottom: 20, textAlign: 'center' }}>
@@ -316,11 +346,16 @@ export default function Dashboard({
                     const pct = totalSec > 0 ? (elapsedSec / totalSec) * 100 : 0;
                     const elapsedMin = Math.floor(elapsedSec / 60);
                     const elapsedRemSec = elapsedSec % 60;
+                    // Теория в любой день кликается — открывается в read-only
+                    // если день не сегодняшний (alreadyDone=true ⇒ Timer
+                    // покажет содержимое + кнопку «К практике» вместо «Изучено»).
                     const reopenTheory = done && act.practiceType === 'theory';
+                    const viewTheoryReadOnly = act.practiceType === 'theory' && !isToday && !done;
+                    const cardClickable = reopenTheory || viewTheoryReadOnly;
 
                     return (
                       <div key={act.id}
-                        onClick={reopenTheory ? () => onStartTimer({
+                        onClick={cardClickable ? () => onStartTimer({
                           id: act.id,
                           activityId: act.activityId,
                           label: act.label,
@@ -334,7 +369,7 @@ export default function Dashboard({
                         ...glass, background: done ? 'rgba(26,26,46,0.04)' : 'rgba(255,255,255,0.65)',
                         borderRadius: 18, padding: '18px 20px',
                         border: done ? '1px solid rgba(26,26,46,0.08)' : '1px solid rgba(255,255,255,0.7)',
-                        cursor: reopenTheory ? 'pointer' : 'default',
+                        cursor: cardClickable ? 'pointer' : 'default',
                       }}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -560,11 +595,8 @@ function CourseCompleteView({ progress, allActivities, daysTotal, exclusions, is
 }
 
 /* ── Course Map View ── */
-function CourseMapView({ progress, allActivities, daysTotal, isActivityOnDay, currentDay, dayStartHour, getElapsedForDay, elapsedTime, onStartTimer, enrollRole, userRole, onBackToDay }) {
+function CourseMapView({ progress, allActivities, daysTotal, isActivityOnDay, currentDay, dayStartHour, getElapsedForDay, elapsedTime, onStartTimer, enrollRole, userRole, onBackToDay, isUpcoming = false }) {
   const [expandedDay, setExpandedDay] = useState(null);
-
-  const canAccessFuture = enrollRole === 'owner' || enrollRole === 'trainer' || enrollRole === 'curator'
-    || userRole === 'admin' || userRole === 'trainer';
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -580,8 +612,8 @@ function CourseMapView({ progress, allActivities, daysTotal, isActivityOnDay, cu
       )}
       {Array.from({ length: daysTotal }, (_, i) => {
         const day = i + 1;
-        const isFuture = day > currentDay;
-        const isToday = day === currentDay;
+        const isFuture = isUpcoming || day > currentDay;
+        const isToday = !isUpcoming && day === currentDay;
         const dayActs = allActivities.filter(a => isActivityOnDay(a, day));
         const dp = progress[day] || {};
         const completedCount = dayActs.filter(a => dp[a.id]?.completed || dp[a.id] === true).length;
@@ -589,7 +621,9 @@ function CourseMapView({ progress, allActivities, daysTotal, isActivityOnDay, cu
         const pct = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
         const allDone = totalCount > 0 && completedCount === totalCount;
         const isExpanded = expandedDay === day;
-        const locked = isFuture && !canAccessFuture;
+        // Все дни «открыты»: можно развернуть, посмотреть теорию, открыть
+        // карточку практики. Кнопка «Начать» рисуется только в isToday.
+        const locked = false;
         const dayDate = getDateForDay(day, currentDay, dayStartHour);
         const dayEl = isToday ? elapsedTime : getElapsedForDay(day);
 
@@ -606,7 +640,6 @@ function CourseMapView({ progress, allActivities, daysTotal, isActivityOnDay, cu
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span style={{ fontSize: 15, fontWeight: 700, color: '#1a1a2e' }}>День {day}</span>
                   {isToday && <span style={{ fontSize: 10, fontWeight: 600, color: GREEN, background: 'rgba(39,174,96,0.1)', padding: '2px 8px', borderRadius: 6 }}>Сегодня</span>}
-                  {isFuture && canAccessFuture && <span style={{ fontSize: 10, fontWeight: 600, color: '#888', background: 'rgba(0,0,0,0.04)', padding: '2px 8px', borderRadius: 6 }}>Тест</span>}
                 </div>
                 <div style={{ fontSize: 12, color: '#999', marginTop: 2 }}>{dayDate.getDate()} {MONTHS_G[dayDate.getMonth()]}</div>
               </div>
@@ -653,13 +686,16 @@ function CourseMapView({ progress, allActivities, daysTotal, isActivityOnDay, cu
                   const done = dp[act.id]?.completed || dp[act.id] === true;
                   const elSec = done ? act.durationMin * 60 : (dayEl[act.id] || 0);
                   const actPct = act.durationMin > 0 ? Math.round((elSec / (act.durationMin * 60)) * 100) : 0;
-                  const canStart = isToday || (isFuture && canAccessFuture);
-                  const canReopenTheory = done && act.practiceType === 'theory' && !isFuture;
-                  const clickable = (canStart && !done) || canReopenTheory;
+                  // Кнопка «Начать» практику — только в сегодняшний день.
+                  // Теорию можно открыть в любой день (read-only, без «Изучено»).
+                  const canStart = isToday && !done;
+                  const canViewTheory = act.practiceType === 'theory';
+                  const canReopenTheory = done && act.practiceType === 'theory' && isToday;
+                  const clickable = canStart || canReopenTheory || canViewTheory;
 
                   return (
                     <div key={act.id}
-                      onClick={() => { if (clickable) onStartTimer({ id: act.id, activityId: act.activityId, label: act.label, duration: act.durationMin, iconNum: act.iconNum, practiceType: act.practiceType, descriptionHtml: act.descriptionHtml, alreadyDone: canReopenTheory }); }}
+                      onClick={() => { if (clickable) onStartTimer({ id: act.id, activityId: act.activityId, label: act.label, duration: act.durationMin, iconNum: act.iconNum, practiceType: act.practiceType, descriptionHtml: act.descriptionHtml, alreadyDone: canReopenTheory || (canViewTheory && !isToday) }); }}
                       style={{
                         padding: '10px 12px', borderRadius: 12,
                         background: done ? 'rgba(39,174,96,0.06)' : 'rgba(0,0,0,0.02)',

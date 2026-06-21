@@ -80,11 +80,18 @@ router.get('/items', async (req, res) => {
 
     for (const e of enrolled) {
       const acts = await query('SELECT * FROM course_activities WHERE course_id = $1 ORDER BY sort_order', [e.id]);
+      // Если курс привязан к календарю — все студенты считают день от
+      // course.start_date, а не от своего joined_at. Иначе — от joined_at.
+      const startDate = (e.bound_to_calendar && e.start_date)
+        ? toISODate(e.start_date)
+        : toISODate(e.joined_at || e.created_at);
       items.push({
         type: 'course', id: e.id, title: e.title, description: e.description || '',
         daysCount: e.days_count, avatarIcon: e.avatar_icon, avatarCustom: e.avatar_custom,
         ownerId: e.owner_id, enrollRole: e.role,
-        startDate: toISODate(e.joined_at || e.created_at),
+        startDate,
+        boundToCalendar: !!e.bound_to_calendar,
+        accessDaysAfter: e.access_days_after,
         enrollCount: parseInt(e.enroll_count),
         activities: acts.map(a => ({
           id: a.id, activityId: a.activity_id, label: a.label, durationMin: a.duration_min,
@@ -103,11 +110,16 @@ router.get('/items', async (req, res) => {
       if (courseIds.has(c.id)) continue;
       const acts = await query('SELECT * FROM course_activities WHERE course_id = $1 ORDER BY sort_order', [c.id]);
       const cnt = await queryOne('SELECT count(*) AS n FROM course_enrollments WHERE course_id = $1', [c.id]);
+      const startDate = (c.bound_to_calendar && c.start_date)
+        ? toISODate(c.start_date)
+        : toISODate(c.created_at);
       items.push({
         type: 'course', id: c.id, title: c.title, description: c.description || '',
         daysCount: c.days_count, avatarIcon: c.avatar_icon, avatarCustom: c.avatar_custom,
         ownerId: c.owner_id, enrollRole: 'trainer',
-        startDate: toISODate(c.created_at),
+        startDate,
+        boundToCalendar: !!c.bound_to_calendar,
+        accessDaysAfter: c.access_days_after,
         enrollCount: parseInt(cnt?.n || 0),
         activities: acts.map(a => ({
           id: a.id, activityId: a.activity_id, label: a.label, durationMin: a.duration_min,
