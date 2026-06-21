@@ -697,7 +697,9 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
             calls={calls}
             onCreateCall={handleCreateCall}
             onDeleteCall={handleDeleteCall}
-            tzOffsetMin={tzOffsetMin} />
+            tzOffsetMin={tzOffsetMin}
+            boundToCalendar={boundToCalendar}
+            courseStartDate={startDate} />
         ))}
 
         <button onClick={addActivity} style={{
@@ -745,7 +747,7 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
   );
 }
 
-function ActivityCard({ activity, index, maxDay, onUpdate, onToggleDay, onRemove, onPickIcon, videos, courseId, videoUploadingId, uploadProgress, uploadPhase, activityId: propActivityId, onVideoUpload, onAddLink, onDeleteVideo, onPatchVideo, calls, onCreateCall, onDeleteCall, tzOffsetMin }) {
+function ActivityCard({ activity, index, maxDay, onUpdate, onToggleDay, onRemove, onPickIcon, videos, courseId, videoUploadingId, uploadProgress, uploadPhase, activityId: propActivityId, onVideoUpload, onAddLink, onDeleteVideo, onPatchVideo, calls, onCreateCall, onDeleteCall, tzOffsetMin, boundToCalendar, courseStartDate }) {
   // Draft call. As soon as date + time + duration are all valid the row is
   // auto-saved (debounced ~700ms) and the form resets — no Save button.
   const [showCallForm, setShowCallForm] = useState(false);
@@ -766,6 +768,32 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onToggleDay, onRemove
     const mm = abs % 60;
     return `GMT${sign}${hh}${mm ? ':' + String(mm).padStart(2, '0') : ''}`;
   })();
+
+  // Привязка к календарю: дата звонка вычисляется как
+  // course.start_date + (callDay - 1). Тренеру вводить дату не нужно —
+  // только день курса и время.
+  const autoDate = (boundToCalendar && courseStartDate && callDay)
+    ? (() => {
+        const [y, mo, d] = courseStartDate.split('-').map(Number);
+        const base = new Date(Date.UTC(y, mo - 1, d));
+        base.setUTCDate(base.getUTCDate() + (Number(callDay) - 1));
+        return `${base.getUTCFullYear()}-${String(base.getUTCMonth()+1).padStart(2,'0')}-${String(base.getUTCDate()).padStart(2,'0')}`;
+      })()
+    : null;
+  const autoDateLabel = (() => {
+    if (!autoDate) return '';
+    const [y, mo, d] = autoDate.split('-').map(Number);
+    const dt = new Date(Date.UTC(y, mo - 1, d));
+    const W = ['Воскресенье','Понедельник','Вторник','Среда','Четверг','Пятница','Суббота'];
+    const M = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
+    return `${W[dt.getUTCDay()]}, ${dt.getUTCDate()} ${M[dt.getUTCMonth()]}`;
+  })();
+
+  // sync вычисленной даты в callDate, чтобы существующий авто-сейв
+  // useEffect собрал её в scheduledAt как обычно.
+  useEffect(() => {
+    if (autoDate && callDate !== autoDate) setCallDate(autoDate);
+  }, [autoDate]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-save call draft when all fields valid (debounced)
   useEffect(() => {
@@ -1009,12 +1037,19 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onToggleDay, onRemove
                       }}
                       style={{ ...inputStyle, width: 50, padding: '4px 6px', fontSize: 11 }} />
                   </div>
-                  <div>
-                    <span style={{ fontSize: 10, color: '#999' }}>Дата:</span>
-                    <input type="date" value={callDate}
-                      onChange={e => setCallDate(e.target.value)}
-                      style={{ ...inputStyle, width: 130, padding: '4px 6px', fontSize: 11 }} />
-                  </div>
+                  {autoDate ? (
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <span style={{ fontSize: 10, color: '#999' }}>Дата (авто):</span>
+                      <span style={{ fontSize: 11, color: '#555', fontWeight: 600, padding: '4px 0' }}>{autoDateLabel}</span>
+                    </div>
+                  ) : (
+                    <div>
+                      <span style={{ fontSize: 10, color: '#999' }}>Дата:</span>
+                      <input type="date" value={callDate}
+                        onChange={e => setCallDate(e.target.value)}
+                        style={{ ...inputStyle, width: 130, padding: '4px 6px', fontSize: 11 }} />
+                    </div>
+                  )}
                   <div>
                     <span style={{ fontSize: 10, color: '#999' }}>Время:</span>
                     <input type="time" value={callTime}
@@ -1040,6 +1075,7 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onToggleDay, onRemove
                 <div style={{ fontSize: 10, color: '#aaa', marginTop: 4 }}>
                   Время указывается в вашем часовом поясе из Профиля ({trainerTzLabel}).
                   У учеников отобразится в их собственном.
+                  {autoDate && ' Дата считается от старта курса.'}
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
                   <span style={{ fontSize: 10, color: callSaving ? '#9b59b6' : '#aaa' }}>
