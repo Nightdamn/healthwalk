@@ -146,14 +146,18 @@ export default function Dashboard({
 
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'fixed', top: 'var(--vv-top, 0px)', left: '50%', transform: 'translate3d(-50%, 0, 0)', willChange: 'transform', width: '100%', maxWidth: 430, zIndex: 100, paddingTop: 'calc(env(safe-area-inset-top, 0px) + 12px)', paddingBottom: 12, paddingLeft: 20, paddingRight: 20, background: 'rgba(255,255,255,0.72)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', borderBottom: '1px solid rgba(0,0,0,0.04)', marginBottom: 24 }}>
-          <div style={{ minWidth: 0, paddingLeft: 4, paddingRight: 12, flex: 1 }}>
-            {activeItem && (
-              <div style={{ fontSize: 18, fontWeight: 700, color: '#1a1a2e', display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {activeAvatarSrc && <img src={activeAvatarSrc} alt="" style={{ width: 22, height: 22, borderRadius: 6, objectFit: 'contain', flexShrink: 0 }} />}
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{activeItem.title}</span>
-              </div>
+          <div style={{ minWidth: 0, paddingRight: 12, flex: 1, display: 'flex', alignItems: 'center', gap: 12 }}>
+            {activeItem && activeAvatarSrc && (
+              <img src={activeAvatarSrc} alt="" style={{ width: 46, height: 46, borderRadius: 10, objectFit: 'contain', flexShrink: 0, background: '#fafafa', border: '1px solid rgba(0,0,0,0.05)', padding: 3 }} />
             )}
-            <div style={{ fontSize: 12, color: '#888', marginTop: activeItem ? 2 : 0, fontWeight: 500 }}>{user?.name}</div>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              {activeItem && (
+                <div style={{ fontSize: 17, fontWeight: 700, color: '#1a1a2e', lineHeight: 1.25, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {activeItem.title}
+                </div>
+              )}
+              <div style={{ fontSize: 13, color: '#888', fontWeight: 500, marginTop: activeItem ? 2 : 0, lineHeight: 1.25, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user?.name}</div>
+            </div>
           </div>
           <MenuButton onClick={openMenu} unreadCount={unreadCount} />
         </div>
