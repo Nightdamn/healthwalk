@@ -578,6 +578,19 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
         api.addListener('readyToClose', handleLeaveCall);
         api.addListener('videoConferenceJoined', () => {
           try { api.executeCommand('setTileView', true); } catch {}
+
+          // Принудительно включить камеру/микрофон если Jitsi их замутил.
+          // Бывает что prejoin/JWT/настройки сервера оставляют muted,
+          // несмотря на startWithAudioMuted=false. Проверяем фактическое
+          // состояние и анмутим если нужно. Задержка чтобы media-tracks
+          // успели инициализироваться.
+          setTimeout(() => {
+            try {
+              api.isAudioMuted().then(m => { if (m) api.executeCommand('toggleAudio'); });
+              api.isVideoMuted().then(m => { if (m) api.executeCommand('toggleVideo'); });
+            } catch (e) { console.warn('unmute failed', e); }
+          }, 1500);
+
           // Авто-запись: запускает тренер (isStaff), как только зашёл.
           // Если уже идёт — Jitsi проигнорирует второй startRecording.
           // Ученики НЕ триггерят запись — у них нет moderator JWT,
@@ -586,13 +599,15 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
             setTimeout(() => {
               try { api.executeCommand('startRecording', { mode: 'file' }); }
               catch (e) { console.warn('startRecording failed', e); }
-            }, 2000); // даём 2s чтобы prejoin полностью отработал и присоединение завершилось
+            }, 2500); // больше задержка — после unmute
           }
         });
         api.addListener('recordingStatusChanged', (ev) => {
           // Для дебага: видно в консоли тренера
           console.log('[recording]', ev);
         });
+        api.addListener('audioMuteStatusChanged', (ev) => console.log('[audio]', ev));
+        api.addListener('videoMuteStatusChanged', (ev) => console.log('[video]', ev));
       } catch (err) {
         console.error('Jitsi load failed', err);
         if (!cancelled) setCallState('waiting');
