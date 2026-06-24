@@ -39,13 +39,25 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://www.youtube.com", "https://s.ytimg.com", "https://meet.instep.life"],
-      frameSrc: ["'self'", "https://www.youtube.com", "https://drive.google.com", "https://meet.instep.life"],
-      imgSrc: ["'self'", "data:", "blob:", "https:", "https://img.youtube.com", "https://*.googleusercontent.com"],
-      connectSrc: ["'self'", "https://meet.instep.life", "wss://meet.instep.life"],
+      scriptSrc: [
+        "'self'", "'unsafe-inline'", "'unsafe-eval'",
+        "https://www.youtube.com", "https://s.ytimg.com",
+        "https://meet.instep.life",
+      ],
+      frameSrc: [
+        "'self'",
+        "https://www.youtube.com", "https://drive.google.com",
+        "https://meet.instep.life",
+      ],
+      imgSrc: ["'self'", "data:", "blob:", "https:"],
+      connectSrc: [
+        "'self'",
+        "https://meet.instep.life", "wss://meet.instep.life",
+        "https://rec.instep.life",
+      ],
       styleSrc: ["'self'", "'unsafe-inline'", "https://meet.instep.life"],
       fontSrc: ["'self'", "data:", "https://meet.instep.life"],
-      mediaSrc: ["'self'", "blob:"],
+      mediaSrc: ["'self'", "blob:", "https://rec.instep.life"],
       workerSrc: ["'self'", "blob:"],
       childSrc: ["'self'", "blob:", "https://meet.instep.life"],
     },
