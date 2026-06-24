@@ -536,12 +536,13 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
           userInfo: { displayName: callJoin.userName || 'Участник' },
           configOverwrite: {
             startWithAudioMuted: false,
-            // Prejoin страница с self-preview и явным запросом permissions —
-            // без неё браузер запрашивает доступ к камере/микрофону в фоне
-            // уже после входа в комнату, и юзер видит «отключённые»
-            // устройства до того как успеет нажать Allow.
-            prejoinPageEnabled: true,
-            prejoinConfig: { enabled: true, hideDisplayName: false },
+            // Prejoin отключён: в cross-origin iframe он тонет — getUserMedia
+            // в prejoin часто фейлит из-за iframe permission delegation,
+            // и юзер застревает на «нужен доступ к камере». Сразу в комнату:
+            // там после videoConferenceJoined мы дёргаем toggleAudio/toggleVideo
+            // ниже, что повторно запрашивает permissions с user-gesture context.
+            prejoinPageEnabled: false,
+            prejoinConfig: { enabled: false },
             defaultLanguage: 'ru',
             disableDeepLinking: true,
             hideConferenceSubject: true,
@@ -582,8 +583,10 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
         try {
           const iframe = container.querySelector('iframe');
           if (iframe) {
-            iframe.setAttribute('allow',
-              'camera; microphone; display-capture; autoplay; clipboard-write; web-share');
+            // Только реально существующие в Chrome Permissions Policy фичи.
+            // speaker-selection/display-capture не входят в Permissions Policy
+            // напрямую — Chrome пишет warning, хотя устройства работают.
+            iframe.setAttribute('allow', 'camera; microphone; autoplay; clipboard-write');
           }
         } catch (e) { console.warn('iframe allow failed', e); }
         api.addListener('readyToClose', handleLeaveCall);
