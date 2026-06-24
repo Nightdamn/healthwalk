@@ -66,6 +66,20 @@ app.use(helmet({
   crossOriginEmbedderPolicy: false,
   crossOriginResourcePolicy: { policy: 'cross-origin' },
 }));
+
+// Permissions-Policy: разрешаем delegated permissions для Jitsi iframe.
+// Без этого браузер блокирует getUserMedia из cross-origin iframe и Jitsi
+// падает с "Permission denied" даже если пользователь дал доступ.
+// Самой странице (self) тоже разрешаем — нам camera/mic не нужны, но
+// без self iframe-делегация не работает в Chromium.
+app.use((req, res, next) => {
+  res.setHeader('Permissions-Policy',
+    'camera=(self "https://meet.instep.life"), ' +
+    'microphone=(self "https://meet.instep.life"), ' +
+    'display-capture=(self "https://meet.instep.life"), ' +
+    'autoplay=*');
+  next();
+});
 app.use(express.json({ limit: '10mb' }));
 
 // ── Health check ──
