@@ -575,6 +575,17 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
             DISABLE_VIDEO_BACKGROUND: true,
           },
         });
+        // КРИТИЧНО: iframe (meet.instep.life внутри instep.life) — другой
+        // origin. Браузер по умолчанию блокирует getUserMedia из cross-origin
+        // iframe. Нужен явный allow с нашими permissions. Jitsi External API
+        // не всегда ставит allow корректно — выставляем сами.
+        try {
+          const iframe = container.querySelector('iframe');
+          if (iframe) {
+            iframe.setAttribute('allow',
+              'camera; microphone; display-capture; autoplay; clipboard-write; web-share');
+          }
+        } catch (e) { console.warn('iframe allow failed', e); }
         api.addListener('readyToClose', handleLeaveCall);
         api.addListener('videoConferenceJoined', () => {
           try { api.executeCommand('setTileView', true); } catch {}
