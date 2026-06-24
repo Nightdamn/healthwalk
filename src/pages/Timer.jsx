@@ -560,7 +560,7 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
             },
             toolbarButtons: [
               'microphone', 'camera', 'desktop', 'chat', 'tileview',
-              'fullscreen', 'settings', 'raisehand', 'hangup',
+              'fullscreen', 'settings', 'raisehand', 'recording', 'hangup',
             ],
           },
           interfaceConfigOverwrite: {
@@ -578,6 +578,20 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
         api.addListener('readyToClose', handleLeaveCall);
         api.addListener('videoConferenceJoined', () => {
           try { api.executeCommand('setTileView', true); } catch {}
+          // Авто-запись: запускает тренер (isStaff), как только зашёл.
+          // Если уже идёт — Jitsi проигнорирует второй startRecording.
+          // Ученики НЕ триггерят запись — у них нет moderator JWT,
+          // jicofo бы всё равно отверг команду.
+          if (callJoin?.isStaff) {
+            setTimeout(() => {
+              try { api.executeCommand('startRecording', { mode: 'file' }); }
+              catch (e) { console.warn('startRecording failed', e); }
+            }, 2000); // даём 2s чтобы prejoin полностью отработал и присоединение завершилось
+          }
+        });
+        api.addListener('recordingStatusChanged', (ev) => {
+          // Для дебага: видно в консоли тренера
+          console.log('[recording]', ev);
         });
       } catch (err) {
         console.error('Jitsi load failed', err);
