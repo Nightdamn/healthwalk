@@ -1208,10 +1208,17 @@ router.patch('/videos/:id', async (req, res) => {
 const JITSI_HOST = process.env.JITSI_HOST || 'https://meet.instep.life';
 const JITSI_JWT_APP_ID = process.env.JITSI_JWT_APP_ID || 'instep';
 const JITSI_JWT_APP_SECRET = process.env.JITSI_JWT_APP_SECRET || '';
+// Shared-secret для finalize-скрипта Jibri. Без него webhook вернёт 401.
+// Должен совпадать с тем что в /etc/jitsi/jibri/finalize.sh на recorder-VPS.
+const JIBRI_WEBHOOK_SECRET = process.env.JIBRI_WEBHOOK_SECRET || '';
+
+function generateJitsiRoomName(courseId, day) {
+  const rand = Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+  return `instep-${courseId.slice(0, 8)}-d${day}-${rand}`;
+}
 
 function generateJitsiRoomUrl(courseId, day) {
-  const rand = Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
-  return `${JITSI_HOST}/instep-${courseId.slice(0, 8)}-d${day}-${rand}`;
+  return `${JITSI_HOST}/${generateJitsiRoomName(courseId, day)}`;
 }
 
 function jitsiJwtFor({ room, userName, userId, isStaff }) {
@@ -1259,12 +1266,13 @@ router.post('/calls', async (req, res) => {
     if (!await isTrainer(req.userId, courseId)) return res.status(403).json({ error: 'Нет прав' });
 
     const dur = durationMin || 30;
-    const roomUrl = generateJitsiRoomUrl(courseId, day);
+    const roomName = generateJitsiRoomName(courseId, day);
+    const roomUrl = `${JITSI_HOST}/${roomName}`;
 
     const call = await queryOne(
-      `INSERT INTO activity_calls (course_id, activity_id, day, scheduled_at, duration_min, room_url, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
-      [courseId, activityId, day, scheduledAt, dur, roomUrl, req.userId]
+      `INSERT INTO activity_calls (course_id, activity_id, day, scheduled_at, duration_min, room_url, room_name, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+      [courseId, activityId, day, scheduledAt, dur, roomUrl, roomName, req.userId]
     );
     res.json({ data: call });
   } catch (err) { console.error(err); res.json({ error: err.message }); }
