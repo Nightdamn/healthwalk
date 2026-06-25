@@ -421,9 +421,24 @@ export default function Dashboard({
                             </div>
                           )}
                         </div>
-                        {/* Кнопка «Смотреть запись» — чёрная, как «Начать». Под чеком,
-                            до прогресс-бара. Показывается ВСЕМ (и done, и не-done) если
-                            у звонка есть recording_url. */}
+                        <div style={{ height: 4, background: 'rgba(0,0,0,0.04)', borderRadius: 2, overflow: 'hidden' }}>
+                          <div style={{
+                            height: '100%', width: `${pct}%`,
+                            background: done ? 'linear-gradient(90deg, #27ae60, #2ecc71)' : 'linear-gradient(90deg, #1a1a2e, #4a4a6e)',
+                            borderRadius: 2, transition: 'width 0.3s linear',
+                          }} />
+                        </div>
+                        <div style={{ fontSize: 11, color: '#bbb', marginTop: 6, fontWeight: 500 }}>
+                          {act.practiceType === 'theory' ? (done ? 'Выполнено' : 'Не выполнено')
+                            : act.practiceType === 'call' ? (done ? 'Выполнено' : 'Запланировано')
+                            : done ? `${act.durationMin} из ${act.durationMin} мин • Выполнено`
+                            : elapsedSec > 0 ? `${elapsedMin}:${String(elapsedRemSec).padStart(2, '0')} из ${act.durationMin} мин`
+                            : `0 из ${act.durationMin} мин`}
+                        </div>
+
+                        {/* Кнопка «Смотреть запись» — под прогресс-баром и статусом
+                            (чёрная как «Начать»). Показывается ВСЕМ если у звонка есть
+                            recording_url, даже если done — можно пересмотреть. */}
                         {act.practiceType === 'call' && (() => {
                           const c = (courseCalls || []).find(cc =>
                             cc.activity_id === (act.activityId || act.id) && cc.day === activeDay && cc.recording_url
@@ -444,7 +459,7 @@ export default function Dashboard({
                               alreadyDone: done,
                             })}
                               style={{
-                                width: '100%', marginBottom: 8, padding: '10px 14px',
+                                width: '100%', marginTop: 12, padding: '10px 14px',
                                 background: '#1a1a2e', color: '#fff', border: 'none',
                                 borderRadius: 12, fontSize: 13, fontWeight: 600, cursor: 'pointer',
                                 boxShadow: '0 3px 10px rgba(26,26,46,0.15)',
@@ -457,20 +472,6 @@ export default function Dashboard({
                             </button>
                           );
                         })()}
-                        <div style={{ height: 4, background: 'rgba(0,0,0,0.04)', borderRadius: 2, overflow: 'hidden' }}>
-                          <div style={{
-                            height: '100%', width: `${pct}%`,
-                            background: done ? 'linear-gradient(90deg, #27ae60, #2ecc71)' : 'linear-gradient(90deg, #1a1a2e, #4a4a6e)',
-                            borderRadius: 2, transition: 'width 0.3s linear',
-                          }} />
-                        </div>
-                        <div style={{ fontSize: 11, color: '#bbb', marginTop: 6, fontWeight: 500 }}>
-                          {act.practiceType === 'theory' ? (done ? 'Выполнено' : 'Не выполнено')
-                            : act.practiceType === 'call' ? (done ? 'Выполнено' : 'Запланировано')
-                            : done ? `${act.durationMin} из ${act.durationMin} мин • Выполнено`
-                            : elapsedSec > 0 ? `${elapsedMin}:${String(elapsedRemSec).padStart(2, '0')} из ${act.durationMin} мин`
-                            : `0 из ${act.durationMin} мин`}
-                        </div>
                       </div>
                     );
                   })}
