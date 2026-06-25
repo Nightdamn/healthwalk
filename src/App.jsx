@@ -320,6 +320,20 @@ export default function App() {
     }
   }, [user?.id, activeItem, currentDay]);
 
+  // Used by «Просмотрено» button (после просмотра записи звонка) — сразу
+  // помечает практику done в локальном state + персистит в БД.
+  const handleMarkActivityDone = useCallback((actId, day) => {
+    const d = day || currentDay;
+    setProgress(prev => ({ ...prev, [d]: { ...(prev[d] || {}), [actId]: true } }));
+    if (!user?.id || !activeItem) return;
+    const dur = activeItem.activities.find(a => a.id === actId)?.durationMin || 0;
+    if (activeItem.type === 'course') {
+      saveCourseActivityProgress(user.id, activeItem.id, actId, d, dur * 60, true);
+    } else {
+      saveTrackerActivityProgress(user.id, activeItem.id, actId, d, dur * 60, true);
+    }
+  }, [user?.id, activeItem, currentDay]);
+
   // ─── Timer logic ───
   useEffect(() => {
     if (timerRunning && !timerPaused && timerSeconds > 0) {
@@ -626,7 +640,9 @@ export default function App() {
         getElapsedForDay={getElapsedForDay} onStartTimer={handleStartTimer} onNavigate={setScreen}
         activeItem={activeItem} availableItems={availableItems} onSwitchContext={handleSwitchContext}
         exclusions={exclusions} customActivities={customActivities}
-        unreadCount={unreadCount} courseFinished={courseFinished} dayInfo={dayInfo} />
+        unreadCount={unreadCount} courseFinished={courseFinished} dayInfo={dayInfo}
+        courseCalls={courseCalls}
+        onMarkActivityDone={handleMarkActivityDone} />
     );
     }
   };
