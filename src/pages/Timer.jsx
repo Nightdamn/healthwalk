@@ -634,6 +634,57 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
     };
   }, [callState, callJoin, handleLeaveCall]);
 
+  // ─── Call-recording playback: описание + HTML5 video + «Просмотрено» ───
+  // Открывается из Dashboard когда у звонка есть готовая запись (mp4 от Jibri).
+  // Засчитывает практику через onDone (тот же handler что и offline-attendance).
+  if (activity.practiceType === 'call_recording') {
+    return (
+      <Layout>
+        <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", padding: "calc(env(safe-area-inset-top, 0px) + 82px) 24px", position: "relative", zIndex: 1 }}>
+          <TopBar onBack={onBack} title={activity.label} />
+
+          {/* Описание онлайн-встречи */}
+          {activity.descriptionHtml && (
+            <div style={{
+              background: 'rgba(255,255,255,0.7)', backdropFilter: 'blur(20px)',
+              borderRadius: 16, padding: '16px 18px', marginBottom: 16,
+              border: '1px solid rgba(255,255,255,0.7)',
+            }}>
+              <TheoryContent html={activity.descriptionHtml} />
+            </div>
+          )}
+
+          {/* Видео-плеер записи (тот же контейнер что и для media-практики) */}
+          <div style={{
+            background: '#000', borderRadius: 16, overflow: 'hidden',
+            marginBottom: 24, aspectRatio: '16/9',
+          }}>
+            <video src={activity.recordingUrl} controls preload="metadata"
+              style={{ width: '100%', height: '100%', display: 'block' }} />
+          </div>
+
+          {/* «Просмотрено» / «К практике» */}
+          <div style={{ display: 'flex', justifyContent: 'center', paddingBottom: 40 }}>
+            <button onClick={activity.alreadyDone ? onBack : onDone}
+              style={{
+                padding: "16px 44px", background: "#1a1a2e", color: "#fff",
+                border: "none", borderRadius: 16, fontSize: 16, fontWeight: 600,
+                cursor: "pointer", boxShadow: "0 4px 20px rgba(26,26,46,0.2)", minWidth: 180,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+              }}>
+              {!activity.alreadyDone && (
+                <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
+                  <polyline points="3,8.5 6.5,12 13,4" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="miter" fill="none"/>
+                </svg>
+              )}
+              {activity.alreadyDone ? 'К практике' : 'Просмотрено'}
+            </button>
+          </div>
+        </div>
+      </Layout>
+    );
+  }
+
   // ─── Theory practice type: show text content + "Изучено" button ───
   if (activity.practiceType === 'theory') {
     return (

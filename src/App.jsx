@@ -320,19 +320,6 @@ export default function App() {
     }
   }, [user?.id, activeItem, currentDay]);
 
-  // Used by «Просмотрено» button (после просмотра записи звонка) — сразу
-  // помечает практику done в локальном state + персистит в БД.
-  const handleMarkActivityDone = useCallback((actId, day) => {
-    const d = day || currentDay;
-    setProgress(prev => ({ ...prev, [d]: { ...(prev[d] || {}), [actId]: true } }));
-    if (!user?.id || !activeItem) return;
-    const dur = activeItem.activities.find(a => a.id === actId)?.durationMin || 0;
-    if (activeItem.type === 'course') {
-      saveCourseActivityProgress(user.id, activeItem.id, actId, d, dur * 60, true);
-    } else {
-      saveTrackerActivityProgress(user.id, activeItem.id, actId, d, dur * 60, true);
-    }
-  }, [user?.id, activeItem, currentDay]);
 
   // ─── Timer logic ───
   useEffect(() => {
@@ -433,9 +420,10 @@ export default function App() {
   };
   const handleTimerBack = () => { setTimerRunning(false); setTimerPaused(false); saveCurrentProgress(); setScreen('main'); };
   const handleTimerDone = () => {
-    // For theory type, mark as completed immediately (timer doesn't tick)
-    if (activeActivity?.practiceType === 'theory') {
-      const t = activeActivity.duration * 60 || 60;
+    // For theory + call_recording — отмечаем как выполненное сразу
+    // (таймер не тикает; пользователь нажал «Изучено»/«Просмотрено»).
+    if (activeActivity?.practiceType === 'theory' || activeActivity?.practiceType === 'call_recording') {
+      const t = (activeActivity.duration || 1) * 60;
       setElapsedTime(p => ({ ...p, [activeActivity.id]: t }));
       setProgress(p => ({ ...p, [currentDay]: { ...p[currentDay], [activeActivity.id]: true } }));
       setRawProgress(p => ({
@@ -641,8 +629,7 @@ export default function App() {
         activeItem={activeItem} availableItems={availableItems} onSwitchContext={handleSwitchContext}
         exclusions={exclusions} customActivities={customActivities}
         unreadCount={unreadCount} courseFinished={courseFinished} dayInfo={dayInfo}
-        courseCalls={courseCalls}
-        onMarkActivityDone={handleMarkActivityDone} />
+        courseCalls={courseCalls} />
     );
     }
   };

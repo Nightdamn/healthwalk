@@ -65,9 +65,7 @@ export default function Dashboard({
   unreadCount = 0, courseFinished = false,
   dayInfo = { isUpcoming: false, daysUntilStart: 0 },
   courseCalls = [],
-  onMarkActivityDone = () => {},
 }) {
-  const [watchRec, setWatchRec] = useState(null); // {url, activityId, day, done}
   const { openMenu } = useMenu();
   const [viewingDay, setViewingDay] = useState(null);
   const [dashView, setDashView] = useState('day'); // 'day' | 'stats' | 'map'
@@ -423,8 +421,9 @@ export default function Dashboard({
                             </div>
                           )}
                         </div>
-                        {/* Кнопка «Смотреть запись» — только для call-практики с готовой записью.
-                            Показывается ДАЖЕ если done — чтобы можно было пересмотреть. */}
+                        {/* Кнопка «Смотреть запись» — чёрная, как «Начать». Под чеком,
+                            до прогресс-бара. Показывается ВСЕМ (и done, и не-done) если
+                            у звонка есть recording_url. */}
                         {act.practiceType === 'call' && (() => {
                           const c = (courseCalls || []).find(cc =>
                             cc.activity_id === (act.activityId || act.id) && cc.day === activeDay && cc.recording_url
@@ -432,14 +431,26 @@ export default function Dashboard({
                           if (!c) return null;
                           const mins = c.recording_duration_sec ? Math.round(c.recording_duration_sec / 60) : null;
                           return (
-                            <button onClick={() => setWatchRec({ url: c.recording_url, activityId: act.id, day: activeDay, done })}
+                            <button onClick={() => onStartTimer({
+                              id: act.id,
+                              activityId: act.activityId,
+                              label: act.label,
+                              duration: act.durationMin,
+                              iconNum: act.iconNum,
+                              practiceType: 'call_recording',
+                              descriptionHtml: act.descriptionHtml,
+                              recordingUrl: c.recording_url,
+                              recordingDurationSec: c.recording_duration_sec,
+                              alreadyDone: done,
+                            })}
                               style={{
-                                marginBottom: 8, padding: '7px 12px', borderRadius: 10,
-                                border: '1px solid rgba(39,174,96,0.25)', background: 'rgba(39,174,96,0.06)',
-                                color: '#27ae60', fontSize: 13, fontWeight: 600,
-                                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, width: '100%',
+                                width: '100%', marginBottom: 8, padding: '10px 14px',
+                                background: '#1a1a2e', color: '#fff', border: 'none',
+                                borderRadius: 12, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                                boxShadow: '0 3px 10px rgba(26,26,46,0.15)',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
                               }}>
-                              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
                                 <path d="M3 2v12l11-6L3 2z"/>
                               </svg>
                               <span>Смотреть запись{mins ? ` (${mins} мин)` : ''}</span>
@@ -472,38 +483,6 @@ export default function Dashboard({
         <Footer />
       </div>
 
-      {/* Видео-плеер записи онлайн-звонка. Открывается из карточки call-практики
-          через setWatchRec({url, activityId, day, done}). */}
-      {watchRec && (
-        <div onClick={() => setWatchRec(null)} style={{
-          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 1000,
-          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-          padding: 16,
-        }}>
-          <video src={watchRec.url} controls autoPlay
-            onClick={e => e.stopPropagation()}
-            style={{ maxWidth: '100%', maxHeight: '70vh', borderRadius: 12, background: '#000' }} />
-          <div onClick={e => e.stopPropagation()} style={{ display: 'flex', gap: 12, marginTop: 16 }}>
-            {!watchRec.done && (
-              <button onClick={() => { onMarkActivityDone(watchRec.activityId, watchRec.day); setWatchRec(null); }}
-                style={{
-                  padding: '12px 28px', borderRadius: 12, border: 'none',
-                  background: GREEN, color: '#fff', fontSize: 15, fontWeight: 600,
-                  cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8,
-                }}>
-                <svg width="16" height="16" viewBox="0 0 16 16"><polyline points="3,8.5 6.5,12 13,4" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" fill="none"/></svg>
-                Просмотрено
-              </button>
-            )}
-            <button onClick={() => setWatchRec(null)}
-              style={{
-                padding: '12px 28px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.3)',
-                background: 'transparent', color: '#fff', fontSize: 15, fontWeight: 600,
-                cursor: 'pointer',
-              }}>Закрыть</button>
-          </div>
-        </div>
-      )}
     </Layout>
   );
 }
