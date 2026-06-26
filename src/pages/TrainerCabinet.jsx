@@ -131,14 +131,18 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
   const activities = (course?.course_activities || []).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
   const daysCount = course?.days_count || 30;
 
-  // Per-student check: activity is scheduled on day d. Uses the shared
-  // isActivityScheduled helper which already covers interval, excluded_days,
-  // extra_days and the effective first_day clamp.
-  const isActOnDayForStudent = (a, d, joinedAt) => isActivityScheduled(a, d, joinedAt);
+  const effectiveStartDate = (student) => {
+    if (course?.bound_to_calendar && course.start_date) {
+      return String(course.start_date).slice(0, 10);
+    }
+    return (student.joined_at || '').slice(0, 10);
+  };
 
-  // Calculate stats for a student: elapsed days (based on joined_at) and completion
+  const isActOnDayForStudent = (a, d, student) =>
+    isActivityScheduled(a, d, effectiveStartDate(student));
+
   const getStudentStats = (student) => {
-    const startDate = (student.joined_at || '').slice(0, 10);
+    const startDate = effectiveStartDate(student);
     const studentCurrentDay = startDate ? getCourseDay(startDate, null, 0, daysCount) : 1;
     const elapsedDays = Math.max(0, studentCurrentDay - 1);
     const prog = allProgress[student.user_id] || {};
@@ -147,7 +151,7 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
     let completedDays = 0;
     for (let d = 1; d < studentCurrentDay; d++) {
       const dayActs = [...activities, ...customActs]
-        .filter(a => isActOnDayForStudent(a, d, student.joined_at) && !excl[`${a.id}_${d}`]);
+        .filter(a => isActOnDayForStudent(a, d, student) && !excl[`${a.id}_${d}`]);
       if (dayActs.length === 0) continue;
       if (dayActs.every(a => prog[d]?.[a.id]?.completed)) completedDays++;
     }
@@ -405,7 +409,7 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
                       activities={activities}
                       daysCount={daysCount}
                       studentCurrentDay={stats.studentCurrentDay}
-                      studentJoinedAt={st.joined_at}
+                      studentStartDate={effectiveStartDate(st)}
                       exclusions={allExclusions[st.user_id] || {}}
                       customActivities={allCustomActivities.filter(ca => ca.user_id === st.user_id)}
                       onToggleExclusion={async (actId, day) => {
@@ -540,7 +544,7 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
 
 /* ── Student detail progress view ── */
 function StudentDetails({
-  userId, courseId, progress, activities, daysCount, studentCurrentDay, studentJoinedAt,
+  userId, courseId, progress, activities, daysCount, studentCurrentDay, studentStartDate,
   exclusions, customActivities, onToggleExclusion, onAddActivity, onDeleteCustomActivity,
   onToggleCompletion,
 }) {
@@ -555,7 +559,7 @@ function StudentDetails({
   const [addSaving, setAddSaving] = useState(false);
   const [showIconPicker, setShowIconPicker] = useState(false);
 
-  const isActOnDay = (a, d) => isActivityScheduled(a, d, studentJoinedAt);
+  const isActOnDay = (a, d) => isActivityScheduled(a, d, studentStartDate);
 
   // Merge course activities + custom activities for this student
   const allActs = [
