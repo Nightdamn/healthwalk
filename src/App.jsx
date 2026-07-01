@@ -327,21 +327,25 @@ export default function App() {
     if (timerRunning && !timerPaused && timerSeconds > 0) {
       timerRef.current = setTimeout(() => {
         setTimerSeconds(s => s - 1);
-        if (activeActivity) {
+        // view-only тик не должен увеличивать elapsedTime — иначе на выходе
+        // прогресс раздуется/сохранится (даже если viewOnly, тесты
+        // saveCurrentProgress выше могут читать elapsedTime).
+        if (activeActivity && !activeActivity.viewOnly) {
           setElapsedTime(p => ({ ...p, [activeActivity.id]: (p[activeActivity.id] || 0) + 1 }));
         }
       }, 1000);
     }
     if (timerSeconds === 0 && timerRunning) {
       setTimerRunning(false);
-      if (activeActivity) {
+      if (activeActivity && !activeActivity.viewOnly) {
         const t = activeVideo?.duration_sec || activeActivity.duration * 60;
+        const targetDay = activeActivity.day ?? currentDay;
         setElapsedTime(p => ({ ...p, [activeActivity.id]: t }));
-        setProgress(p => ({ ...p, [currentDay]: { ...p[currentDay], [activeActivity.id]: true } }));
+        setProgress(p => ({ ...p, [targetDay]: { ...p[targetDay], [activeActivity.id]: true } }));
         setRawProgress(p => ({
-          ...p, [currentDay]: { ...p[currentDay], [activeActivity.id]: { elapsed: t, completed: true } }
+          ...p, [targetDay]: { ...p[targetDay], [activeActivity.id]: { elapsed: t, completed: true } }
         }));
-        saveProgress(activeActivity.id, t, true);
+        saveProgress(activeActivity.id, t, true, targetDay);
       }
     }
     return () => clearTimeout(timerRef.current);
@@ -349,24 +353,26 @@ export default function App() {
 
   // Auto-save every 10s
   useEffect(() => {
-    if (timerRunning && !timerPaused && activeActivity && user?.id) {
+    if (timerRunning && !timerPaused && activeActivity && user?.id && !activeActivity.viewOnly) {
       saveIntervalRef.current = setInterval(() => {
         setElapsedTime(p => {
-          saveProgress(activeActivity.id, p[activeActivity.id] || 0, false);
+          const targetDay = activeActivity.day ?? currentDay;
+          saveProgress(activeActivity.id, p[activeActivity.id] || 0, false, targetDay);
           return p;
         });
       }, 10000);
     } else clearInterval(saveIntervalRef.current);
     return () => clearInterval(saveIntervalRef.current);
-  }, [timerRunning, timerPaused, activeActivity?.id, user?.id, saveProgress]);
+  }, [timerRunning, timerPaused, activeActivity?.id, activeActivity?.viewOnly, user?.id, saveProgress, currentDay]);
 
   const saveCurrentProgress = useCallback(() => {
     if (!activeActivity || !user?.id) return;
+    const targetDay = activeActivity.day ?? currentDay;
     const sec = elapsedTime[activeActivity.id] || 0;
-    const completed = progress[currentDay]?.[activeActivity.id] || false;
-    saveProgress(activeActivity.id, sec, completed);
+    const completed = progress[targetDay]?.[activeActivity.id] || false;
+    saveProgress(activeActivity.id, sec, completed, targetDay);
     setRawProgress(p => ({
-      ...p, [currentDay]: { ...p[currentDay], [activeActivity.id]: { elapsed: sec, completed } }
+      ...p, [targetDay]: { ...p[targetDay], [activeActivity.id]: { elapsed: sec, completed } }
     }));
   }, [activeActivity, user?.id, currentDay, elapsedTime, progress, saveProgress]);
 
@@ -387,17 +393,18 @@ export default function App() {
   const handleStartTimer = async (activity) => {
     // Normalize activity props
     activity = { ...activity, practiceType: activity.practiceType || 'media', descriptionHtml: activity.descriptionHtml || null };
+    const dayForLookup = activity.day ?? currentDay;
 
     // Find call for call-type activities
     if (activity.practiceType === 'call') {
-      const call = courseCalls.find(c => c.activity_id === activity.activityId && c.day === currentDay && c.status !== 'cancelled');
+      const call = courseCalls.find(c => c.activity_id === activity.activityId && c.day === dayForLookup && c.status !== 'cancelled');
       setActiveCall(call || null);
     } else {
       setActiveCall(null);
     }
 
     // Find video for this activity and day
-    const video = getVideoForDay(courseVideos, activity.id, currentDay);
+    const video = getVideoForDay(courseVideos, activity.id, dayForLookup);
     setActiveVideo(video);
 
     // Get signed URL for file videos
@@ -408,8 +415,13 @@ export default function App() {
       setActiveVideoUrl(null);
     }
 
+    // Для view-only (пересмотр done-практики или media из прошлого дня без
+    // зачёта) таймер стартует с ПОЛНОГО времени — не подхватываем elapsed,
+    // чтобы пользователь не увидел «уже наполовину прошло».
     const totalSec = video?.duration_sec ?? (activity.duration * 60);
-    const remaining = Math.max(0, totalSec - (elapsedTime[activity.id] || 0));
+    const remaining = activity.viewOnly
+      ? totalSec
+      : Math.max(0, totalSec - (elapsedTime[activity.id] || 0));
     setActiveActivity(activity);
     setTimerSeconds(remaining);
     setTimerRunning(true); setTimerPaused(true);
@@ -417,16 +429,28 @@ export default function App() {
   };
 
   const handleTimerPause = () => {
-    setTimerPaused(prev => { if (!prev) saveCurrentProgress(); return !prev; });
+    setTimerPaused(prev => {
+      // В view-only не сохраняем — просмотр не должен трогать прогресс.
+      if (!prev && !activeActivity?.viewOnly) saveCurrentProgress();
+      return !prev;
+    });
   };
-  const handleTimerBack = () => { setTimerRunning(false); setTimerPaused(false); saveCurrentProgress(); setScreen('main'); };
+  const handleTimerBack = () => {
+    setTimerRunning(false); setTimerPaused(false);
+    if (!activeActivity?.viewOnly) saveCurrentProgress();
+    setScreen('main');
+  };
   const handleTimerDone = () => {
-    // For theory + call_recording — отмечаем как выполненное сразу
-    // (таймер не тикает; пользователь нажал «Изучено»/«Просмотрено»).
-    // call_recording приходит с полем `day` (день записи, не текущий), потому
-    // что просмотр может быть из другого дня календаря — сохраняем в тот день,
-    // где практика реально лежит, иначе в БД зачёт уедет в currentDay и на
-    // карточке дня 1 останется «не выполнено».
+    // view-only — практика уже зачтена, либо media из другого дня: просто
+    // выходим на главный без записи в БД.
+    if (activeActivity?.viewOnly) {
+      setTimerRunning(false); setTimerPaused(false); setScreen('main');
+      return;
+    }
+    // theory + call_recording — «Изучено»/«Просмотрено» ставит зачёт сразу.
+    // Записываем в activeActivity.day (если пришёл из карточки прошлого дня)
+    // либо в currentDay, иначе БД unique(user,course,activity,day) уведёт
+    // зачёт в текущий день и карточка практики останется незачётной.
     if (activeActivity?.practiceType === 'theory' || activeActivity?.practiceType === 'call_recording') {
       const t = (activeActivity.duration || 1) * 60;
       const targetDay = activeActivity.day ?? currentDay;
@@ -442,6 +466,12 @@ export default function App() {
 
   const handleTimerSeek = (newRemainingSec) => {
     if (!activeActivity) return;
+    // view-only перемотка НЕ трогает elapsedTime — при следующем
+    // открытии практика должна остаться в исходном состоянии.
+    if (activeActivity.viewOnly) {
+      setTimerSeconds(newRemainingSec);
+      return;
+    }
     const totalSec = activeVideo?.duration_sec || activeActivity.duration * 60;
     const newElapsed = totalSec - newRemainingSec;
     setTimerSeconds(newRemainingSec);

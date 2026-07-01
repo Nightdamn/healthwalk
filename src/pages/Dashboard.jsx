@@ -347,12 +347,22 @@ export default function Dashboard({
                     const pct = totalSec > 0 ? (elapsedSec / totalSec) * 100 : 0;
                     const elapsedMin = Math.floor(elapsedSec / 60);
                     const elapsedRemSec = elapsedSec % 60;
-                    // Теория в любой день кликается — открывается в read-only
-                    // если день не сегодняшний (alreadyDone=true ⇒ Timer
-                    // покажет содержимое + кнопку «К практике» вместо «Изучено»).
-                    const reopenTheory = done && act.practiceType === 'theory';
-                    const viewTheoryReadOnly = act.practiceType === 'theory' && !isToday && !done;
-                    const cardClickable = reopenTheory || viewTheoryReadOnly;
+                    // Правила клика по карточке:
+                    // • theory в любом состоянии открывается. Если !done — можно
+                    //   отметить «Изучено» (в т.ч. задним числом), если done —
+                    //   view-only c кнопкой «К практике».
+                    // • media открывается если !isToday || done — view-only:
+                    //   таймер идёт, перемотка вперёд+назад свободна, «Готово»
+                    //   ничего не пишет в БД. В isToday && !done — обычный
+                    //   флоу через кнопку «Начать» справа.
+                    // • call через карточку не открывается (отдельная кнопка
+                    //   «Смотреть запись» — см. ниже).
+                    const cardClickable =
+                      act.practiceType === 'theory' ||
+                      (act.practiceType === 'media' && (!isToday || done));
+                    const viewOnly =
+                      (act.practiceType === 'theory' && done) ||
+                      (act.practiceType === 'media' && (!isToday || done));
 
                     return (
                       <div key={act.id}
@@ -364,7 +374,9 @@ export default function Dashboard({
                           iconNum: act.iconNum,
                           practiceType: act.practiceType,
                           descriptionHtml: act.descriptionHtml,
-                          alreadyDone: true,
+                          day: activeDay,
+                          viewOnly,
+                          alreadyDone: viewOnly,
                         }) : undefined}
                         style={{
                         ...glass, background: done ? 'rgba(26,26,46,0.04)' : 'rgba(255,255,255,0.65)',
@@ -391,7 +403,7 @@ export default function Dashboard({
                               <svg width="18" height="18" viewBox="0 0 16 16" fill="none"><polyline points="3,8.5 6.5,12 13,4" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="miter" fill="none" /></svg>
                             </div>
                           ) : isToday ? (
-                            <button onClick={() => onStartTimer({
+                            <button onClick={(e) => { e.stopPropagation(); onStartTimer({
                               id: act.id,
                               activityId: act.activityId,
                               label: act.label,
@@ -399,7 +411,8 @@ export default function Dashboard({
                               iconNum: act.iconNum,
                               practiceType: act.practiceType,
                               descriptionHtml: act.descriptionHtml,
-                            })} style={{
+                              day: activeDay,
+                            }); }} style={{
                               padding: '10px 22px', background: '#1a1a2e', color: '#fff', border: 'none',
                               borderRadius: 12, fontSize: 13, fontWeight: 600, cursor: 'pointer',
                               boxShadow: '0 3px 10px rgba(26,26,46,0.15)',
@@ -726,16 +739,23 @@ function CourseMapView({ progress, allActivities, daysTotal, isActivityOnDay, cu
                   const done = dp[act.id]?.completed || dp[act.id] === true;
                   const elSec = done ? act.durationMin * 60 : (dayEl[act.id] || 0);
                   const actPct = act.durationMin > 0 ? Math.round((elSec / (act.durationMin * 60)) * 100) : 0;
-                  // Кнопка «Начать» практику — только в сегодняшний день.
-                  // Теорию можно открыть в любой день (read-only, без «Изучено»).
-                  const canStart = isToday && !done;
-                  const canViewTheory = act.practiceType === 'theory';
-                  const canReopenTheory = done && act.practiceType === 'theory' && isToday;
-                  const clickable = canStart || canReopenTheory || canViewTheory;
+                  // Правила (симметрия с обычной вью дня):
+                  // • theory: всегда кликается. done → view-only, !done → зачёт с day
+                  // • media: кликается если done ИЛИ прошлый день. Всегда view-only.
+                  //   Активный старт (isToday && !done) — обычный флоу.
+                  // • call через карточку не открываем (отдельная кнопка записи).
+                  const cardClickable =
+                    act.practiceType === 'theory' ||
+                    (act.practiceType === 'media' && (!isToday || done));
+                  const activeStart = isToday && !done && act.practiceType === 'media';
+                  const clickable = cardClickable || activeStart;
+                  const viewOnly =
+                    (act.practiceType === 'theory' && done) ||
+                    (act.practiceType === 'media' && (!isToday || done));
 
                   return (
                     <div key={act.id}
-                      onClick={() => { if (clickable) onStartTimer({ id: act.id, activityId: act.activityId, label: act.label, duration: act.durationMin, iconNum: act.iconNum, practiceType: act.practiceType, descriptionHtml: act.descriptionHtml, alreadyDone: canReopenTheory || (canViewTheory && !isToday) }); }}
+                      onClick={() => { if (clickable) onStartTimer({ id: act.id, activityId: act.activityId, label: act.label, duration: act.durationMin, iconNum: act.iconNum, practiceType: act.practiceType, descriptionHtml: act.descriptionHtml, day, viewOnly, alreadyDone: viewOnly }); }}
                       style={{
                         padding: '10px 12px', borderRadius: 12,
                         background: done ? 'rgba(39,174,96,0.06)' : 'rgba(0,0,0,0.02)',

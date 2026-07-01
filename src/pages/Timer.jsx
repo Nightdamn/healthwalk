@@ -66,9 +66,11 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
     const rect = linearBarRef.current.getBoundingClientRect();
     const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
     const newElapsed = Math.round(pct * totalSec);
-    const clamped = Math.min(newElapsed, maxElapsedRef.current);
+    // view-only — можно мотать до конца в обе стороны, без клампа
+    // по maxElapsed (это ограничение для обычного прохождения).
+    const clamped = activity.viewOnly ? newElapsed : Math.min(newElapsed, maxElapsedRef.current);
     onSeek(Math.max(0, totalSec - clamped));
-  }, [totalSec, onSeek]);
+  }, [totalSec, onSeek, activity.viewOnly]);
 
   useEffect(() => {
     const move = (e) => {
@@ -347,8 +349,10 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
     const pct = angle / (2 * Math.PI);
     const sec = Math.round(pct * totalSec);
 
-    return Math.max(0, Math.min(sec, maxElapsedRef.current));
-  }, [totalSec]);
+    // view-only — свободная перемотка в обе стороны, без клампа по maxElapsed
+    const cap = activity.viewOnly ? totalSec : maxElapsedRef.current;
+    return Math.max(0, Math.min(sec, cap));
+  }, [totalSec, activity.viewOnly]);
 
   const containerRef = useRef(null);
 
@@ -1319,7 +1323,7 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
                 border: "none", borderRadius: 16, fontSize: 16, fontWeight: 600,
                 cursor: "pointer", boxShadow: "0 4px 20px rgba(26,26,46,0.2)", minWidth: 180,
               }}>
-              Готово
+              {activity.viewOnly ? 'К практике' : 'Готово'}
             </button>
           )}
         </div>
