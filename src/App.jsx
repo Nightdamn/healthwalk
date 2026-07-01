@@ -407,8 +407,8 @@ export default function App() {
       setActiveVideoUrl(null);
     }
 
-    const duration = video?.duration_sec ? video.duration_sec / 60 : activity.duration;
-    const remaining = Math.max(0, duration * 60 - (elapsedTime[activity.id] || 0));
+    const totalSec = video?.duration_sec ?? (activity.duration * 60);
+    const remaining = Math.max(0, totalSec - (elapsedTime[activity.id] || 0));
     setActiveActivity(activity);
     setTimerSeconds(remaining);
     setTimerRunning(true); setTimerPaused(true);
