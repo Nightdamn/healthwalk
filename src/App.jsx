@@ -311,12 +311,13 @@ export default function App() {
   }, [user?.id, activeItem?.id, currentDay]);
 
   // ─── Save progress helper ───
-  const saveProgress = useCallback((actId, elapsed, completed) => {
+  const saveProgress = useCallback((actId, elapsed, completed, dayOverride) => {
     if (!user?.id || !activeItem) return;
+    const day = dayOverride ?? currentDay;
     if (activeItem.type === 'course') {
-      saveCourseActivityProgress(user.id, activeItem.id, actId, currentDay, elapsed, completed);
+      saveCourseActivityProgress(user.id, activeItem.id, actId, day, elapsed, completed);
     } else {
-      saveTrackerActivityProgress(user.id, activeItem.id, actId, currentDay, elapsed, completed);
+      saveTrackerActivityProgress(user.id, activeItem.id, actId, day, elapsed, completed);
     }
   }, [user?.id, activeItem, currentDay]);
 
@@ -422,14 +423,19 @@ export default function App() {
   const handleTimerDone = () => {
     // For theory + call_recording — отмечаем как выполненное сразу
     // (таймер не тикает; пользователь нажал «Изучено»/«Просмотрено»).
+    // call_recording приходит с полем `day` (день записи, не текущий), потому
+    // что просмотр может быть из другого дня календаря — сохраняем в тот день,
+    // где практика реально лежит, иначе в БД зачёт уедет в currentDay и на
+    // карточке дня 1 останется «не выполнено».
     if (activeActivity?.practiceType === 'theory' || activeActivity?.practiceType === 'call_recording') {
       const t = (activeActivity.duration || 1) * 60;
+      const targetDay = activeActivity.day ?? currentDay;
       setElapsedTime(p => ({ ...p, [activeActivity.id]: t }));
-      setProgress(p => ({ ...p, [currentDay]: { ...p[currentDay], [activeActivity.id]: true } }));
+      setProgress(p => ({ ...p, [targetDay]: { ...p[targetDay], [activeActivity.id]: true } }));
       setRawProgress(p => ({
-        ...p, [currentDay]: { ...p[currentDay], [activeActivity.id]: { elapsed: t, completed: true } }
+        ...p, [targetDay]: { ...p[targetDay], [activeActivity.id]: { elapsed: t, completed: true } }
       }));
-      saveProgress(activeActivity.id, t, true);
+      saveProgress(activeActivity.id, t, true, targetDay);
     }
     setTimerRunning(false); setTimerPaused(false); setScreen('main');
   };

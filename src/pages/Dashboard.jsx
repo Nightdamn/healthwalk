@@ -456,6 +456,7 @@ export default function Dashboard({
                               descriptionHtml: act.descriptionHtml,
                               recordingUrl: c.recording_url,
                               recordingDurationSec: c.recording_duration_sec,
+                              day: activeDay,
                               alreadyDone: done,
                             })}
                               style={{
