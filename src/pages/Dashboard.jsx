@@ -363,6 +363,32 @@ export default function Dashboard({
                     const viewOnly =
                       (act.practiceType === 'theory' && done) ||
                       (act.practiceType === 'media' && (!isToday || done));
+                    // Кнопка «Просмотр» под прогресс-баром — общая для
+                    // view-only media/theory и для call с recording_url.
+                    // Собираем payload здесь (nullable), а рендерим ниже.
+                    const callRec = act.practiceType === 'call'
+                      ? (courseCalls || []).find(cc =>
+                          cc.activity_id === (act.activityId || act.id) && cc.day === activeDay && cc.recording_url)
+                      : null;
+                    const viewPayload = callRec
+                      ? {
+                          id: act.id, activityId: act.activityId, label: act.label,
+                          duration: act.durationMin, iconNum: act.iconNum,
+                          practiceType: 'call_recording',
+                          descriptionHtml: act.descriptionHtml,
+                          recordingUrl: callRec.recording_url,
+                          recordingDurationSec: callRec.recording_duration_sec,
+                          day: activeDay, alreadyDone: done,
+                        }
+                      : (viewOnly && (act.practiceType === 'media' || act.practiceType === 'theory'))
+                      ? {
+                          id: act.id, activityId: act.activityId, label: act.label,
+                          duration: act.durationMin, iconNum: act.iconNum,
+                          practiceType: act.practiceType,
+                          descriptionHtml: act.descriptionHtml,
+                          day: activeDay, viewOnly: true, alreadyDone: true,
+                        }
+                      : null;
 
                     return (
                       <div key={act.id}
@@ -434,91 +460,57 @@ export default function Dashboard({
                             </div>
                           )}
                         </div>
-                        <div style={{ height: 4, background: 'rgba(0,0,0,0.04)', borderRadius: 2, overflow: 'hidden' }}>
-                          <div style={{
-                            height: '100%', width: `${pct}%`,
-                            background: done ? 'linear-gradient(90deg, #27ae60, #2ecc71)' : 'linear-gradient(90deg, #1a1a2e, #4a4a6e)',
-                            borderRadius: 2, transition: 'width 0.3s linear',
-                          }} />
-                        </div>
-                        <div style={{ fontSize: 11, color: '#bbb', marginTop: 6, fontWeight: 500 }}>
-                          {act.practiceType === 'theory' ? (done ? 'Выполнено' : 'Не выполнено')
-                            : act.practiceType === 'call' ? (done ? 'Выполнено' : 'Запланировано')
-                            : done ? `${act.durationMin} из ${act.durationMin} мин • Выполнено`
-                            : elapsedSec > 0 ? `${elapsedMin}:${String(elapsedRemSec).padStart(2, '0')} из ${act.durationMin} мин`
-                            : `0 из ${act.durationMin} мин`}
-                        </div>
-
-                        {/* Кнопка «Просмотр» — визуальный маркер что практику
-                            можно пересмотреть (view-only): пользователи не
-                            догадывались что весь блок кликабельный. Показываем
-                            для media/theory когда viewOnly=true (прошлый день
-                            или уже done). Для call — отдельная кнопка «Смотреть
-                            запись» ниже. */}
-                        {viewOnly && (act.practiceType === 'media' || act.practiceType === 'theory') && (
-                          <button onClick={(e) => { e.stopPropagation(); onStartTimer({
-                            id: act.id,
-                            activityId: act.activityId,
-                            label: act.label,
-                            duration: act.durationMin,
-                            iconNum: act.iconNum,
-                            practiceType: act.practiceType,
-                            descriptionHtml: act.descriptionHtml,
-                            day: activeDay,
-                            viewOnly: true,
-                            alreadyDone: true,
-                          }); }}
-                            style={{
-                              width: '100%', marginTop: 12, padding: '10px 14px',
-                              background: '#1a1a2e', color: '#fff', border: 'none',
-                              borderRadius: 12, fontSize: 13, fontWeight: 600, cursor: 'pointer',
-                              boxShadow: '0 3px 10px rgba(26,26,46,0.15)',
-                              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-                            }}>
-                            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-                              <path d="M3 2v12l11-6L3 2z"/>
-                            </svg>
-                            <span>Просмотр</span>
-                          </button>
-                        )}
-
-                        {/* Кнопка «Смотреть запись» — под прогресс-баром и статусом
-                            (чёрная как «Начать»). Показывается ВСЕМ если у звонка есть
-                            recording_url, даже если done — можно пересмотреть. */}
-                        {act.practiceType === 'call' && (() => {
-                          const c = (courseCalls || []).find(cc =>
-                            cc.activity_id === (act.activityId || act.id) && cc.day === activeDay && cc.recording_url
-                          );
-                          if (!c) return null;
-                          const mins = c.recording_duration_sec ? Math.round(c.recording_duration_sec / 60) : null;
-                          return (
-                            <button onClick={() => onStartTimer({
-                              id: act.id,
-                              activityId: act.activityId,
-                              label: act.label,
-                              duration: act.durationMin,
-                              iconNum: act.iconNum,
-                              practiceType: 'call_recording',
-                              descriptionHtml: act.descriptionHtml,
-                              recordingUrl: c.recording_url,
-                              recordingDurationSec: c.recording_duration_sec,
-                              day: activeDay,
-                              alreadyDone: done,
-                            })}
+                        {/* Прогресс + статус слева, кнопка «Просмотр» справа
+                            во всю высоту левой колонки — когда есть viewPayload.
+                            Иначе — как раньше, вертикально в две строки. */}
+                        {viewPayload ? (
+                          <div style={{ display: 'flex', alignItems: 'stretch', gap: 12 }}>
+                            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 6 }}>
+                              <div style={{ height: 4, background: 'rgba(0,0,0,0.04)', borderRadius: 2, overflow: 'hidden' }}>
+                                <div style={{
+                                  height: '100%', width: `${pct}%`,
+                                  background: done ? 'linear-gradient(90deg, #27ae60, #2ecc71)' : 'linear-gradient(90deg, #1a1a2e, #4a4a6e)',
+                                  borderRadius: 2, transition: 'width 0.3s linear',
+                                }} />
+                              </div>
+                              <div style={{ fontSize: 11, color: '#bbb', fontWeight: 500 }}>
+                                {act.practiceType === 'theory' ? (done ? 'Выполнено' : 'Не выполнено')
+                                  : act.practiceType === 'call' ? (done ? 'Выполнено' : 'Запланировано')
+                                  : done ? `${act.durationMin} из ${act.durationMin} мин • Выполнено`
+                                  : elapsedSec > 0 ? `${elapsedMin}:${String(elapsedRemSec).padStart(2, '0')} из ${act.durationMin} мин`
+                                  : `0 из ${act.durationMin} мин`}
+                              </div>
+                            </div>
+                            <button onClick={(e) => { e.stopPropagation(); onStartTimer(viewPayload); }}
                               style={{
-                                width: '100%', marginTop: 12, padding: '10px 14px',
+                                alignSelf: 'stretch', padding: '0 18px',
                                 background: '#1a1a2e', color: '#fff', border: 'none',
                                 borderRadius: 12, fontSize: 13, fontWeight: 600, cursor: 'pointer',
                                 boxShadow: '0 3px 10px rgba(26,26,46,0.15)',
-                                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                whiteSpace: 'nowrap',
                               }}>
-                              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-                                <path d="M3 2v12l11-6L3 2z"/>
-                              </svg>
-                              <span>Смотреть запись{mins ? ` (${mins} мин)` : ''}</span>
+                              Просмотр
                             </button>
-                          );
-                        })()}
+                          </div>
+                        ) : (
+                          <>
+                            <div style={{ height: 4, background: 'rgba(0,0,0,0.04)', borderRadius: 2, overflow: 'hidden' }}>
+                              <div style={{
+                                height: '100%', width: `${pct}%`,
+                                background: done ? 'linear-gradient(90deg, #27ae60, #2ecc71)' : 'linear-gradient(90deg, #1a1a2e, #4a4a6e)',
+                                borderRadius: 2, transition: 'width 0.3s linear',
+                              }} />
+                            </div>
+                            <div style={{ fontSize: 11, color: '#bbb', marginTop: 6, fontWeight: 500 }}>
+                              {act.practiceType === 'theory' ? (done ? 'Выполнено' : 'Не выполнено')
+                                : act.practiceType === 'call' ? (done ? 'Выполнено' : 'Запланировано')
+                                : done ? `${act.durationMin} из ${act.durationMin} мин • Выполнено`
+                                : elapsedSec > 0 ? `${elapsedMin}:${String(elapsedRemSec).padStart(2, '0')} из ${act.durationMin} мин`
+                                : `0 из ${act.durationMin} мин`}
+                            </div>
+                          </>
+                        )}
                       </div>
                     );
                   })}
