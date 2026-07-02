@@ -665,7 +665,7 @@ export default function App() {
         activeItem={activeItem} availableItems={availableItems} onSwitchContext={handleSwitchContext}
         exclusions={exclusions} customActivities={customActivities}
         unreadCount={unreadCount} courseFinished={courseFinished} dayInfo={dayInfo}
-        courseCalls={courseCalls} />
+        courseCalls={courseCalls} courseVideos={courseVideos} />
     );
     }
   };

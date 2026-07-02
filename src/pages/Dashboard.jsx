@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import Layout from '../components/Layout';
 import Footer from '../components/Footer';
 import { MOTTOS, isActivityScheduled } from '../data/constants';
+import { getVideoForDay } from '../lib/db';
 import { getIconPath } from '../data/iconCatalog';
 import { glass } from '../styles/shared';
 import { useMenu } from '../components/MenuContext';
@@ -65,6 +66,7 @@ export default function Dashboard({
   unreadCount = 0, courseFinished = false,
   dayInfo = { isUpcoming: false, daysUntilStart: 0 },
   courseCalls = [],
+  courseVideos = [],
 }) {
   const { openMenu } = useMenu();
   const [viewingDay, setViewingDay] = useState(null);
@@ -291,6 +293,7 @@ export default function Dashboard({
                 userRole={userRole}
                 onBackToDay={() => setDashView('day')}
                 isUpcoming={isUpcoming}
+                courseVideos={courseVideos}
               />
             ) : (
               <>
@@ -342,8 +345,16 @@ export default function Dashboard({
                     </div>
                   ) : dayActivities.map(act => {
                     const done = todayProgress[act.id];
-                    const elapsedSec = done ? act.durationMin * 60 : (dayElapsed[act.id] || 0);
-                    const totalSec = act.durationMin * 60;
+                    // Длительность per-day: если у активности media есть видео
+                    // именно на этот день — берём его duration_sec (у разных
+                    // видео практики могут быть разные длительности). Иначе
+                    // fallback на act.durationMin.
+                    const dayVideo = act.practiceType === 'media'
+                      ? getVideoForDay(courseVideos, act.id, activeDay)
+                      : null;
+                    const totalSec = dayVideo?.duration_sec ?? act.durationMin * 60;
+                    const totalMin = Math.max(1, Math.ceil(totalSec / 60));
+                    const elapsedSec = done ? totalSec : (dayElapsed[act.id] || 0);
                     const pct = totalSec > 0 ? (elapsedSec / totalSec) * 100 : 0;
                     const elapsedMin = Math.floor(elapsedSec / 60);
                     const elapsedRemSec = elapsedSec % 60;
@@ -421,7 +432,7 @@ export default function Dashboard({
                             </div>
                             <div>
                               <div style={{ fontSize: 16, fontWeight: 600, color: '#1a1a2e' }}>{act.label}</div>
-                              <div style={{ fontSize: 12, color: '#999', fontWeight: 500, marginTop: 2 }}>{act.practiceType === 'theory' ? 'Теория' : act.practiceType === 'call' ? 'Онлайн' : `${act.durationMin} минут`}</div>
+                              <div style={{ fontSize: 12, color: '#999', fontWeight: 500, marginTop: 2 }}>{act.practiceType === 'theory' ? 'Теория' : act.practiceType === 'call' ? 'Онлайн' : `${totalMin} минут`}</div>
                             </div>
                           </div>
                           {done ? (
@@ -474,9 +485,9 @@ export default function Dashboard({
                           <div style={{ fontSize: 11, color: '#bbb', fontWeight: 500, paddingBottom: 8 }}>
                             {act.practiceType === 'theory' ? (done ? 'Выполнено' : 'Не выполнено')
                               : act.practiceType === 'call' ? (done ? 'Выполнено' : 'Запланировано')
-                              : done ? `${act.durationMin} из ${act.durationMin} мин • Выполнено`
-                              : elapsedSec > 0 ? `${elapsedMin}:${String(elapsedRemSec).padStart(2, '0')} из ${act.durationMin} мин`
-                              : `0 из ${act.durationMin} мин`}
+                              : done ? `${totalMin} из ${totalMin} мин • Выполнено`
+                              : elapsedSec > 0 ? `${elapsedMin}:${String(elapsedRemSec).padStart(2, '0')} из ${totalMin} мин`
+                              : `0 из ${totalMin} мин`}
                           </div>
                           {viewPayload && (
                             <button onClick={(e) => { e.stopPropagation(); onStartTimer(viewPayload); }}
@@ -652,7 +663,7 @@ function CourseCompleteView({ progress, allActivities, daysTotal, exclusions, is
 }
 
 /* ── Course Map View ── */
-function CourseMapView({ progress, allActivities, daysTotal, isActivityOnDay, currentDay, dayStartHour, getElapsedForDay, elapsedTime, onStartTimer, enrollRole, userRole, onBackToDay, isUpcoming = false }) {
+function CourseMapView({ progress, allActivities, daysTotal, isActivityOnDay, currentDay, dayStartHour, getElapsedForDay, elapsedTime, onStartTimer, enrollRole, userRole, onBackToDay, isUpcoming = false, courseVideos = [] }) {
   const [expandedDay, setExpandedDay] = useState(null);
 
   return (
@@ -741,8 +752,13 @@ function CourseMapView({ progress, allActivities, daysTotal, isActivityOnDay, cu
               <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {dayActs.map(act => {
                   const done = dp[act.id]?.completed || dp[act.id] === true;
-                  const elSec = done ? act.durationMin * 60 : (dayEl[act.id] || 0);
-                  const actPct = act.durationMin > 0 ? Math.round((elSec / (act.durationMin * 60)) * 100) : 0;
+                  const dayVideo = act.practiceType === 'media'
+                    ? getVideoForDay(courseVideos, act.id, day)
+                    : null;
+                  const totalSec = dayVideo?.duration_sec ?? act.durationMin * 60;
+                  const totalMin = Math.max(1, Math.ceil(totalSec / 60));
+                  const elSec = done ? totalSec : (dayEl[act.id] || 0);
+                  const actPct = totalSec > 0 ? Math.round((elSec / totalSec) * 100) : 0;
                   // Правила (симметрия с обычной вью дня):
                   // • theory: всегда кликается. done → view-only, !done → зачёт с day
                   // • media: кликается если done ИЛИ прошлый день. Всегда view-only.
@@ -772,7 +788,7 @@ function CourseMapView({ progress, allActivities, daysTotal, isActivityOnDay, cu
                         <span style={{ fontSize: 12, color: '#aaa' }}>
                           {act.practiceType === 'theory' ? 'Теория'
                             : act.practiceType === 'call' ? 'Онлайн'
-                            : `${act.durationMin} мин`}
+                            : `${totalMin} мин`}
                         </span>
                         {done && (
                           <div style={{ width: 22, height: 22, borderRadius: '50%', background: GREEN, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
