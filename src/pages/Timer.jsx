@@ -1107,6 +1107,15 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
               <button
                 onClick={(e) => {
                   e.stopPropagation();
+                  // iOS Safari/Chrome (все браузеры на iOS = WebKit) НЕ
+                  // поддерживают Fullscreen API на div. Работает только
+                  // webkitEnterFullscreen на самом <video> — открывает
+                  // нативный iOS видеоплеер. Пробуем это первым.
+                  const v = videoRef.current;
+                  if (v?.webkitEnterFullscreen) {
+                    try { v.webkitEnterFullscreen(); return; }
+                    catch { /* fall through to standard path */ }
+                  }
                   if (document.fullscreenElement) {
                     document.exitFullscreen().catch(() => {});
                   } else {
