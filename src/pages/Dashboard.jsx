@@ -449,6 +449,39 @@ export default function Dashboard({
                             : `0 из ${act.durationMin} мин`}
                         </div>
 
+                        {/* Кнопка «Просмотр» — визуальный маркер что практику
+                            можно пересмотреть (view-only): пользователи не
+                            догадывались что весь блок кликабельный. Показываем
+                            для media/theory когда viewOnly=true (прошлый день
+                            или уже done). Для call — отдельная кнопка «Смотреть
+                            запись» ниже. */}
+                        {viewOnly && (act.practiceType === 'media' || act.practiceType === 'theory') && (
+                          <button onClick={(e) => { e.stopPropagation(); onStartTimer({
+                            id: act.id,
+                            activityId: act.activityId,
+                            label: act.label,
+                            duration: act.durationMin,
+                            iconNum: act.iconNum,
+                            practiceType: act.practiceType,
+                            descriptionHtml: act.descriptionHtml,
+                            day: activeDay,
+                            viewOnly: true,
+                            alreadyDone: true,
+                          }); }}
+                            style={{
+                              width: '100%', marginTop: 12, padding: '10px 14px',
+                              background: '#1a1a2e', color: '#fff', border: 'none',
+                              borderRadius: 12, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                              boxShadow: '0 3px 10px rgba(26,26,46,0.15)',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                            }}>
+                            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                              <path d="M3 2v12l11-6L3 2z"/>
+                            </svg>
+                            <span>Просмотр</span>
+                          </button>
+                        )}
+
                         {/* Кнопка «Смотреть запись» — под прогресс-баром и статусом
                             (чёрная как «Начать»). Показывается ВСЕМ если у звонка есть
                             recording_url, даже если done — можно пересмотреть. */}
