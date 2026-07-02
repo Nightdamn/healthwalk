@@ -460,57 +460,36 @@ export default function Dashboard({
                             </div>
                           )}
                         </div>
-                        {/* Прогресс + статус слева, кнопка «Просмотр» справа
-                            во всю высоту левой колонки — когда есть viewPayload.
-                            Иначе — как раньше, вертикально в две строки. */}
-                        {viewPayload ? (
-                          <div style={{ display: 'flex', alignItems: 'stretch', gap: 12 }}>
-                            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 6 }}>
-                              <div style={{ height: 4, background: 'rgba(0,0,0,0.04)', borderRadius: 2, overflow: 'hidden' }}>
-                                <div style={{
-                                  height: '100%', width: `${pct}%`,
-                                  background: done ? 'linear-gradient(90deg, #27ae60, #2ecc71)' : 'linear-gradient(90deg, #1a1a2e, #4a4a6e)',
-                                  borderRadius: 2, transition: 'width 0.3s linear',
-                                }} />
-                              </div>
-                              <div style={{ fontSize: 11, color: '#bbb', fontWeight: 500 }}>
-                                {act.practiceType === 'theory' ? (done ? 'Выполнено' : 'Не выполнено')
-                                  : act.practiceType === 'call' ? (done ? 'Выполнено' : 'Запланировано')
-                                  : done ? `${act.durationMin} из ${act.durationMin} мин • Выполнено`
-                                  : elapsedSec > 0 ? `${elapsedMin}:${String(elapsedRemSec).padStart(2, '0')} из ${act.durationMin} мин`
-                                  : `0 из ${act.durationMin} мин`}
-                              </div>
-                            </div>
+                        <div style={{ height: 4, background: 'rgba(0,0,0,0.04)', borderRadius: 2, overflow: 'hidden' }}>
+                          <div style={{
+                            height: '100%', width: `${pct}%`,
+                            background: done ? 'linear-gradient(90deg, #27ae60, #2ecc71)' : 'linear-gradient(90deg, #1a1a2e, #4a4a6e)',
+                            borderRadius: 2, transition: 'width 0.3s linear',
+                          }} />
+                        </div>
+                        {/* Строка статуса + (если есть) кнопка «Просмотр» справа.
+                            Текст статуса выровнен по нижней границе кнопки
+                            (alignItems: 'flex-end'). */}
+                        <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12, marginTop: 6 }}>
+                          <div style={{ fontSize: 11, color: '#bbb', fontWeight: 500, paddingBottom: 8 }}>
+                            {act.practiceType === 'theory' ? (done ? 'Выполнено' : 'Не выполнено')
+                              : act.practiceType === 'call' ? (done ? 'Выполнено' : 'Запланировано')
+                              : done ? `${act.durationMin} из ${act.durationMin} мин • Выполнено`
+                              : elapsedSec > 0 ? `${elapsedMin}:${String(elapsedRemSec).padStart(2, '0')} из ${act.durationMin} мин`
+                              : `0 из ${act.durationMin} мин`}
+                          </div>
+                          {viewPayload && (
                             <button onClick={(e) => { e.stopPropagation(); onStartTimer(viewPayload); }}
                               style={{
-                                alignSelf: 'stretch', padding: '0 18px',
-                                background: '#1a1a2e', color: '#fff', border: 'none',
+                                padding: '10px 22px', background: '#1a1a2e', color: '#fff', border: 'none',
                                 borderRadius: 12, fontSize: 13, fontWeight: 600, cursor: 'pointer',
                                 boxShadow: '0 3px 10px rgba(26,26,46,0.15)',
-                                display: 'flex', alignItems: 'center', justifyContent: 'center',
                                 whiteSpace: 'nowrap',
                               }}>
                               Просмотр
                             </button>
-                          </div>
-                        ) : (
-                          <>
-                            <div style={{ height: 4, background: 'rgba(0,0,0,0.04)', borderRadius: 2, overflow: 'hidden' }}>
-                              <div style={{
-                                height: '100%', width: `${pct}%`,
-                                background: done ? 'linear-gradient(90deg, #27ae60, #2ecc71)' : 'linear-gradient(90deg, #1a1a2e, #4a4a6e)',
-                                borderRadius: 2, transition: 'width 0.3s linear',
-                              }} />
-                            </div>
-                            <div style={{ fontSize: 11, color: '#bbb', marginTop: 6, fontWeight: 500 }}>
-                              {act.practiceType === 'theory' ? (done ? 'Выполнено' : 'Не выполнено')
-                                : act.practiceType === 'call' ? (done ? 'Выполнено' : 'Запланировано')
-                                : done ? `${act.durationMin} из ${act.durationMin} мин • Выполнено`
-                                : elapsedSec > 0 ? `${elapsedMin}:${String(elapsedRemSec).padStart(2, '0')} из ${act.durationMin} мин`
-                                : `0 из ${act.durationMin} мин`}
-                            </div>
-                          </>
-                        )}
+                          )}
+                        </div>
                       </div>
                     );
                   })}
