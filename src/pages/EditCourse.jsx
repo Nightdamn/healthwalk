@@ -947,6 +947,18 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onToggleDay, onRemove
   const videoDuration = actVideos.find(v => v.duration_sec)?.duration_sec;
   const hasDurationFromVideo = !!videoDuration;
 
+  // «MM:SS» ввод длительности для media без видео. Держим сырой текст
+  // в локальном state пока пользователь печатает; на blur парсим
+  // «M[:SS]», клампим, ceil в durationMin для БД (integer minutes).
+  const formatMMSS = (min) => {
+    const total = (min || 0) * 60;
+    const m = Math.floor(total / 60);
+    const s = total % 60;
+    return `${m}:${String(s).padStart(2, '0')}`;
+  };
+  const [durationRaw, setDurationRaw] = useState(() => formatMMSS(activity.durationMin));
+  useEffect(() => { setDurationRaw(formatMMSS(activity.durationMin)); }, [activity.durationMin]);
+
   return (
     <div style={{ ...glass, borderRadius: 16, padding: '14px 14px', marginBottom: 10 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
@@ -1036,30 +1048,39 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onToggleDay, onRemove
         onToggle={(day) => onToggleDay?.(day)}
       />
 
-      {/* Duration (hidden for theory and call — call duration is set per scheduled session) */}
-      {activity.practiceType !== 'theory' && activity.practiceType !== 'call' && (
-      <div>
-        <label style={{ ...labelStyle, fontSize: 11 }}>Длительность</label>
-        {hasDurationFromVideo ? (
+      {/* Duration — только для media БЕЗ видео (у видео своя длительность
+          показана в VideoSection под каждым блоком). Формат «MM:SS».
+          Хранится в БД как duration_min = ceil((mm*60+ss)/60). */}
+      {activity.practiceType === 'media' && actVideos.length === 0 && (
+        <div>
+          <label style={{ ...labelStyle, fontSize: 11 }}>Длительность</label>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <div style={{
-              ...inputStyle, padding: '8px 10px', fontSize: 14, width: 80,
-              background: 'rgba(39,174,96,0.06)', color: '#27ae60', fontWeight: 600,
-            }}>
-              {Math.ceil(videoDuration / 60)}
-            </div>
-            <span style={{ fontSize: 13, color: '#888', whiteSpace: 'nowrap' }}>мин (из видео)</span>
+            <input
+              type="text"
+              inputMode="numeric"
+              pattern="\d+:\d{2}"
+              placeholder="10:00"
+              value={durationRaw}
+              onChange={(e) => {
+                // Разрешаем «5», «5:», «5:3», «5:30» — на blur нормализуем
+                const raw = e.target.value.replace(/[^\d:]/g, '');
+                setDurationRaw(raw);
+              }}
+              onBlur={() => {
+                const m = durationRaw.trim().match(/^(\d+)(?::(\d{1,2}))?$/);
+                let mins = 0, secs = 0;
+                if (m) { mins = parseInt(m[1] || '0', 10); secs = parseInt(m[2] || '0', 10); }
+                if (secs > 59) secs = 59;
+                const totalSec = Math.max(60, Math.min(72000, mins * 60 + secs));
+                const durationMin = Math.max(1, Math.ceil(totalSec / 60));
+                onUpdate('durationMin', durationMin);
+                setDurationRaw(formatMMSS(durationMin));
+              }}
+              style={{ ...inputStyle, padding: '8px 10px', fontSize: 14, width: 100, textAlign: 'center' }}
+            />
+            <span style={{ fontSize: 13, color: '#888', whiteSpace: 'nowrap' }}>мм:сс</span>
           </div>
-        ) : (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <input type="number" value={activity.durationMin}
-              onChange={numChange('durationMin')}
-              onBlur={clamp('durationMin', 1, 1200)}
-              style={{ ...inputStyle, padding: '8px 10px', fontSize: 14, width: 80 }} />
-            <span style={{ fontSize: 13, color: '#888', whiteSpace: 'nowrap' }}>минут</span>
-          </div>
-        )}
-      </div>
+        </div>
       )}
 
       {/* Video section — for media practice. Activities are auto-created in DB

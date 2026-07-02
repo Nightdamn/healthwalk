@@ -224,7 +224,6 @@ export default function VideoSection({
                     День {v.first_day}–{v.last_day}
                     {v.interval_days > 1 ? ` • каждые ${v.interval_days} дн.` : ''}
                     {v.file_size ? ` • ${formatFileSize(v.file_size)}` : ''}
-                    {v.duration_sec ? ` • ${Math.floor(v.duration_sec / 60)}:${String(v.duration_sec % 60).padStart(2, '0')}` : ''}
                   </div>
                 </div>
                 {deletingId === v.id ? (
@@ -272,6 +271,25 @@ export default function VideoSection({
                   }}
                 />
               )}
+              {/* Длительность per-video (авто-детект при загрузке). Показываем
+                  под календарём, чтобы это было явно закреплено за конкретным
+                  видео — до этого одно поле «Длительность» висело сверху над
+                  всей практикой и брало значение первого видео. */}
+              {v.duration_sec ? (
+                <div style={{
+                  marginTop: 8, display: 'flex', alignItems: 'center', gap: 8,
+                  fontSize: 12, color: '#666',
+                }}>
+                  <span style={{ color: '#999' }}>Длительность:</span>
+                  <span style={{
+                    fontWeight: 600, color: '#27ae60',
+                    background: 'rgba(39,174,96,0.06)',
+                    padding: '3px 8px', borderRadius: 6, fontVariantNumeric: 'tabular-nums',
+                  }}>
+                    {Math.floor(v.duration_sec / 60)}:{String(v.duration_sec % 60).padStart(2, '0')}
+                  </span>
+                </div>
+              ) : null}
             </div>
           ))}
         </div>
