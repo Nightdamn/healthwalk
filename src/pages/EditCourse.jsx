@@ -156,6 +156,12 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
   const [uploadPhase, setUploadPhase] = useState('downloading'); // 'downloading' | 'processing' | 'done'
   const [saveStatus, setSaveStatus] = useState('saved'); // 'saving' | 'saved' | 'error'
   const fileRef = useRef();
+  // Свёрнутые активности (по _key, стабильный per-сессия). Drag/drop
+  // работает только когда карточка свёрнута — маленькая цель, не будет
+  // конфликта с обычными взаимодействиями внутри развёрнутой карточки.
+  const [collapsedKeys, setCollapsedKeys] = useState(() => new Set());
+  const [dragKey, setDragKey] = useState(null);
+  const [dragOverKey, setDragOverKey] = useState(null);
 
   // One auto-saver per editor instance — debounces field PATCHes per-key
   // (each key = one course field group or one activity dbId).
@@ -406,6 +412,39 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
     const normalized = normalizeSchedule({ ...act, ...next }, daysCount) || next;
     setActivities(prev => prev.map((a, i) => (i === idx ? { ...a, ...normalized } : a)));
     if (act.dbId) scheduleActivityPatch(act.dbId, normalized);
+  };
+
+  const toggleCollapsed = (key) => {
+    setCollapsedKeys(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
+
+  // Drag/drop reorder свёрнутых активностей. onDragOver над карточкой
+  // помечает её как drop-target (для рамки-индикатора). onDrop переставляет
+  // массив и пушит новый sort_order на бэк для каждой изменившейся строки.
+  const handleDrop = async (targetKey) => {
+    const src = dragKey;
+    setDragKey(null);
+    setDragOverKey(null);
+    if (!src || src === targetKey) return;
+    const srcIdx = activities.findIndex(a => a._key === src);
+    const dstIdx = activities.findIndex(a => a._key === targetKey);
+    if (srcIdx < 0 || dstIdx < 0) return;
+    const reordered = [...activities];
+    const [moved] = reordered.splice(srcIdx, 1);
+    reordered.splice(dstIdx, 0, moved);
+    setActivities(reordered);
+    // Persist sort_order (id * 10 шагом, чтобы будущие вставки не били).
+    // Только для карточек с dbId — новые ещё не в БД.
+    reordered.forEach((a, i) => {
+      if (a.dbId) {
+        const newOrder = i * 10;
+        if (a.sort_order !== newOrder) scheduleActivityPatch(a.dbId, { sortOrder: newOrder });
+      }
+    });
   };
 
   const removeActivity = async (idx) => {
@@ -718,7 +757,15 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
             onPatchCall={handlePatchCall}
             tzOffsetMin={tzOffsetMin}
             boundToCalendar={boundToCalendar}
-            courseStartDate={startDate} />
+            courseStartDate={startDate}
+            collapsed={collapsedKeys.has(a._key)}
+            onToggleCollapsed={() => toggleCollapsed(a._key)}
+            isDragging={dragKey === a._key}
+            isDragOver={dragOverKey === a._key && dragKey && dragKey !== a._key}
+            onDragStart={() => setDragKey(a._key)}
+            onDragOver={(e) => { e.preventDefault(); if (dragKey && dragKey !== a._key) setDragOverKey(a._key); }}
+            onDragEnd={() => { setDragKey(null); setDragOverKey(null); }}
+            onDrop={() => handleDrop(a._key)} />
         ))}
 
         <button onClick={addActivity} style={{
@@ -920,7 +967,7 @@ function CallRow({ call, courseStartDate, tzMin, onPatch }) {
   );
 }
 
-function ActivityCard({ activity, index, maxDay, onUpdate, onToggleDay, onRemove, onPickIcon, videos, courseId, videoUploadingId, uploadProgress, uploadPhase, activityId: propActivityId, onVideoUpload, onAddLink, onDeleteVideo, onPatchVideo, calls, onCreateCall, onDeleteCall, onPatchCall, tzOffsetMin, boundToCalendar, courseStartDate }) {
+function ActivityCard({ activity, index, maxDay, onUpdate, onToggleDay, onRemove, onPickIcon, videos, courseId, videoUploadingId, uploadProgress, uploadPhase, activityId: propActivityId, onVideoUpload, onAddLink, onDeleteVideo, onPatchVideo, calls, onCreateCall, onDeleteCall, onPatchCall, tzOffsetMin, boundToCalendar, courseStartDate, collapsed = false, onToggleCollapsed, isDragging = false, isDragOver = false, onDragStart, onDragOver, onDragEnd, onDrop }) {
   // Trainer's timezone comes from THEIR profile (user_settings.tz_offset_min),
   // NOT from the browser — VPNs make browser tz unreliable; profile is the
   // single source of truth. Default fallback: Moscow (UTC+3, offset=180).
@@ -964,25 +1011,75 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onToggleDay, onRemove
   const [durationRaw, setDurationRaw] = useState(() => formatMMSS(activity.durationMin));
   useEffect(() => { setDurationRaw(formatMMSS(activity.durationMin)); }, [activity.durationMin]);
 
+  // Chevron shape: pointing DOWN when expanded (M6 9L12 15L18 9),
+  // pointing RIGHT when collapsed (M9 6L15 12L9 18). Same visual language
+  // as the TopBar back arrow.
+  const chevronPath = collapsed ? 'M9 6L15 12L9 18' : 'M6 9L12 15L18 9';
+
   return (
-    <div style={{ ...glass, borderRadius: 16, padding: '14px 14px', marginBottom: 10 }}>
+    <div
+      draggable={collapsed}
+      onDragStart={collapsed ? (e) => { e.dataTransfer.effectAllowed = 'move'; onDragStart?.(); } : undefined}
+      onDragOver={collapsed ? onDragOver : undefined}
+      onDragEnd={collapsed ? onDragEnd : undefined}
+      onDrop={collapsed ? (e) => { e.preventDefault(); onDrop?.(); } : undefined}
+      style={{
+        ...glass, borderRadius: 16, padding: '14px 14px', marginBottom: 10,
+        opacity: isDragging ? 0.4 : 1,
+        outline: isDragOver ? '2px solid rgba(39,174,96,0.6)' : 'none',
+        outlineOffset: isDragOver ? -2 : 0,
+        cursor: collapsed ? 'grab' : 'default',
+        transition: 'outline 0.15s, opacity 0.15s',
+      }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-        <span style={{ fontSize: 13, fontWeight: 700, color: '#aaa' }}>Активность {index + 1}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button
+            type="button"
+            onClick={onToggleCollapsed}
+            aria-label={collapsed ? 'Развернуть' : 'Свернуть'}
+            style={{
+              width: 26, height: 26, borderRadius: 8, border: 'none',
+              background: 'transparent', cursor: 'pointer', color: '#888',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0,
+            }}>
+            <svg width={16} height={16} viewBox="0 0 24 24" fill="none">
+              <path d={chevronPath} stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+          <span style={{ fontSize: 13, fontWeight: 700, color: '#aaa' }}>Активность {index + 1}</span>
+        </div>
         <button onClick={onRemove} style={{ background: 'none', border: 'none', fontSize: 18, color: '#ccc', cursor: 'pointer', padding: 2 }}>✕</button>
       </div>
 
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10 }}>
-        <button onClick={onPickIcon} style={{
-          width: 48, height: 48, borderRadius: 12, flexShrink: 0,
-          border: '2px solid rgba(0,0,0,0.08)', background: '#fafafa',
-          cursor: 'pointer', padding: 4, display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }}>
-          <img src={getIconPath(activity.iconNum)} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
-        </button>
-        <input value={activity.label} onChange={e => onUpdate('label', e.target.value)}
-          placeholder="Название активности" style={{ ...inputStyle, flex: 1 }} />
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: collapsed ? 0 : 10 }}>
+        {collapsed ? (
+          <div style={{
+            width: 40, height: 40, borderRadius: 10, flexShrink: 0,
+            background: '#fafafa', border: '1px solid rgba(0,0,0,0.06)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 4,
+          }}>
+            <img src={getIconPath(activity.iconNum)} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+          </div>
+        ) : (
+          <button onClick={onPickIcon} style={{
+            width: 48, height: 48, borderRadius: 12, flexShrink: 0,
+            border: '2px solid rgba(0,0,0,0.08)', background: '#fafafa',
+            cursor: 'pointer', padding: 4, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <img src={getIconPath(activity.iconNum)} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+          </button>
+        )}
+        {collapsed ? (
+          <div style={{ flex: 1, fontSize: 15, fontWeight: 600, color: '#1a1a2e', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {activity.label || <span style={{ color: '#ccc', fontWeight: 400 }}>Без названия</span>}
+          </div>
+        ) : (
+          <input value={activity.label} onChange={e => onUpdate('label', e.target.value)}
+            placeholder="Название активности" style={{ ...inputStyle, flex: 1 }} />
+        )}
       </div>
 
+      {!collapsed && (<>
       {/* Practice type selector */}
       <div style={{ marginBottom: 8 }}>
         <label style={{ ...labelStyle, fontSize: 11 }}>Тип практики</label>
@@ -1138,6 +1235,7 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onToggleDay, onRemove
           onPatchCall={onPatchCall}
         />
       )}
+      </>)}
     </div>
   );
 }
