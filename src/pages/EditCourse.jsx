@@ -410,6 +410,11 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
 
   const removeActivity = async (idx) => {
     const act = activities[idx];
+    const label = (act?.label || '').trim();
+    const msg = label
+      ? `Вы уверены что хотите удалить активность «${label}»?`
+      : 'Вы уверены что хотите удалить активность?';
+    if (!confirm(msg)) return;
     setActivities(prev => prev.filter((_, i) => i !== idx));
     if (act?.dbId) {
       saverRef.current.cancel(`act-${act.dbId}`);
