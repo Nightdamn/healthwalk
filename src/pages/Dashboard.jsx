@@ -400,6 +400,18 @@ export default function Dashboard({
                           day: activeDay, viewOnly: true, alreadyDone: true,
                         }
                       : null;
+                    // «Начать»/«Продолжить» — под прогресс-баром вместо
+                    // старой кнопки в правом верхнем углу. Показываем когда
+                    // практика активна сегодня, ещё не сделана и это не эфир
+                    // с готовой записью (там виден «Просмотр»).
+                    const canStartNow = !done && isToday && !viewOnly && !(act.practiceType === 'call' && callRec);
+                    const startPayload = canStartNow ? {
+                      id: act.id, activityId: act.activityId, label: act.label,
+                      duration: act.durationMin, iconNum: act.iconNum,
+                      practiceType: act.practiceType,
+                      descriptionHtml: act.descriptionHtml,
+                      day: activeDay,
+                    } : null;
 
                     return (
                       <div key={act.id}
@@ -439,34 +451,18 @@ export default function Dashboard({
                             <div style={{ width: 38, height: 38, borderRadius: '50%', background: '#27ae60', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                               <svg width="18" height="18" viewBox="0 0 16 16" fill="none"><polyline points="3,8.5 6.5,12 13,4" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="miter" fill="none" /></svg>
                             </div>
-                          ) : isToday && !(act.practiceType === 'call' && callRec) ? (
-                            <button onClick={(e) => { e.stopPropagation(); onStartTimer({
-                              id: act.id,
-                              activityId: act.activityId,
-                              label: act.label,
-                              duration: act.durationMin,
-                              iconNum: act.iconNum,
-                              practiceType: act.practiceType,
-                              descriptionHtml: act.descriptionHtml,
-                              day: activeDay,
-                            }); }} style={{
-                              padding: '10px 22px', background: '#1a1a2e', color: '#fff', border: 'none',
-                              borderRadius: 12, fontSize: 13, fontWeight: 600, cursor: 'pointer',
-                              boxShadow: '0 3px 10px rgba(26,26,46,0.15)',
-                            }}>
-                              {elapsedSec > 0 ? 'Продолжить' : 'Начать'}
-                            </button>
                           ) : (
-                            // Past day, never started — show a pale check inside a pale circle
-                            // (visually parallel to the green "done" check, just muted).
+                            // Не выполнено — серая галочка. Единый вид для
+                            // всех практик (текущий/прошлый день), кнопки
+                            // «Начать»/«Просмотр» ушли под прогресс-бар.
                             <div title="Не выполнено" style={{
-                              width: 28, height: 28, borderRadius: '50%',
+                              width: 38, height: 38, borderRadius: '50%',
                               border: '1.5px solid rgba(0,0,0,0.12)', background: 'transparent',
                               display: 'flex', alignItems: 'center', justifyContent: 'center',
                             }}>
-                              <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                                <polyline points="3,8.5 6.5,12 13,4" stroke="rgba(0,0,0,0.18)"
-                                  strokeWidth="2" strokeLinecap="round" strokeLinejoin="miter" fill="none"/>
+                              <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
+                                <polyline points="3,8.5 6.5,12 13,4" stroke="rgba(0,0,0,0.22)"
+                                  strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="miter" fill="none"/>
                               </svg>
                             </div>
                           )}
@@ -489,15 +485,15 @@ export default function Dashboard({
                               : elapsedSec > 0 ? `${elapsedMin}:${String(elapsedRemSec).padStart(2, '0')} из ${totalMin} мин`
                               : `0 из ${totalMin} мин`}
                           </div>
-                          {viewPayload && (
-                            <button onClick={(e) => { e.stopPropagation(); onStartTimer(viewPayload); }}
+                          {(viewPayload || startPayload) && (
+                            <button onClick={(e) => { e.stopPropagation(); onStartTimer(viewPayload || startPayload); }}
                               style={{
                                 padding: '10px 22px', background: '#1a1a2e', color: '#fff', border: 'none',
                                 borderRadius: 12, fontSize: 13, fontWeight: 600, cursor: 'pointer',
                                 boxShadow: '0 3px 10px rgba(26,26,46,0.15)',
                                 whiteSpace: 'nowrap',
                               }}>
-                              Просмотр
+                              {viewPayload ? 'Просмотр' : (elapsedSec > 0 ? 'Продолжить' : 'Начать')}
                             </button>
                           )}
                         </div>
