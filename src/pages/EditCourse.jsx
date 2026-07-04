@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useLayoutEffect } from 'react';
 import Layout from '../components/Layout';
 import IconPicker from '../components/IconPicker';
 import AvatarPicker, { processAvatarFile } from '../components/AvatarPicker';
@@ -162,6 +162,38 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
   const [collapsedKeys, setCollapsedKeys] = useState(() => new Set());
   const [dragKey, setDragKey] = useState(null);
   const [dragOverKey, setDragOverKey] = useState(null);
+  // FLIP-анимация reorder карточек. Перед setActivities снимаем rects
+  // всех видимых карточек; после ре-рендера в useLayoutEffect для каждой
+  // считаем delta = oldRect - newRect, мгновенно смещаем translate назад,
+  // потом за один rAF снимаем transform под transition → плавный слайд.
+  const prevRectsRef = useRef(new Map());
+  const captureCardRects = () => {
+    const m = new Map();
+    document.querySelectorAll('[data-activity-key]').forEach(el => {
+      m.set(el.getAttribute('data-activity-key'), el.getBoundingClientRect());
+    });
+    prevRectsRef.current = m;
+  };
+  useLayoutEffect(() => {
+    const prev = prevRectsRef.current;
+    if (!prev || prev.size === 0) return;
+    document.querySelectorAll('[data-activity-key]').forEach(el => {
+      const key = el.getAttribute('data-activity-key');
+      const oldRect = prev.get(key);
+      if (!oldRect) return;
+      const newRect = el.getBoundingClientRect();
+      const dy = oldRect.top - newRect.top;
+      if (Math.abs(dy) < 1) return;
+      el.style.transition = 'none';
+      el.style.transform = `translateY(${dy}px)`;
+      requestAnimationFrame(() => {
+        el.style.transition = 'transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1)';
+        el.style.transform = '';
+        setTimeout(() => { el.style.transition = ''; }, 320);
+      });
+    });
+    prevRectsRef.current = new Map();
+  }, [activities]);
 
   // One auto-saver per editor instance — debounces field PATCHes per-key
   // (each key = one course field group or one activity dbId).
@@ -436,6 +468,7 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
     const reordered = [...activities];
     const [moved] = reordered.splice(srcIdx, 1);
     reordered.splice(dstIdx, 0, moved);
+    captureCardRects();
     setActivities(reordered);
     // Persist sort_order (id * 10 шагом, чтобы будущие вставки не били).
     // Только для карточек с dbId — новые ещё не в БД.
