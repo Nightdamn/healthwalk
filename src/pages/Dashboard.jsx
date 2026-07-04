@@ -439,7 +439,7 @@ export default function Dashboard({
                             <div style={{ width: 38, height: 38, borderRadius: '50%', background: '#27ae60', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                               <svg width="18" height="18" viewBox="0 0 16 16" fill="none"><polyline points="3,8.5 6.5,12 13,4" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="miter" fill="none" /></svg>
                             </div>
-                          ) : isToday ? (
+                          ) : isToday && !(act.practiceType === 'call' && callRec) ? (
                             <button onClick={(e) => { e.stopPropagation(); onStartTimer({
                               id: act.id,
                               activityId: act.activityId,
