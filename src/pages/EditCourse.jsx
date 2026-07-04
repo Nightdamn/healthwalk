@@ -762,10 +762,10 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
             onToggleCollapsed={() => toggleCollapsed(a._key)}
             isDragging={dragKey === a._key}
             isDragOver={dragOverKey === a._key && dragKey && dragKey !== a._key}
-            onDragStart={() => setDragKey(a._key)}
-            onDragOver={(e) => { e.preventDefault(); if (dragKey && dragKey !== a._key) setDragOverKey(a._key); }}
+            onDragBegin={() => setDragKey(a._key)}
+            onDragOverKey={(key) => { if (dragKey && dragKey !== key) setDragOverKey(key); }}
             onDragEnd={() => { setDragKey(null); setDragOverKey(null); }}
-            onDrop={() => handleDrop(a._key)} />
+            onDropOn={(key) => handleDrop(key)} />
         ))}
 
         <button onClick={addActivity} style={{
@@ -967,7 +967,7 @@ function CallRow({ call, courseStartDate, tzMin, onPatch }) {
   );
 }
 
-function ActivityCard({ activity, index, maxDay, onUpdate, onToggleDay, onRemove, onPickIcon, videos, courseId, videoUploadingId, uploadProgress, uploadPhase, activityId: propActivityId, onVideoUpload, onAddLink, onDeleteVideo, onPatchVideo, calls, onCreateCall, onDeleteCall, onPatchCall, tzOffsetMin, boundToCalendar, courseStartDate, collapsed = false, onToggleCollapsed, isDragging = false, isDragOver = false, onDragStart, onDragOver, onDragEnd, onDrop }) {
+function ActivityCard({ activity, index, maxDay, onUpdate, onToggleDay, onRemove, onPickIcon, videos, courseId, videoUploadingId, uploadProgress, uploadPhase, activityId: propActivityId, onVideoUpload, onAddLink, onDeleteVideo, onPatchVideo, calls, onCreateCall, onDeleteCall, onPatchCall, tzOffsetMin, boundToCalendar, courseStartDate, collapsed = false, onToggleCollapsed, isDragging = false, isDragOver = false, onDragBegin, onDragOverKey, onDragEnd, onDropOn }) {
   // Trainer's timezone comes from THEIR profile (user_settings.tz_offset_min),
   // NOT from the browser — VPNs make browser tz unreliable; profile is the
   // single source of truth. Default fallback: Moscow (UTC+3, offset=180).
@@ -1016,19 +1016,72 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onToggleDay, onRemove
   // as the TopBar back arrow.
   const chevronPath = collapsed ? 'M9 6L15 12L9 18' : 'M6 9L12 15L18 9';
 
+  // Touch-совместимый drag через pointer events. HTML5 draggable на
+  // мобильных Safari/Chrome не эмитит dragover — поэтому свой протокол:
+  // pointerdown фиксирует старт, pointermove через threshold стартует
+  // drag и через elementFromPoint определяет карточку-под-курсором,
+  // pointerup применяет drop. Работает и с мышью, и с тачем.
+  const dragActiveRef = useRef(false);
+  const startPtRef = useRef(null);
+  useEffect(() => {
+    if (!collapsed) return undefined;
+    const move = (e) => {
+      const start = startPtRef.current;
+      if (!start) return;
+      const dx = e.clientX - start.x;
+      const dy = e.clientY - start.y;
+      if (!dragActiveRef.current) {
+        if (Math.hypot(dx, dy) < 8) return;
+        dragActiveRef.current = true;
+        onDragBegin?.();
+      }
+      // Prevent page scroll during touch-drag
+      if (e.cancelable) e.preventDefault();
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      const card = el?.closest('[data-activity-key]');
+      const key = card?.getAttribute('data-activity-key');
+      if (key && key !== activity._key) onDragOverKey?.(key);
+    };
+    const up = (e) => {
+      const wasDrag = dragActiveRef.current;
+      dragActiveRef.current = false;
+      startPtRef.current = null;
+      if (!wasDrag) return;
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      const card = el?.closest('[data-activity-key]');
+      const key = card?.getAttribute('data-activity-key');
+      if (key && key !== activity._key) onDropOn?.(key);
+      else onDragEnd?.();
+    };
+    document.addEventListener('pointermove', move, { passive: false });
+    document.addEventListener('pointerup', up);
+    document.addEventListener('pointercancel', up);
+    return () => {
+      document.removeEventListener('pointermove', move);
+      document.removeEventListener('pointerup', up);
+      document.removeEventListener('pointercancel', up);
+    };
+  }, [collapsed, activity._key, onDragBegin, onDragOverKey, onDragEnd, onDropOn]);
+
+  const onPointerDown = (e) => {
+    if (!collapsed) return;
+    // Skip interactive children (кнопки стрелки/крестика/иконки)
+    if (e.target.closest && e.target.closest('button, input, a, textarea')) return;
+    startPtRef.current = { x: e.clientX, y: e.clientY };
+  };
+
   return (
     <div
-      draggable={collapsed}
-      onDragStart={collapsed ? (e) => { e.dataTransfer.effectAllowed = 'move'; onDragStart?.(); } : undefined}
-      onDragOver={collapsed ? onDragOver : undefined}
-      onDragEnd={collapsed ? onDragEnd : undefined}
-      onDrop={collapsed ? (e) => { e.preventDefault(); onDrop?.(); } : undefined}
+      data-activity-key={activity._key}
+      onPointerDown={collapsed ? onPointerDown : undefined}
       style={{
         ...glass, borderRadius: 16, padding: '14px 14px', marginBottom: 10,
         opacity: isDragging ? 0.4 : 1,
         outline: isDragOver ? '2px solid rgba(39,174,96,0.6)' : 'none',
         outlineOffset: isDragOver ? -2 : 0,
         cursor: collapsed ? 'grab' : 'default',
+        touchAction: collapsed ? 'none' : 'auto',
+        userSelect: collapsed ? 'none' : 'auto',
         transition: 'outline 0.15s, opacity 0.15s',
       }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
