@@ -458,7 +458,7 @@ router.post('/courses/:id/activities', async (req, res) => {
     const { label, iconNum, practiceType, descriptionHtml, firstDay, lastDay, durationMin, intervalDays, sortOrder } = req.body || {};
     const days = await queryOne('SELECT days_count FROM courses WHERE id = $1', [courseId]);
     const daysCount = days?.days_count || 30;
-    const pt = ['media', 'call'].includes(practiceType) ? practiceType : 'media';
+    const pt = ['media', 'theory', 'call'].includes(practiceType) ? practiceType : 'media';
     const fd = Math.max(1, Math.min(parseInt(firstDay) || 1, daysCount));
     const ld = Math.max(fd, Math.min(parseInt(lastDay) || daysCount, daysCount));
     const dur = Math.max(1, Math.min(parseInt(durationMin) || 10, 1200));
@@ -502,7 +502,7 @@ router.patch('/activities/:id', async (req, res) => {
 
     if (typeof label === 'string') { sets.push(`label=$${i++}`); params.push(label); }
     if (typeof iconNum === 'string' && iconNum) { sets.push(`icon_num=$${i++}`); params.push(iconNum); }
-    if (typeof practiceType === 'string' && ['media', 'call'].includes(practiceType)) {
+    if (typeof practiceType === 'string' && ['media', 'theory', 'call'].includes(practiceType)) {
       sets.push(`practice_type=$${i++}`); params.push(practiceType);
     }
     if (descriptionHtml !== undefined) {
@@ -975,7 +975,7 @@ router.post('/trainer/add-activity', async (req, res) => {
       practiceType, descriptionHtml,
     } = req.body;
     if (!await isTrainer(req.userId, courseId)) return res.json({ success: false, error: 'Нет прав' });
-    const pt = ['media', 'call'].includes(practiceType) ? practiceType : 'media';
+    const pt = ['media', 'theory', 'call'].includes(practiceType) ? practiceType : 'media';
     const act = await queryOne(
       `INSERT INTO student_custom_activities (course_id, user_id, label, icon_num, duration_min, first_day, last_day, interval_days, practice_type, description_html)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id, created_at`,

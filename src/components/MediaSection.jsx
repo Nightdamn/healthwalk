@@ -1,7 +1,24 @@
 import React, { useState, useRef, useEffect } from 'react';
 import ScheduleCalendar, { toggleDayInVideo } from './ScheduleCalendar';
 import RichTextEditor from './RichTextEditor';
-import Dropdown from './Dropdown';
+
+const numInput = {
+  padding: '8px 10px', borderRadius: 8,
+  border: '1.5px solid rgba(0,0,0,0.08)', background: 'rgba(255,255,255,0.7)',
+  fontSize: 14, color: '#1a1a2e', outline: 'none', boxSizing: 'border-box',
+  width: '100%',
+};
+const inlineLabel = {
+  display: 'block', fontSize: 11, color: '#888', marginBottom: 3, fontWeight: 500,
+};
+const nativeSelect = {
+  padding: '8px 34px 8px 12px', borderRadius: 8,
+  border: '1.5px solid rgba(0,0,0,0.08)', background: 'rgba(255,255,255,0.7)',
+  fontSize: 13, color: '#1a1a2e', outline: 'none',
+  width: '100%', appearance: 'none', WebkitAppearance: 'none', MozAppearance: 'none',
+  backgroundImage: 'url("data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2212%22 height=%2212%22 viewBox=%220 0 24 24%22 fill=%22none%22><path d=%22M6 9L12 15L18 9%22 stroke=%22%23888%22 stroke-width=%222%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22/></svg>")',
+  backgroundRepeat: 'no-repeat', backgroundPosition: 'right 10px center',
+};
 
 const GREEN = '#27ae60';
 
@@ -227,40 +244,50 @@ export default function MediaSection({
       {/* Форма */}
       {isFormVisible && (
         <div style={{ marginTop: 6 }}>
-          <div style={{ marginBottom: 6 }}>
-            <Dropdown value={formMediaType} onChange={setFormMediaType}
-              options={[
-                { value: 'video', label: 'Видео' },
-                { value: 'audio', label: 'Аудио' },
-                { value: 'image', label: 'Изображение' },
-                { value: 'text', label: 'Текст' },
-                { value: 'none', label: 'Без медиа' },
-              ]} fullWidth />
+          <div style={{ marginBottom: 8 }}>
+            <label style={inlineLabel}>Тип медиа</label>
+            <select value={formMediaType}
+              onChange={e => setFormMediaType(e.target.value)}
+              style={nativeSelect}>
+              <option value="video">Видео</option>
+              <option value="audio">Аудио</option>
+              <option value="image">Изображение</option>
+              <option value="text">Текст</option>
+              <option value="none">Без медиа</option>
+            </select>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 11, color: '#999' }}>С дня:</span>
-            <input type="number" value={firstDay === '' ? '' : firstDay} min={1} max={maxDay}
-              onChange={e => { const v = e.target.value; if (v === '') { setFirstDay(''); return; } const n = parseInt(v); if (!isNaN(n)) setFirstDay(n); }}
-              onBlur={() => { const n = parseInt(firstDay); setFirstDay(isNaN(n) || n < 1 ? 1 : Math.min(n, maxDay)); }}
-              style={smallInput} />
-            <span style={{ fontSize: 11, color: '#999' }}>По день:</span>
-            <input type="number" value={lastDay === '' ? '' : lastDay} min={1} max={maxDay}
-              onChange={e => { const v = e.target.value; if (v === '') { setLastDay(''); return; } const n = parseInt(v); if (!isNaN(n)) setLastDay(n); }}
-              onBlur={() => { const n = parseInt(lastDay); const fd = parseInt(firstDay) || 1; setLastDay(isNaN(n) || n < fd ? fd : Math.min(n, maxDay)); }}
-              style={smallInput} />
-            <span style={{ fontSize: 11, color: '#999' }}>Каждые</span>
-            <input type="number" value={intervalDays === '' ? '' : intervalDays} min={1} max={maxDay}
-              onChange={e => { const v = e.target.value; if (v === '') { setIntervalDays(''); return; } const n = parseInt(v); if (!isNaN(n)) setIntervalDays(n); }}
-              onBlur={() => { const n = parseInt(intervalDays); setIntervalDays(isNaN(n) || n < 1 ? 1 : Math.min(n, maxDay)); }}
-              style={smallInput} />
-            <span style={{ fontSize: 11, color: '#999' }}>дн.</span>
-            {actMedia.length > 0 && (
+          {/* Три колонки С дня / По день / Каждые — как для активности сверху. */}
+          <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+            <div style={{ flex: 1 }}>
+              <label style={inlineLabel}>С дня</label>
+              <input type="number" value={firstDay === '' ? '' : firstDay} min={1} max={maxDay}
+                onChange={e => { const v = e.target.value; if (v === '') { setFirstDay(''); return; } const n = parseInt(v); if (!isNaN(n)) setFirstDay(n); }}
+                onBlur={() => { const n = parseInt(firstDay); setFirstDay(isNaN(n) || n < 1 ? 1 : Math.min(n, maxDay)); }}
+                style={numInput} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label style={inlineLabel}>По день</label>
+              <input type="number" value={lastDay === '' ? '' : lastDay} min={1} max={maxDay}
+                onChange={e => { const v = e.target.value; if (v === '') { setLastDay(''); return; } const n = parseInt(v); if (!isNaN(n)) setLastDay(n); }}
+                onBlur={() => { const n = parseInt(lastDay); const fd = parseInt(firstDay) || 1; setLastDay(isNaN(n) || n < fd ? fd : Math.min(n, maxDay)); }}
+                style={numInput} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label style={inlineLabel}>Каждые (дн.)</label>
+              <input type="number" value={intervalDays === '' ? '' : intervalDays} min={1} max={maxDay}
+                onChange={e => { const v = e.target.value; if (v === '') { setIntervalDays(''); return; } const n = parseInt(v); if (!isNaN(n)) setIntervalDays(n); }}
+                onBlur={() => { const n = parseInt(intervalDays); setIntervalDays(isNaN(n) || n < 1 ? 1 : Math.min(n, maxDay)); }}
+                style={numInput} />
+            </div>
+          </div>
+          {actMedia.length > 0 && (
+            <div style={{ marginBottom: 6, textAlign: 'right' }}>
               <button onClick={() => { setFormOpen(false); setShowLinkInput(false); setLinkUrl(''); }}
-                style={{ padding: '4px 8px', borderRadius: 6, border: 'none', background: 'rgba(0,0,0,0.05)', color: '#999', fontSize: 11, cursor: 'pointer' }}>
+                style={{ padding: '4px 10px', borderRadius: 6, border: 'none', background: 'rgba(0,0,0,0.05)', color: '#999', fontSize: 11, cursor: 'pointer' }}>
                 Отмена
               </button>
-            )}
-          </div>
+            </div>
+          )}
 
           {showLinkInput && showLinkBtn && (
             <div style={{ marginBottom: 6, display: 'flex', gap: 6 }}>

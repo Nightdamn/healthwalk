@@ -1249,9 +1249,15 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
         {!isTextMedia && video?.description_html && (
           <LessonIntro html={video.description_html} timerPaused={timerPaused} />
         )}
-        {/* Fallback для call — там описание всё ещё на активности. */}
+        {/* Fallback для call и theory — там описание всё ещё на активности.
+            Для theory — раскрываем контент сразу (не свёрнуто), как для text-media. */}
         {activity.practiceType === 'call' && activity.descriptionHtml && (
           <LessonIntro html={activity.descriptionHtml} timerPaused={timerPaused} />
+        )}
+        {activity.practiceType === 'theory' && activity.descriptionHtml && (
+          <div style={{ width: '100%', maxWidth: 720, marginBottom: 24 }}>
+            <TheoryContent html={activity.descriptionHtml} />
+          </div>
         )}
 
         {/* Timer circle */}

@@ -90,6 +90,7 @@ function detectYoutubeDuration(youtubeId) {
 
 const PRACTICE_TYPE_OPTIONS = [
   { value: 'media', label: 'Практика' },
+  { value: 'theory', label: 'Теория' },
   { value: 'call', label: 'Онлайн с мастером' },
 ];
 
@@ -1234,15 +1235,21 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onToggleDay, onRemove
         />
       </div>
 
-      {/* Description — теперь только для call (для media описание живёт
-          per-media в activity_media.description_html и рисуется в MediaSection). */}
-      {activity.practiceType === 'call' && (
+      {/* Описание — для call (описание онлайн-практики) и theory (текст теории —
+          shortcut для тренеров которым не удобно вручную создавать media/text
+          через MediaSection). Для media описание живёт per-media внутри
+          MediaSection на каждом медиа. */}
+      {(activity.practiceType === 'call' || activity.practiceType === 'theory') && (
         <div style={{ marginBottom: 8 }}>
-          <label style={{ ...labelStyle, fontSize: 11 }}>Описание</label>
+          <label style={{ ...labelStyle, fontSize: 11 }}>
+            {activity.practiceType === 'theory' ? 'Текст теории' : 'Описание'}
+          </label>
           <RichTextEditor
             content={activity.descriptionHtml || ''}
             onChange={val => onUpdate('descriptionHtml', val)}
-            placeholder="Описание онлайн-практики..." />
+            placeholder={activity.practiceType === 'theory'
+              ? 'Содержание теоретического материала...'
+              : 'Описание онлайн-практики...'} />
         </div>
       )}
 
