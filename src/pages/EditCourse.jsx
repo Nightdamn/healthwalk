@@ -385,27 +385,50 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
     setVideos(prev => prev.filter(v => v.id !== videoId));
   };
 
-  // Per-video day-override toggle from the mini-calendar under each video.
-  // Same normalization as toggleActivityDay — collapse the window around the
-  // resulting ON-days so first_day/last_day match what's visible.
-  const handlePatchVideo = async (videoId, fields) => {
+  // Универсальный PATCH для одного media. Принимает любое подмножество полей:
+  //   • schedule: firstDay/lastDay/intervalDays/excludedDays/extraDays
+  //     — прогоняем через normalizeSchedule (сжимаем окно вокруг ON-days).
+  //   • контент: descriptionHtml, textContent, durationSec, mediaType
+  //     — пробрасываем как есть.
+  // Оптимистичный state → debounced PATCH через saverRef, чтобы RichTextEditor
+  // (тикает на каждом keystroke) не флудил сеть.
+  const handlePatchVideo = (videoId, fields) => {
     const current = videos.find(v => v.id === videoId);
     if (!current) return;
-    const merged = {
-      firstDay: current.first_day, lastDay: current.last_day, intervalDays: current.interval_days,
-      excludedDays: current.excluded_days || [], extraDays: current.extra_days || [],
-      ...fields,
-    };
-    const normalized = normalizeSchedule(merged, daysCount) || merged;
-    setVideos(prev => prev.map(v => v.id === videoId ? {
-      ...v,
-      first_day: normalized.firstDay,
-      last_day: normalized.lastDay,
-      excluded_days: normalized.excludedDays,
-      extra_days: normalized.extraDays,
-    } : v));
-    const result = await patchMedia(videoId, normalized);
-    if (result?.error) setError(`Ошибка: ${result.error}`);
+
+    const hasSchedule = ['firstDay','lastDay','intervalDays','excludedDays','extraDays']
+      .some(k => fields[k] !== undefined);
+
+    let toSave = { ...fields };
+    if (hasSchedule) {
+      const merged = {
+        firstDay: current.first_day, lastDay: current.last_day, intervalDays: current.interval_days,
+        excludedDays: current.excluded_days || [], extraDays: current.extra_days || [],
+        ...fields,
+      };
+      const normalized = normalizeSchedule(merged, daysCount) || merged;
+      toSave = { ...fields, ...normalized };
+    }
+
+    setVideos(prev => prev.map(v => {
+      if (v.id !== videoId) return v;
+      const next = { ...v };
+      if (toSave.firstDay !== undefined) next.first_day = toSave.firstDay;
+      if (toSave.lastDay !== undefined) next.last_day = toSave.lastDay;
+      if (toSave.intervalDays !== undefined) next.interval_days = toSave.intervalDays;
+      if (toSave.excludedDays !== undefined) next.excluded_days = toSave.excludedDays;
+      if (toSave.extraDays !== undefined) next.extra_days = toSave.extraDays;
+      if (toSave.descriptionHtml !== undefined) next.description_html = toSave.descriptionHtml;
+      if (toSave.textContent !== undefined) next.text_content = toSave.textContent;
+      if (toSave.mediaType !== undefined) next.media_type = toSave.mediaType;
+      if (toSave.durationSec !== undefined) next.duration_sec = toSave.durationSec;
+      return next;
+    }));
+
+    saverRef.current.schedule(`media-${videoId}`, async () => {
+      const result = await patchMedia(videoId, toSave);
+      if (result?.error) setError(`Ошибка сохранения: ${result.error}`);
+    });
   };
 
   const handleCreateCall = async (activityId, day, scheduledAt, durationMin) => {
@@ -637,7 +660,7 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
       const changed = newFirst !== oldFirst || newLast !== oldLast
         || newExc.length !== oldExc.length || newExt.length !== oldExt.length;
       if (!changed) return v;
-      saverRef.current.schedule(`video-${v.id}`, () => patchMedia(v.id, {
+      saverRef.current.schedule(`media-${v.id}`, () => patchMedia(v.id, {
         firstDay: newFirst, lastDay: newLast,
         excludedDays: newExc, extraDays: newExt,
       }));
