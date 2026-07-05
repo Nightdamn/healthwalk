@@ -40,16 +40,25 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
     };
   }, []);
 
-  // Re-detect video type: if saved as 'link' but URL is actually youtube/drive, treat accordingly
-  const savedType = video?.video_type;
-  const detectedYoutubeId = video ? extractYoutubeId(video.video_url) : null;
-  const detectedDriveId = video ? extractDriveId(video.video_url) : null;
-  const isGoogleUrl = video ? /google\.com|googleapis\.com/.test(video.video_url) : false;
+  // media_type определяет какой контейнер рендерим: video/audio/image/text/none.
+  // Fallback 'video' — для старых записей (до миграции media_type=NULL быть не должно, но на всякий).
+  const mediaType = video?.media_type || 'video';
+  const isVideoMedia = mediaType === 'video';
+  const isAudioMedia = mediaType === 'audio';
+  const isImageMedia = mediaType === 'image';
+  const isTextMedia = mediaType === 'text';
+  const isNoneMedia = mediaType === 'none';
 
-  const isFileVideo = savedType === 'file' && videoUrl;
-  const isYoutube = savedType === 'youtube' || (savedType === 'link' && !!detectedYoutubeId);
-  const isDrive = savedType === 'drive' || (savedType === 'link' && (!!detectedDriveId || isGoogleUrl));
-  const isDirectLink = savedType === 'link' && !isYoutube && !isDrive;
+  // Для video/audio определяем source_type — file/link/youtube/drive.
+  const savedType = video?.source_type;
+  const detectedYoutubeId = video && (isVideoMedia || isAudioMedia) ? extractYoutubeId(video.media_url) : null;
+  const detectedDriveId = video && (isVideoMedia || isAudioMedia) ? extractDriveId(video.media_url) : null;
+  const isGoogleUrl = video && (isVideoMedia || isAudioMedia) ? /google\.com|googleapis\.com/.test(video.media_url) : false;
+
+  const isFileVideo = (isVideoMedia || isAudioMedia) && savedType === 'file' && videoUrl;
+  const isYoutube = (isVideoMedia || isAudioMedia) && (savedType === 'youtube' || (savedType === 'link' && !!detectedYoutubeId));
+  const isDrive = (isVideoMedia || isAudioMedia) && (savedType === 'drive' || (savedType === 'link' && (!!detectedDriveId || isGoogleUrl)));
+  const isDirectLink = (isVideoMedia || isAudioMedia) && savedType === 'link' && !isYoutube && !isDrive;
   const youtubeId = isYoutube ? detectedYoutubeId : null;
   const driveId = isDrive ? detectedDriveId : null;
   const hasVideo = isFileVideo || (isYoutube && youtubeId) || isDrive || isDirectLink;
@@ -980,9 +989,30 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
         {/* Top bar */}
         <TopBar onBack={onBack} title={activity.label} />
 
-        {/* Video player — rendered only when a video is actually attached.
-            For media practices without a video the page falls through to
-            intro (if any) + timer; no empty placeholder. */}
+        {/* Image media — картинка встаёт на место видео. Раскрывающийся блок
+            описания у самой карточки таймера (LessonIntro ниже). */}
+        {isImageMedia && video?.media_url && (
+          <div style={{
+            width: '100%', maxWidth: 720, marginBottom: 24, borderRadius: 20, overflow: 'hidden',
+            background: '#000', boxShadow: '0 8px 32px rgba(0,0,0,0.12)',
+          }}>
+            <img src={videoUrl || video.media_url} alt={activity.label}
+              style={{ display: 'block', width: '100%', height: 'auto', objectFit: 'contain' }} />
+          </div>
+        )}
+
+        {/* Text media — контент раскрыт на странице сразу (без свёрнутого блока).
+            Никакого описания и таймер отдельно ниже. */}
+        {isTextMedia && video?.text_content && (
+          <div style={{ width: '100%', maxWidth: 720, marginBottom: 24 }}>
+            <TheoryContent html={video.text_content} />
+          </div>
+        )}
+
+        {/* None media — только таймер, никакого контейнера. */}
+
+        {/* Video/Audio player — как раньше. Аудио пока рисуется тем же <video>
+            (браузер сам подхватывает audio-теги в mp4/m4a), красивый плеер потом. */}
         {hasVideo && (
           <div ref={videoContainerRef} style={{
             width: "100%",
@@ -1025,7 +1055,7 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
             {isDirectLink && !videoError && (
               <video
                 ref={videoRef}
-                src={video.video_url}
+                src={video.media_url}
                 style={{
                   width: "100%",
                   height: isFullscreen ? '100%' : 'auto',
@@ -1051,7 +1081,7 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
                 alignItems: 'center', justifyContent: 'center', background: '#111', color: '#aaa', gap: 8,
               }}>
                 <span style={{ fontSize: 14 }}>Не удалось загрузить видео</span>
-                <a href={video.video_url} target="_blank" rel="noopener noreferrer"
+                <a href={video.media_url} target="_blank" rel="noopener noreferrer"
                   style={{ color: '#3498db', fontSize: 13, textDecoration: 'underline' }}>
                   Открыть ссылку
                 </a>
@@ -1079,7 +1109,7 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
                 <iframe
                   src={driveId
                     ? `https://drive.google.com/file/d/${driveId}/preview`
-                    : video.video_url.replace(/\/view(\?.*)?$/, '/preview').replace(/\/edit(\?.*)?$/, '/preview')
+                    : video.media_url.replace(/\/view(\?.*)?$/, '/preview').replace(/\/edit(\?.*)?$/, '/preview')
                   }
                   style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', border: 'none' }}
                   allow="autoplay; encrypted-media"
@@ -1213,9 +1243,14 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
           </div>
         )}
 
-        {/* Lesson intro — collapsible. Trainer fills it in EditCourse for
-            media practices. Auto-collapses the moment the timer starts. */}
-        {activity.descriptionHtml && (
+        {/* Введение к уроку — теперь per-media (video.description_html), не на
+            уровне активности. Для text-медиа не показываем — сам text_content
+            уже выше и является контентом. Для остальных — раскрывающийся блок. */}
+        {!isTextMedia && video?.description_html && (
+          <LessonIntro html={video.description_html} timerPaused={timerPaused} />
+        )}
+        {/* Fallback для call — там описание всё ещё на активности. */}
+        {activity.practiceType === 'call' && activity.descriptionHtml && (
           <LessonIntro html={activity.descriptionHtml} timerPaused={timerPaused} />
         )}
 

@@ -466,14 +466,15 @@ function getVideoDuration(file) {
   });
 }
 
-export async function uploadActivityVideo(courseId, activityId, file, firstDay, lastDay, intervalDays, onProgress) {
-  const durationSec = await getVideoDuration(file);
+export async function uploadActivityMedia(courseId, activityId, file, firstDay, lastDay, intervalDays, onProgress, mediaType = 'video') {
+  const durationSec = mediaType === 'video' || mediaType === 'audio' ? await getVideoDuration(file) : null;
   const token = localStorage.getItem('is_token');
   const apiUrl = import.meta.env.VITE_API_URL || '';
 
   return new Promise((resolve) => {
     const formData = new FormData();
     formData.append('video', file);
+    formData.append('mediaType', mediaType);
     formData.append('firstDay', firstDay);
     formData.append('lastDay', lastDay);
     if (intervalDays) formData.append('intervalDays', intervalDays);
@@ -506,7 +507,7 @@ export async function uploadActivityVideo(courseId, activityId, file, firstDay, 
 // Import a Google Drive video to our own storage. Returns once the backend
 // finishes streaming the file, with the same { data } shape as a regular
 // upload. Calls onProgress(percent) while polling.
-export async function importDriveVideo(courseId, activityId, url, firstDay, lastDay, intervalDays, onProgress) {
+export async function importDriveMedia(courseId, activityId, url, firstDay, lastDay, intervalDays, onProgress) {
   const start = await apiPost('/api/files/import-drive', { courseId, activityId, url, firstDay, lastDay, intervalDays });
   if (start?.error || !start?.jobId) return { error: start?.error || 'Не удалось начать импорт' };
   const { jobId } = start;
@@ -549,35 +550,43 @@ export async function importDriveVideo(courseId, activityId, url, firstDay, last
   }
 }
 
-export async function addVideoLink(courseId, activityId, url, videoType, firstDay, lastDay, intervalDays) {
+export async function addMediaLink(courseId, activityId, url, sourceType, firstDay, lastDay, intervalDays, mediaType = 'video') {
   try {
-    return await apiPost('/api/videos/link', { courseId, activityId, url, videoType, firstDay, lastDay, intervalDays });
+    return await apiPost('/api/media/link', { courseId, activityId, url, sourceType, mediaType, firstDay, lastDay, intervalDays });
   } catch (err) {
     return { error: err.message };
   }
 }
 
-export async function deleteActivityVideo(videoId, videoUrl, videoType) {
+export async function addEmptyMedia(courseId, activityId, mediaType, firstDay, lastDay, intervalDays, textContent = null) {
   try {
-    return await apiDelete(`/api/videos/${videoId}`);
+    return await apiPost('/api/media/empty', { courseId, activityId, mediaType, textContent, firstDay, lastDay, intervalDays });
   } catch (err) {
     return { error: err.message };
   }
 }
 
-export async function patchVideo(videoId, fields) {
+export async function deleteActivityMedia(mediaId) {
   try {
-    return await apiPatch(`/api/videos/${videoId}`, fields);
+    return await apiDelete(`/api/media/${mediaId}`);
   } catch (err) {
     return { error: err.message };
   }
 }
 
-export async function updateVideoDuration(videoId, durationSec) {
+export async function patchMedia(mediaId, fields) {
   try {
-    await apiPatch(`/api/videos/${videoId}/duration`, { durationSec });
+    return await apiPatch(`/api/media/${mediaId}`, fields);
   } catch (err) {
-    console.error('[DB] Update video duration:', err);
+    return { error: err.message };
+  }
+}
+
+export async function updateMediaDuration(mediaId, durationSec) {
+  try {
+    await apiPatch(`/api/media/${mediaId}/duration`, { durationSec });
+  } catch (err) {
+    console.error('[DB] Update media duration:', err);
   }
 }
 
@@ -589,24 +598,24 @@ export async function updateActivityDuration(activityId, durationMin) {
   }
 }
 
-export async function getActivityVideos(courseId) {
+export async function getActivityMedia(courseId) {
   try {
-    return await apiGet(`/api/videos/${courseId}`);
+    return await apiGet(`/api/media/${courseId}`);
   } catch {
     return [];
   }
 }
 
-export function getVideoForDay(videos, activityId, day) {
-  const matching = videos
-    .filter(v => v.activity_id === activityId && isVideoScheduledRaw(v, day))
+export function getMediaForDay(mediaList, activityId, day) {
+  const matching = (mediaList || [])
+    .filter(m => m.activity_id === activityId && isMediaScheduledRaw(m, day))
     .sort((a, b) => b.sort_order - a.sort_order);
   return matching[0] || null;
 }
 
 // Inline copy of isVideoScheduled to avoid pulling the whole constants module
 // into this lib (db.js is import-heavy as it is).
-function isVideoScheduledRaw(v, day) {
+function isMediaScheduledRaw(v, day) {
   const excluded = v.excluded_days || [];
   const extra    = v.extra_days || [];
   if (excluded.includes(day)) return false;
@@ -616,7 +625,7 @@ function isVideoScheduledRaw(v, day) {
   return ((day - v.first_day) % step) === 0;
 }
 
-export async function getVideoSignedUrl(filePath) {
+export async function getMediaSignedUrl(filePath) {
   // For self-hosted: serve directly through our API
   const token = localStorage.getItem('is_token');
   const apiUrl = import.meta.env.VITE_API_URL || '';

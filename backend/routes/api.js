@@ -328,20 +328,20 @@ router.put('/courses/:id', async (req, res) => {
     );
 
     if (deletedActivityIds?.length) {
-      // Cascade: drop activity_videos rows + their files on disk for each removed activity.
-      // course_activities is keyed by UUID; activity_videos.activity_id is TEXT but stores
+      // Cascade: drop activity_media rows + their files on disk for each removed activity.
+      // course_activities is keyed by UUID; activity_media.activity_id is TEXT but stores
       // that same UUID, so the IN-list works.
       const { deleteVideoFile, deleteActivityDir } = await import('../storage.js');
       const orphaned = await query(
-        `SELECT id, video_type, video_url FROM activity_videos
+        `SELECT id, source_type, media_url FROM activity_media
          WHERE course_id = $1 AND activity_id = ANY($2)`,
         [req.params.id, deletedActivityIds]
       );
       for (const v of orphaned) {
-        if (v.video_type === 'file') await deleteVideoFile(v.video_url);
+        if (v.source_type === 'file') await deleteVideoFile(v.media_url);
       }
       await query(
-        `DELETE FROM activity_videos WHERE course_id = $1 AND activity_id = ANY($2)`,
+        `DELETE FROM activity_media WHERE course_id = $1 AND activity_id = ANY($2)`,
         [req.params.id, deletedActivityIds]
       );
       // Wipe the per-activity dir to clean any stale partial-upload leftovers too.
@@ -458,10 +458,10 @@ router.post('/courses/:id/activities', async (req, res) => {
     const { label, iconNum, practiceType, descriptionHtml, firstDay, lastDay, durationMin, intervalDays, sortOrder } = req.body || {};
     const days = await queryOne('SELECT days_count FROM courses WHERE id = $1', [courseId]);
     const daysCount = days?.days_count || 30;
-    const pt = ['media', 'theory', 'call'].includes(practiceType) ? practiceType : 'media';
+    const pt = ['media', 'call'].includes(practiceType) ? practiceType : 'media';
     const fd = Math.max(1, Math.min(parseInt(firstDay) || 1, daysCount));
     const ld = Math.max(fd, Math.min(parseInt(lastDay) || daysCount, daysCount));
-    const dur = pt === 'theory' ? 1 : Math.max(1, Math.min(parseInt(durationMin) || 10, 1200));
+    const dur = Math.max(1, Math.min(parseInt(durationMin) || 10, 1200));
     const iv = Math.max(1, parseInt(intervalDays) || 1);
     const so = parseInt(sortOrder);
     let resolvedSortOrder;
@@ -502,7 +502,7 @@ router.patch('/activities/:id', async (req, res) => {
 
     if (typeof label === 'string') { sets.push(`label=$${i++}`); params.push(label); }
     if (typeof iconNum === 'string' && iconNum) { sets.push(`icon_num=$${i++}`); params.push(iconNum); }
-    if (typeof practiceType === 'string' && ['media', 'theory', 'call'].includes(practiceType)) {
+    if (typeof practiceType === 'string' && ['media', 'call'].includes(practiceType)) {
       sets.push(`practice_type=$${i++}`); params.push(practiceType);
     }
     if (descriptionHtml !== undefined) {
@@ -556,13 +556,13 @@ router.delete('/activities/:id', async (req, res) => {
 
     const { deleteVideoFile, deleteActivityDir } = await import('../storage.js');
     const orphaned = await query(
-      `SELECT id, video_type, video_url FROM activity_videos WHERE activity_id = $1`,
+      `SELECT id, source_type, media_url FROM activity_media WHERE activity_id = $1`,
       [req.params.id]
     );
     for (const v of orphaned) {
-      if (v.video_type === 'file') await deleteVideoFile(v.video_url);
+      if (v.source_type === 'file') await deleteVideoFile(v.media_url);
     }
-    await query(`DELETE FROM activity_videos WHERE activity_id = $1`, [req.params.id]);
+    await query(`DELETE FROM activity_media WHERE activity_id = $1`, [req.params.id]);
     await deleteActivityDir(act.course_id, req.params.id);
     await query('DELETE FROM course_activities WHERE id = $1', [req.params.id]);
     res.json({ deleted: true });
@@ -573,7 +573,7 @@ router.delete('/courses/:id', async (req, res) => {
   try {
     const course = await queryOne('SELECT owner_id FROM courses WHERE id = $1', [req.params.id]);
     if (!course || course.owner_id !== req.userId) return res.json({ deleted: false, error: 'Нет прав' });
-    // DB rows in activity_videos cascade via FK; we just need to wipe the disk dir.
+    // DB rows in activity_media cascade via FK; we just need to wipe the disk dir.
     const { deleteCourseDir } = await import('../storage.js');
     await query('DELETE FROM courses WHERE id = $1', [req.params.id]);
     await deleteCourseDir(req.params.id);
@@ -975,7 +975,7 @@ router.post('/trainer/add-activity', async (req, res) => {
       practiceType, descriptionHtml,
     } = req.body;
     if (!await isTrainer(req.userId, courseId)) return res.json({ success: false, error: 'Нет прав' });
-    const pt = ['media', 'theory', 'call'].includes(practiceType) ? practiceType : 'media';
+    const pt = ['media', 'call'].includes(practiceType) ? practiceType : 'media';
     const act = await queryOne(
       `INSERT INTO student_custom_activities (course_id, user_id, label, icon_num, duration_min, first_day, last_day, interval_days, practice_type, description_html)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id, created_at`,
@@ -1097,9 +1097,9 @@ router.get('/custom-activities/:courseId', async (req, res) => {
 // ACTIVITY VIDEOS
 // ═══════════════════════════════════════════════════════════
 
-router.get('/videos/:courseId', async (req, res) => {
+router.get('/media/:courseId', async (req, res) => {
   try {
-    const rows = await query('SELECT * FROM activity_videos WHERE course_id = $1 ORDER BY sort_order', [req.params.courseId]);
+    const rows = await query('SELECT * FROM activity_media WHERE course_id = $1 ORDER BY sort_order', [req.params.courseId]);
     res.json(rows);
   } catch (err) { res.json([]); }
 });
@@ -1118,41 +1118,59 @@ router.patch('/activities/:id/duration', async (req, res) => {
   } catch (err) { console.error(err); res.json({ error: err.message }); }
 });
 
-router.post('/videos/link', async (req, res) => {
+router.post('/media/link', async (req, res) => {
   try {
-    const { courseId, activityId, url, videoType, firstDay, lastDay, intervalDays } = req.body;
+    const { courseId, activityId, url, sourceType, mediaType, firstDay, lastDay, intervalDays } = req.body;
     if (!await isTrainer(req.userId, courseId)) return res.status(403).json({ error: 'Нет прав' });
     const iv = Math.max(1, parseInt(intervalDays) || 1);
+    const mt = mediaType && ['video','audio','image','text','none'].includes(mediaType) ? mediaType : 'video';
     const v = await queryOne(
-      `INSERT INTO activity_videos (course_id, activity_id, video_type, video_url, first_day, last_day, interval_days)
-       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
-      [courseId, activityId, videoType, url, firstDay, lastDay, iv]
+      `INSERT INTO activity_media (course_id, activity_id, media_type, source_type, media_url, first_day, last_day, interval_days)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+      [courseId, activityId, mt, sourceType, url, firstDay, lastDay, iv]
     );
     res.json({ data: v });
   } catch (err) { console.error(err); res.json({ error: err.message }); }
 });
 
-router.delete('/videos/:id', async (req, res) => {
+// Пустое медиа для text/none — без файла/ссылки. text_content опциональный.
+router.post('/media/empty', async (req, res) => {
   try {
-    const v = await queryOne('SELECT * FROM activity_videos WHERE id = $1', [req.params.id]);
+    const { courseId, activityId, mediaType, textContent, firstDay, lastDay, intervalDays } = req.body;
+    if (!await isTrainer(req.userId, courseId)) return res.status(403).json({ error: 'Нет прав' });
+    const iv = Math.max(1, parseInt(intervalDays) || 1);
+    const mt = mediaType && ['video','audio','image','text','none'].includes(mediaType) ? mediaType : 'text';
+    const st = mt === 'text' ? 'text' : 'none';
+    const v = await queryOne(
+      `INSERT INTO activity_media (course_id, activity_id, media_type, source_type, media_url, text_content, first_day, last_day, interval_days)
+       VALUES ($1,$2,$3,$4,'',$5,$6,$7,$8) RETURNING *`,
+      [courseId, activityId, mt, st, textContent || null, firstDay, lastDay, iv]
+    );
+    res.json({ data: v });
+  } catch (err) { console.error(err); res.json({ error: err.message }); }
+});
+
+router.delete('/media/:id', async (req, res) => {
+  try {
+    const v = await queryOne('SELECT * FROM activity_media WHERE id = $1', [req.params.id]);
     if (!v) return res.json({ error: 'Not found' });
     if (!await isTrainer(req.userId, v.course_id)) return res.status(403).json({ error: 'Нет прав' });
-    if (v.video_type === 'file') {
+    if (v.source_type === 'file') {
       const { deleteVideoFile } = await import('../storage.js');
-      await deleteVideoFile(v.video_url);
+      await deleteVideoFile(v.media_url);
     }
-    await query('DELETE FROM activity_videos WHERE id = $1', [req.params.id]);
+    await query('DELETE FROM activity_media WHERE id = $1', [req.params.id]);
     res.json({ success: true });
   } catch (err) { res.json({ error: err.message }); }
 });
 
-router.patch('/videos/:id/duration', async (req, res) => {
+router.patch('/media/:id/duration', async (req, res) => {
   try {
     const { durationSec } = req.body;
-    const v = await queryOne('SELECT course_id FROM activity_videos WHERE id = $1', [req.params.id]);
+    const v = await queryOne('SELECT course_id FROM activity_media WHERE id = $1', [req.params.id]);
     if (!v) return res.json({ ok: false });
     if (!await isTrainer(req.userId, v.course_id)) return res.status(403).json({ ok: false });
-    await query('UPDATE activity_videos SET duration_sec = $1 WHERE id = $2', [durationSec, req.params.id]);
+    await query('UPDATE activity_media SET duration_sec = $1 WHERE id = $2', [durationSec, req.params.id]);
     res.json({ ok: true });
   } catch (err) { res.json({ ok: false }); }
 });
@@ -1161,15 +1179,15 @@ router.patch('/videos/:id/duration', async (req, res) => {
 // Currently used by the per-video day-calendar to write back excluded_days /
 // extra_days when trainer taps days. Field whitelist + per-row clamp keeps
 // the surface narrow.
-router.patch('/videos/:id', async (req, res) => {
+router.patch('/media/:id', async (req, res) => {
   try {
-    const v = await queryOne('SELECT course_id FROM activity_videos WHERE id = $1', [req.params.id]);
+    const v = await queryOne('SELECT course_id FROM activity_media WHERE id = $1', [req.params.id]);
     if (!v) return res.status(404).json({ error: 'Not found' });
     if (!await isTrainer(req.userId, v.course_id)) return res.status(403).json({ error: 'Нет прав' });
     const course = await queryOne('SELECT days_count FROM courses WHERE id = $1', [v.course_id]);
     const daysCount = course?.days_count || 30;
 
-    const { firstDay, lastDay, intervalDays, excludedDays, extraDays } = req.body || {};
+    const { firstDay, lastDay, intervalDays, excludedDays, extraDays, mediaType, textContent, descriptionHtml, durationSec } = req.body || {};
     const sets = []; const params = []; let i = 1;
     if (firstDay !== undefined && firstDay !== '' && firstDay !== null) {
       const n = Math.max(1, Math.min(parseInt(firstDay) || 1, daysCount));
@@ -1194,9 +1212,22 @@ router.patch('/videos/:id', async (req, res) => {
     if (Array.isArray(extraDays)) {
       sets.push(`extra_days=$${i++}`); params.push(sanitizeDays(extraDays));
     }
+    if (typeof mediaType === 'string' && ['video','audio','image','text','none'].includes(mediaType)) {
+      sets.push(`media_type=$${i++}`); params.push(mediaType);
+    }
+    if (textContent !== undefined) {
+      sets.push(`text_content=$${i++}`); params.push(textContent || null);
+    }
+    if (descriptionHtml !== undefined) {
+      sets.push(`description_html=$${i++}`); params.push(descriptionHtml || null);
+    }
+    if (durationSec !== undefined && durationSec !== null && durationSec !== '') {
+      const n = Math.max(0, parseInt(durationSec) || 0);
+      sets.push(`duration_sec=$${i++}`); params.push(n);
+    }
     if (sets.length === 0) return res.json({ ok: true });
     params.push(req.params.id);
-    await query(`UPDATE activity_videos SET ${sets.join(', ')} WHERE id=$${i}`, params);
+    await query(`UPDATE activity_media SET ${sets.join(', ')} WHERE id=$${i}`, params);
     res.json({ ok: true });
   } catch (err) { console.error(err); res.status(500).json({ error: err.message }); }
 });

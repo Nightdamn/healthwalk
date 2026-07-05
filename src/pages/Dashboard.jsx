@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import Layout from '../components/Layout';
 import Footer from '../components/Footer';
 import { MOTTOS, isActivityScheduled } from '../data/constants';
-import { getVideoForDay } from '../lib/db';
+import { getMediaForDay } from '../lib/db';
 import { getIconPath } from '../data/iconCatalog';
 import { glass } from '../styles/shared';
 import { useMenu } from '../components/MenuContext';
@@ -66,7 +66,7 @@ export default function Dashboard({
   unreadCount = 0, courseFinished = false,
   dayInfo = { isUpcoming: false, daysUntilStart: 0 },
   courseCalls = [],
-  courseVideos = [],
+  courseMedia = [],
 }) {
   const { openMenu } = useMenu();
   const [viewingDay, setViewingDay] = useState(null);
@@ -293,7 +293,7 @@ export default function Dashboard({
                 userRole={userRole}
                 onBackToDay={() => setDashView('day')}
                 isUpcoming={isUpcoming}
-                courseVideos={courseVideos}
+                courseMedia={courseMedia}
               />
             ) : (
               <>
@@ -350,7 +350,7 @@ export default function Dashboard({
                     // видео практики могут быть разные длительности). Иначе
                     // fallback на act.durationMin.
                     const dayVideo = act.practiceType === 'media'
-                      ? getVideoForDay(courseVideos, act.id, activeDay)
+                      ? getMediaForDay(courseMedia, act.id, activeDay)
                       : null;
                     const totalSec = dayVideo?.duration_sec ?? act.durationMin * 60;
                     const totalMin = Math.max(1, Math.ceil(totalSec / 60));
@@ -659,7 +659,7 @@ function CourseCompleteView({ progress, allActivities, daysTotal, exclusions, is
 }
 
 /* ── Course Map View ── */
-function CourseMapView({ progress, allActivities, daysTotal, isActivityOnDay, currentDay, dayStartHour, getElapsedForDay, elapsedTime, onStartTimer, enrollRole, userRole, onBackToDay, isUpcoming = false, courseVideos = [] }) {
+function CourseMapView({ progress, allActivities, daysTotal, isActivityOnDay, currentDay, dayStartHour, getElapsedForDay, elapsedTime, onStartTimer, enrollRole, userRole, onBackToDay, isUpcoming = false, courseMedia = [] }) {
   const [expandedDay, setExpandedDay] = useState(null);
 
   return (
@@ -749,7 +749,7 @@ function CourseMapView({ progress, allActivities, daysTotal, isActivityOnDay, cu
                 {dayActs.map(act => {
                   const done = dp[act.id]?.completed || dp[act.id] === true;
                   const dayVideo = act.practiceType === 'media'
-                    ? getVideoForDay(courseVideos, act.id, day)
+                    ? getMediaForDay(courseMedia, act.id, day)
                     : null;
                   const totalSec = dayVideo?.duration_sec ?? act.durationMin * 60;
                   const totalMin = Math.max(1, Math.ceil(totalSec / 60));

@@ -9,13 +9,13 @@ import { glass, pageWrapper } from '../styles/shared';
 import TopBar from '../components/TopBar';
 import {
   loadCourseForEdit, canDeleteCourse, deleteCourse,
-  getActivityVideos, uploadActivityVideo, addVideoLink, importDriveVideo, deleteActivityVideo,
+  getActivityMedia, uploadActivityMedia, addMediaLink, addEmptyMedia, importDriveMedia, deleteActivityMedia,
   getActivityCalls, createActivityCall, deleteActivityCall, patchActivityCall,
-  updateActivityDuration, updateVideoDuration, patchVideo,
+  updateActivityDuration, updateMediaDuration, patchMedia,
   patchCourseMeta, createActivity, patchActivity, deleteActivity,
 } from '../lib/db';
 import { createAutoSaver } from '../lib/autoSave';
-import VideoSection, { extractYoutubeId } from '../components/VideoSection';
+import MediaSection, { extractYoutubeId } from '../components/MediaSection';
 import RichTextEditor from '../components/RichTextEditor';
 import Dropdown from '../components/Dropdown';
 
@@ -90,8 +90,16 @@ function detectYoutubeDuration(youtubeId) {
 
 const PRACTICE_TYPE_OPTIONS = [
   { value: 'media', label: 'Практика' },
-  { value: 'theory', label: 'Текстовая теория' },
   { value: 'call', label: 'Онлайн с мастером' },
+];
+
+// Тип медиа выбирается per-media внутри practice=media.
+const MEDIA_TYPE_OPTIONS = [
+  { value: 'video', label: 'Видео' },
+  { value: 'audio', label: 'Аудио' },
+  { value: 'image', label: 'Изображение' },
+  { value: 'text', label: 'Текст' },
+  { value: 'none', label: 'Без медиа' },
 ];
 
 const GREEN = '#27ae60';
@@ -214,7 +222,7 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
     if (withSpinner) setLoading(true);
     const [course, vids, callsData] = await Promise.all([
       loadCourseForEdit(courseId),
-      getActivityVideos(courseId),
+      getActivityMedia(courseId),
       getActivityCalls(courseId),
     ]);
     if (!course) { setError('Не удалось загрузить курс'); setLoading(false); return; }
@@ -245,7 +253,7 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
           && newExt.length === (v.extra_days || []).length) {
         return v;
       }
-      patchVideo(v.id, { firstDay: newFirst, lastDay: newLast, excludedDays: newExc, extraDays: newExt });
+      patchMedia(v.id, { firstDay: newFirst, lastDay: newLast, excludedDays: newExc, extraDays: newExt });
       return { ...v, first_day: newFirst, last_day: newLast, excluded_days: newExc, extra_days: newExt };
     });
     setVideos(clampedVideos);
@@ -294,12 +302,12 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
     await updateActivityDuration(activityId, durationMin);
   };
 
-  const handleVideoUpload = async (activityId, file, firstDay, lastDay, intervalDays) => {
+  const handleVideoUpload = async (activityId, file, firstDay, lastDay, intervalDays, mediaType = 'video') => {
     setVideoUploadingId(activityId);
     setUploadProgress(0);
-    const result = await uploadActivityVideo(courseId, activityId, file, firstDay, lastDay, intervalDays, (pct) => {
+    const result = await uploadActivityMedia(courseId, activityId, file, firstDay, lastDay, intervalDays, (pct) => {
       setUploadProgress(pct);
-    });
+    }, mediaType);
     setVideoUploadingId(null);
     setUploadProgress(0);
     if (result.error) { setError(`Ошибка загрузки видео: ${result.error}`); return; }
@@ -310,15 +318,21 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
     }
   };
 
-  const handleAddLink = async (activityId, url, videoType, firstDay, lastDay, intervalDays) => {
+  const handleAddEmpty = async (activityId, mediaType, firstDay, lastDay, intervalDays) => {
+    const result = await addEmptyMedia(courseId, activityId, mediaType, firstDay, lastDay, intervalDays);
+    if (result.error) { setError(`Ошибка: ${result.error}`); return; }
+    setVideos(prev => [...prev, result.data]);
+  };
+
+  const handleAddLink = async (activityId, url, sourceType, firstDay, lastDay, intervalDays, mediaType = 'video') => {
     // Drive URLs route through import-drive: backend pulls the file to our
     // storage, frontend shows a progress bar like a normal upload, and the
     // result becomes a regular type='file' video (timer fully syncs).
-    if (videoType === 'drive') {
+    if (sourceType === 'drive') {
       setVideoUploadingId(activityId);
       setUploadProgress(0);
       setUploadPhase('downloading');
-      const result = await importDriveVideo(
+      const result = await importDriveMedia(
         courseId, activityId, url, firstDay, lastDay, intervalDays,
         (pct, phase) => { setUploadProgress(pct); if (phase) setUploadPhase(phase); },
       );
@@ -343,29 +357,29 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
       return;
     }
 
-    const result = await addVideoLink(courseId, activityId, url, videoType, firstDay, lastDay, intervalDays);
+    const result = await addMediaLink(courseId, activityId, url, sourceType, firstDay, lastDay, intervalDays, mediaType);
     if (result.error) { setError(`Ошибка добавления ссылки: ${result.error}`); return; }
     const created = result.data;
     setVideos(prev => [...prev, created]);
     // Background duration detection — YouTube + direct mp4/webm.
     let detected = null;
     try {
-      if (videoType === 'youtube') {
+      if (sourceType === 'youtube') {
         const ytId = extractYoutubeId(url);
         if (ytId) detected = await detectYoutubeDuration(ytId);
-      } else if (videoType === 'link') {
+      } else if (sourceType === 'link') {
         detected = await detectDirectDuration(url);
       }
     } catch {}
     if (detected && created?.id) {
-      try { await updateVideoDuration(created.id, detected); } catch {}
+      try { await updateMediaDuration(created.id, detected); } catch {}
       setVideos(prev => prev.map(v => (v.id === created.id ? { ...v, duration_sec: detected } : v)));
       await syncActivityDuration(activityId, detected);
     }
   };
 
-  const handleDeleteVideo = async (videoId, videoUrl, videoType) => {
-    const result = await deleteActivityVideo(videoId, videoUrl, videoType);
+  const handleDeleteVideo = async (videoId, videoUrl, sourceType) => {
+    const result = await deleteActivityMedia(videoId, videoUrl, sourceType);
     if (result.error) { setError(`Ошибка удаления видео: ${result.error}`); return; }
     setVideos(prev => prev.filter(v => v.id !== videoId));
   };
@@ -389,7 +403,7 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
       excluded_days: normalized.excludedDays,
       extra_days: normalized.extraDays,
     } : v));
-    const result = await patchVideo(videoId, normalized);
+    const result = await patchMedia(videoId, normalized);
     if (result?.error) setError(`Ошибка: ${result.error}`);
   };
 
@@ -622,7 +636,7 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
       const changed = newFirst !== oldFirst || newLast !== oldLast
         || newExc.length !== oldExc.length || newExt.length !== oldExt.length;
       if (!changed) return v;
-      saverRef.current.schedule(`video-${v.id}`, () => patchVideo(v.id, {
+      saverRef.current.schedule(`video-${v.id}`, () => patchMedia(v.id, {
         firstDay: newFirst, lastDay: newLast,
         excludedDays: newExc, extraDays: newExt,
       }));
@@ -780,8 +794,9 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
             uploadProgress={uploadProgress}
             uploadPhase={uploadPhase}
             activityId={a.dbId || a._key}
-            onVideoUpload={(file, fd, ld, iv) => handleVideoUpload(a.dbId || a._key, file, fd, ld, iv)}
-            onAddLink={(url, type, fd, ld, iv) => handleAddLink(a.dbId || a._key, url, type, fd, ld, iv)}
+            onVideoUpload={(file, fd, ld, iv, mt) => handleVideoUpload(a.dbId || a._key, file, fd, ld, iv, mt)}
+            onAddLink={(url, type, fd, ld, iv, mt) => handleAddLink(a.dbId || a._key, url, type, fd, ld, iv, mt)}
+            onAddEmpty={(mt, fd, ld, iv) => handleAddEmpty(a.dbId || a._key, mt, fd, ld, iv)}
             onDeleteVideo={handleDeleteVideo}
             onPatchVideo={handlePatchVideo}
             calls={calls}
@@ -1000,7 +1015,7 @@ function CallRow({ call, courseStartDate, tzMin, onPatch }) {
   );
 }
 
-function ActivityCard({ activity, index, maxDay, onUpdate, onToggleDay, onRemove, onPickIcon, videos, courseId, videoUploadingId, uploadProgress, uploadPhase, activityId: propActivityId, onVideoUpload, onAddLink, onDeleteVideo, onPatchVideo, calls, onCreateCall, onDeleteCall, onPatchCall, tzOffsetMin, boundToCalendar, courseStartDate, collapsed = false, onToggleCollapsed, isDragging = false, isDragOver = false, onDragBegin, onDragOverKey, onDragEnd, onDropOn }) {
+function ActivityCard({ activity, index, maxDay, onUpdate, onToggleDay, onRemove, onPickIcon, videos, courseId, videoUploadingId, uploadProgress, uploadPhase, activityId: propActivityId, onVideoUpload, onAddLink, onAddEmpty, onDeleteVideo, onPatchVideo, calls, onCreateCall, onDeleteCall, onPatchCall, tzOffsetMin, boundToCalendar, courseStartDate, collapsed = false, onToggleCollapsed, isDragging = false, isDragOver = false, onDragBegin, onDragOverKey, onDragEnd, onDropOn }) {
   // Trainer's timezone comes from THEIR profile (user_settings.tz_offset_min),
   // NOT from the browser — VPNs make browser tz unreliable; profile is the
   // single source of truth. Default fallback: Moscow (UTC+3, offset=180).
@@ -1219,22 +1234,15 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onToggleDay, onRemove
         />
       </div>
 
-      {/* Description / theory text */}
-      {(activity.practiceType === 'theory' || activity.practiceType === 'call' || activity.practiceType === 'media') && (
+      {/* Description — теперь только для call (для media описание живёт
+          per-media в activity_media.description_html и рисуется в MediaSection). */}
+      {activity.practiceType === 'call' && (
         <div style={{ marginBottom: 8 }}>
-          <label style={{ ...labelStyle, fontSize: 11 }}>{
-            activity.practiceType === 'theory' ? 'Текст теории'
-            : activity.practiceType === 'call' ? 'Описание'
-            : 'Введение к уроку (необязательно)'
-          }</label>
+          <label style={{ ...labelStyle, fontSize: 11 }}>Описание</label>
           <RichTextEditor
             content={activity.descriptionHtml || ''}
             onChange={val => onUpdate('descriptionHtml', val)}
-            placeholder={
-              activity.practiceType === 'theory' ? 'Содержание теоретического материала...'
-              : activity.practiceType === 'call' ? 'Описание онлайн-практики...'
-              : 'Краткое введение, инструкция, контекст для практики...'
-            } />
+            placeholder="Описание онлайн-практики..." />
         </div>
       )}
 
@@ -1278,43 +1286,8 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onToggleDay, onRemove
         onToggle={(day) => onToggleDay?.(day)}
       />
 
-      {/* Duration — только для media БЕЗ видео (у видео своя длительность
-          показана в VideoSection под каждым блоком). Формат «MM:SS».
-          Хранится в БД как duration_min = ceil((mm*60+ss)/60). */}
-      {activity.practiceType === 'media' && actVideos.length === 0 && (
-        <div>
-          <label style={{ ...labelStyle, fontSize: 11 }}>Длительность</label>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <input
-              type="text"
-              inputMode="numeric"
-              pattern="\d+:\d{2}"
-              placeholder="10:00"
-              value={durationRaw}
-              onChange={(e) => {
-                // Разрешаем «5», «5:», «5:3», «5:30» — на blur нормализуем
-                const raw = e.target.value.replace(/[^\d:]/g, '');
-                setDurationRaw(raw);
-              }}
-              onBlur={() => {
-                const m = durationRaw.trim().match(/^(\d+)(?::(\d{1,2}))?$/);
-                let mins = 0, secs = 0;
-                if (m) { mins = parseInt(m[1] || '0', 10); secs = parseInt(m[2] || '0', 10); }
-                if (secs > 59) secs = 59;
-                const totalSec = Math.max(60, Math.min(72000, mins * 60 + secs));
-                const durationMin = Math.max(1, Math.ceil(totalSec / 60));
-                onUpdate('durationMin', durationMin);
-                setDurationRaw(formatMMSS(durationMin));
-              }}
-              style={{ ...inputStyle, padding: '8px 10px', fontSize: 14, width: 100, textAlign: 'center' }}
-            />
-            <span style={{ fontSize: 13, color: '#888', whiteSpace: 'nowrap' }}>мм:сс</span>
-          </div>
-        </div>
-      )}
-
-      {/* Video section — for media practice. Activities are auto-created in DB
-          on add so dbId is always available; no more "save first" wall. */}
+      {/* Media section — universal for media practice: video/audio/image/text/none.
+          Активность автоматически создаётся в БД на add — dbId всегда доступен. */}
       {activity.practiceType === 'media' && courseId && activity.dbId && (() => {
         // Pre-compute the set of days where the practice itself is active —
         // VideoSection uses it to render "pale" cells for off-practice days.
@@ -1323,8 +1296,8 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onToggleDay, onRemove
           if (isActivityScheduled(activity, d)) activeDays.add(d);
         }
         return (
-          <VideoSection
-            videos={videos}
+          <MediaSection
+            media={videos}
             courseId={courseId}
             activityId={activity.dbId}
             maxDay={maxDay}
@@ -1334,8 +1307,9 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onToggleDay, onRemove
             activityScheduledDays={activeDays}
             onUpload={onVideoUpload}
             onAddLink={onAddLink}
+            onAddEmpty={onAddEmpty}
             onDelete={onDeleteVideo}
-            onPatchVideo={onPatchVideo}
+            onPatchMedia={onPatchVideo}
             uploading={videoUploadingId === activity.dbId}
             uploadProgress={videoUploadingId === activity.dbId ? uploadProgress : 0}
             uploadPhase={videoUploadingId === activity.dbId ? uploadPhase : 'downloading'}

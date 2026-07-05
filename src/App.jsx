@@ -28,7 +28,7 @@ import {
   loadTrackerProgress, saveTrackerActivityProgress,
   loadStudentExclusions, loadStudentCustomActivities,
   getUnreadCount,
-  getActivityVideos, getVideoForDay, getVideoSignedUrl, updateVideoDuration,
+  getActivityMedia, getMediaForDay, getMediaSignedUrl, updateMediaDuration,
   getActivityCalls, getCallToken,
 } from './lib/db';
 
@@ -75,7 +75,7 @@ export default function App() {
   const [unreadCount, setUnreadCount] = useState(0);
 
   // Videos & Calls
-  const [courseVideos, setCourseVideos] = useState([]);
+  const [courseMedia, setCourseMedia] = useState([]);
   const [courseCalls, setCourseCalls] = useState([]);
   const [activeVideo, setActiveVideo] = useState(null);
   const [activeVideoUrl, setActiveVideoUrl] = useState(null);
@@ -216,7 +216,7 @@ export default function App() {
             loadPromises.push(
               loadStudentExclusions(user.id, active.id),
               loadStudentCustomActivities(user.id, active.id),
-              getActivityVideos(active.id),
+              getActivityMedia(active.id),
               getActivityCalls(active.id),
             );
           }
@@ -225,12 +225,12 @@ export default function App() {
           if (active.type === 'course') {
             setExclusions(excl || {});
             setCustomActivities(custom || []);
-            setCourseVideos(vids || []);
+            setCourseMedia(vids || []);
             setCourseCalls(calls || []);
           } else {
             setExclusions({});
             setCustomActivities([]);
-            setCourseVideos([]);
+            setCourseMedia([]);
             setCourseCalls([]);
           }
 
@@ -274,7 +274,7 @@ export default function App() {
       loadPromises.push(
         loadStudentExclusions(user.id, item.id),
         loadStudentCustomActivities(user.id, item.id),
-        getActivityVideos(item.id),
+        getActivityMedia(item.id),
         getActivityCalls(item.id),
       );
     }
@@ -283,12 +283,12 @@ export default function App() {
     if (item.type === 'course') {
       setExclusions(excl || {});
       setCustomActivities(custom || []);
-      setCourseVideos(vids || []);
+      setCourseMedia(vids || []);
       setCourseCalls(calls || []);
     } else {
       setExclusions({});
       setCustomActivities([]);
-      setCourseVideos([]);
+      setCourseMedia([]);
       setCourseCalls([]);
     }
 
@@ -404,12 +404,12 @@ export default function App() {
     }
 
     // Find video for this activity and day
-    const video = getVideoForDay(courseVideos, activity.id, dayForLookup);
+    const video = getMediaForDay(courseMedia, activity.id, dayForLookup);
     setActiveVideo(video);
 
     // Get signed URL for file videos
-    if (video?.video_type === 'file' && video?.video_url) {
-      const url = await getVideoSignedUrl(video.video_url);
+    if (video?.source_type === 'file' && video?.media_url) {
+      const url = await getMediaSignedUrl(video.media_url);
       setActiveVideoUrl(url);
     } else {
       setActiveVideoUrl(null);
@@ -480,10 +480,10 @@ export default function App() {
 
   const handleDurationDetected = async (videoId, durationSec) => {
     // Update DB
-    await updateVideoDuration(videoId, durationSec);
+    await updateMediaDuration(videoId, durationSec);
     // Update local video state
     setActiveVideo(prev => prev ? { ...prev, duration_sec: durationSec } : prev);
-    setCourseVideos(prev => prev.map(v => v.id === videoId ? { ...v, duration_sec: durationSec } : v));
+    setCourseMedia(prev => prev.map(v => v.id === videoId ? { ...v, duration_sec: durationSec } : v));
     // Reset timer to new duration
     if (activeActivity) {
       const currentElapsed = elapsedTime[activeActivity.id] || 0;
@@ -546,11 +546,11 @@ export default function App() {
     if (editCourseId && activeItem?.type === 'course' && activeItem?.id === editCourseId) {
       const [items, vids, calls] = await Promise.all([
         getAvailableItems(user.id),
-        getActivityVideos(editCourseId),
+        getActivityMedia(editCourseId),
         getActivityCalls(editCourseId),
       ]);
       setAvailableItems(items);
-      setCourseVideos(vids || []);
+      setCourseMedia(vids || []);
       setCourseCalls(calls || []);
       const updated = items.find(i => i.type === 'course' && i.id === editCourseId);
       if (updated) setActiveItem(updated);
@@ -565,11 +565,11 @@ export default function App() {
     if (activeItem?.type === 'course' && activeItem?.id === editCourseId) {
       const [items, vids, calls] = await Promise.all([
         getAvailableItems(user.id),
-        getActivityVideos(editCourseId),
+        getActivityMedia(editCourseId),
         getActivityCalls(editCourseId),
       ]);
       setAvailableItems(items);
-      setCourseVideos(vids || []);
+      setCourseMedia(vids || []);
       setCourseCalls(calls || []);
       const updated = items.find(i => i.type === 'course' && i.id === editCourseId);
       if (updated) setActiveItem(updated);
@@ -665,7 +665,7 @@ export default function App() {
         activeItem={activeItem} availableItems={availableItems} onSwitchContext={handleSwitchContext}
         exclusions={exclusions} customActivities={customActivities}
         unreadCount={unreadCount} courseFinished={courseFinished} dayInfo={dayInfo}
-        courseCalls={courseCalls} courseVideos={courseVideos} />
+        courseCalls={courseCalls} courseMedia={courseMedia} />
     );
     }
   };

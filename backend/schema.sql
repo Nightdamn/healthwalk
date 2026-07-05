@@ -94,7 +94,7 @@ CREATE TABLE IF NOT EXISTS course_activities (
   label TEXT NOT NULL,
   duration_min INTEGER NOT NULL DEFAULT 10 CHECK (duration_min > 0),
   icon_num TEXT DEFAULT 'health/1',
-  practice_type TEXT NOT NULL DEFAULT 'media' CHECK (practice_type IN ('media', 'theory', 'call')),
+  practice_type TEXT NOT NULL DEFAULT 'media' CHECK (practice_type IN ('media', 'call')),
   description_html TEXT,
   first_day INTEGER DEFAULT 1,
   last_day INTEGER,
@@ -236,7 +236,7 @@ CREATE TABLE IF NOT EXISTS student_custom_activities (
   first_day INTEGER NOT NULL DEFAULT 1 CHECK (first_day >= 1),
   last_day INTEGER NOT NULL DEFAULT 30 CHECK (last_day >= 1),
   interval_days INTEGER NOT NULL DEFAULT 1 CHECK (interval_days >= 1),
-  practice_type TEXT NOT NULL DEFAULT 'media' CHECK (practice_type IN ('media', 'theory', 'call')),
+  practice_type TEXT NOT NULL DEFAULT 'media' CHECK (practice_type IN ('media', 'call')),
   description_html TEXT,
   sort_order INTEGER DEFAULT 0,
   created_at TIMESTAMPTZ DEFAULT NOW()
@@ -248,12 +248,23 @@ CREATE INDEX IF NOT EXISTS idx_custom_activities_user_course ON student_custom_a
 -- ACTIVITY VIDEOS
 -- ═══════════════════════════════════════════════════════════
 
-CREATE TABLE IF NOT EXISTS activity_videos (
+-- Универсальная таблица медиа для активностей (v24: rename из activity_videos).
+-- Одна практика может содержать N медиа разных типов (video/audio/image/text/none)
+-- на разные дни календаря — у каждого своё описание («Введение к уроку»).
+CREATE TABLE IF NOT EXISTS activity_media (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   course_id UUID NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
   activity_id TEXT NOT NULL,
-  video_type TEXT NOT NULL CHECK (video_type IN ('file', 'youtube', 'drive', 'link', 'audio_file', 'audio_link', 'image_file', 'image_link')),
-  video_url TEXT NOT NULL,
+  media_type TEXT NOT NULL DEFAULT 'video' CHECK (media_type IN ('video', 'audio', 'image', 'text', 'none')),
+  source_type TEXT NOT NULL CHECK (source_type IN (
+    'file', 'link', 'youtube', 'drive',
+    'audio_file', 'audio_link',
+    'image_file', 'image_link',
+    'text', 'none'
+  )),
+  media_url TEXT NOT NULL,
+  text_content TEXT,
+  description_html TEXT,
   file_size BIGINT,
   duration_sec INT,
   first_day INT NOT NULL DEFAULT 1,
@@ -265,8 +276,9 @@ CREATE TABLE IF NOT EXISTS activity_videos (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_activity_videos_course ON activity_videos(course_id);
-CREATE INDEX IF NOT EXISTS idx_activity_videos_lookup ON activity_videos(course_id, activity_id, first_day, last_day);
+CREATE INDEX IF NOT EXISTS idx_activity_media_course ON activity_media(course_id);
+CREATE INDEX IF NOT EXISTS idx_activity_media_activity ON activity_media(activity_id);
+CREATE INDEX IF NOT EXISTS idx_activity_media_lookup ON activity_media(course_id, activity_id, first_day, last_day);
 
 -- ═══════════════════════════════════════════════════════════
 -- ACTIVITY CALLS (online sessions with master)

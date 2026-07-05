@@ -103,8 +103,9 @@ router.post('/upload/:courseId/:activityId', requireAuth, upload.single('video')
     if (!req.file) return res.status(400).json({ error: 'Файл не загружен' });
 
     const { courseId, activityId } = req.params;
-    const { firstDay, lastDay, durationSec, intervalDays } = req.body;
+    const { firstDay, lastDay, durationSec, intervalDays, mediaType } = req.body;
     const iv = Math.max(1, parseInt(intervalDays) || 1);
+    const mt = mediaType && ['video','audio','image','text','none'].includes(mediaType) ? mediaType : 'video';
 
     // Normalize the upload: remux to mp4+faststart (handles iPhone .mov
     // and any non-faststart sources), probe real duration via ffprobe.
@@ -124,10 +125,12 @@ router.post('/upload/:courseId/:activityId', requireAuth, upload.single('video')
     const finalFilename = path.basename(normPath);
     const filePath = `${courseId}/${activityId}/${finalFilename}`;
 
+    // Для image mediaType не гоняем через ffmpeg normalize — сохраняем как есть.
+    // (video/audio нормализуются выше уже).
     const v = await queryOne(
-      `INSERT INTO activity_videos (course_id, activity_id, video_type, video_url, file_size, duration_sec, first_day, last_day, interval_days)
-       VALUES ($1,$2,'file',$3,$4,$5,$6,$7,$8) RETURNING *`,
-      [courseId, activityId, filePath, normSize, normDuration,
+      `INSERT INTO activity_media (course_id, activity_id, media_type, source_type, media_url, file_size, duration_sec, first_day, last_day, interval_days)
+       VALUES ($1,$2,$3,'file',$4,$5,$6,$7,$8,$9) RETURNING *`,
+      [courseId, activityId, mt, filePath, normSize, normDuration,
        parseInt(firstDay) || 1, parseInt(lastDay) || 1, iv]
     );
 
@@ -316,8 +319,8 @@ async function runDriveImport(jobId, params) {
 
     const relPath = `${params.courseId}/${params.activityId}/${finalFilename}`;
     const v = await queryOne(
-      `INSERT INTO activity_videos (course_id, activity_id, video_type, video_url, file_size, duration_sec, first_day, last_day, interval_days)
-       VALUES ($1,$2,'file',$3,$4,$5,$6,$7,$8) RETURNING *`,
+      `INSERT INTO activity_media (course_id, activity_id, media_type, source_type, media_url, file_size, duration_sec, first_day, last_day, interval_days)
+       VALUES ($1,$2,'video','file',$3,$4,$5,$6,$7,$8) RETURNING *`,
       [params.courseId, params.activityId, relPath, finalSize, norm.durationSec,
        parseInt(params.firstDay) || 1, parseInt(params.lastDay) || 1,
        Math.max(1, parseInt(params.intervalDays) || 1)]

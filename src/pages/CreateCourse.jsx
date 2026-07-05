@@ -5,7 +5,7 @@ import AvatarPicker, { processAvatarFile } from '../components/AvatarPicker';
 import { getIconPath } from '../data/iconCatalog';
 import { glass, pageWrapper } from '../styles/shared';
 import TopBar from '../components/TopBar';
-import { createCourseWithActivities, addVideoLink } from '../lib/db';
+import { createCourseWithActivities, addMediaLink } from '../lib/db';
 import { detectVideoType } from '../components/VideoSection';
 import RichTextEditor from '../components/RichTextEditor';
 import Dropdown from '../components/Dropdown';
@@ -135,7 +135,7 @@ export default function CreateCoursePage({ user, onBack, onCreated }) {
       (a.pendingLinks || []).map(l => ({ ...l, activityId: a.activityId }))
     );
     for (const link of allLinks) {
-      await addVideoLink(course.id, link.activityId, link.url, link.type, link.firstDay, link.lastDay);
+      await addMediaLink(course.id, link.activityId, link.url, link.type, link.firstDay, link.lastDay);
     }
 
     setLoading(false);
