@@ -6,7 +6,7 @@ import { getIconPath } from '../data/iconCatalog';
 import { glass, pageWrapper } from '../styles/shared';
 import TopBar from '../components/TopBar';
 import { createCourseWithActivities, addMediaLink } from '../lib/db';
-import { detectVideoType } from '../components/VideoSection';
+import { detectSourceType as detectVideoType } from '../components/MediaSection';
 import RichTextEditor from '../components/RichTextEditor';
 import Dropdown from '../components/Dropdown';
 

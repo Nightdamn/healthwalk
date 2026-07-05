@@ -7,7 +7,7 @@ import Link from '@tiptap/extension-link';
 import Image from '@tiptap/extension-image';
 import Placeholder from '@tiptap/extension-placeholder';
 import DOMPurify from 'dompurify';
-import { extractYoutubeId, extractDriveId, detectVideoType } from './VideoSection';
+import { extractYoutubeId, extractDriveId, detectSourceType as detectVideoType } from './MediaSection';
 import { uploadTheoryMedia } from '../lib/db';
 
 // Custom node: HTML5 <video controls> for direct file URLs

@@ -2,7 +2,7 @@ import TopBar from '../components/TopBar';
 import React, { useRef, useCallback, useEffect, useState } from 'react';
 import Layout from '../components/Layout';
 import { formatTime, formatInTz } from '../data/constants';
-import { extractYoutubeId, extractDriveId } from '../components/VideoSection';
+import { extractYoutubeId, extractDriveId } from '../components/MediaSection';
 import { TheoryContent } from '../components/RichTextEditor';
 import { getCallAttendance, saveCallAttendance } from '../lib/db';
 
