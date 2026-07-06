@@ -1088,44 +1088,24 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onToggleDay, onRemove
   // as the TopBar back arrow.
   const chevronPath = collapsed ? 'M9 6L15 12L9 18' : 'M6 9L12 15L18 9';
 
-  // Touch-совместимый drag через pointer events + long-press guard.
-  // Раньше drag стартовал сразу — обычный скролл по свёрнутой карточке
-  // случайно перетаскивал её. Теперь: pointerdown запускает 400ms
-  // таймер. Если за это время юзер уводит палец >8px — таймер отменяется
-  // (юзер хотел скроллить, не тянуть). Только после «арма» появляется
-  // визуальный feedback (лёгкое увеличение + тень) и любое движение
-  // считается drag. Работает и на мыши, и на тач.
+  // Drag через выделенный handle (иконка ≡ слева от заголовка) — на мобильных
+  // long-press с touch-action toggling не работает: браузер начинает scroll
+  // до срабатывания таймера, изменение touch-action на лету игнорируется.
+  // Handle имеет touch-action: none изначально — тап по нему сразу начинает
+  // drag session, скролл страницы туда не залипает. Остальная карточка
+  // остаётся с обычным поведением: тапы на кнопках/полях работают.
   const dragActiveRef = useRef(false);
   const startPtRef = useRef(null);
-  const armTimerRef = useRef(null);
-  const armedRef = useRef(false);
-  const [armed, setArmed] = useState(false);
 
   useEffect(() => {
     if (!collapsed) return undefined;
-    const cancelAll = () => {
-      clearTimeout(armTimerRef.current);
-      armTimerRef.current = null;
-      armedRef.current = false;
-      setArmed(false);
-      dragActiveRef.current = false;
-      startPtRef.current = null;
-    };
     const move = (e) => {
       const start = startPtRef.current;
       if (!start) return;
       const dx = e.clientX - start.x;
       const dy = e.clientY - start.y;
-      const dist = Math.hypot(dx, dy);
-      if (!armedRef.current) {
-        // Ещё не armed — если сильное движение, значит юзер скроллит,
-        // отменяем long-press таймер, отпускаем скролл.
-        if (dist > 8) cancelAll();
-        return;
-      }
-      // Armed — обычная drag-логика
       if (!dragActiveRef.current) {
-        if (dist < 4) return;
+        if (Math.hypot(dx, dy) < 4) return;
         dragActiveRef.current = true;
         onDragBegin?.();
       }
@@ -1136,66 +1116,42 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onToggleDay, onRemove
       if (key && key !== activity._key) onDragOverKey?.(key);
     };
     const up = (e) => {
-      clearTimeout(armTimerRef.current);
-      armTimerRef.current = null;
       const wasDrag = dragActiveRef.current;
-      const wasArmed = armedRef.current;
       dragActiveRef.current = false;
-      armedRef.current = false;
-      setArmed(false);
       startPtRef.current = null;
-      if (wasDrag) {
-        const el = document.elementFromPoint(e.clientX, e.clientY);
-        const card = el?.closest('[data-activity-key]');
-        const key = card?.getAttribute('data-activity-key');
-        if (key && key !== activity._key) onDropOn?.(key);
-        else onDragEnd?.();
-      } else if (wasArmed) {
-        onDragEnd?.();
-      }
+      if (!wasDrag) return;
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      const card = el?.closest('[data-activity-key]');
+      const key = card?.getAttribute('data-activity-key');
+      if (key && key !== activity._key) onDropOn?.(key);
+      else onDragEnd?.();
     };
     document.addEventListener('pointermove', move, { passive: false });
     document.addEventListener('pointerup', up);
     document.addEventListener('pointercancel', up);
     return () => {
-      cancelAll();
       document.removeEventListener('pointermove', move);
       document.removeEventListener('pointerup', up);
       document.removeEventListener('pointercancel', up);
     };
   }, [collapsed, activity._key, onDragBegin, onDragOverKey, onDragEnd, onDropOn]);
 
-  const onPointerDown = (e) => {
+  const onHandlePointerDown = (e) => {
     if (!collapsed) return;
-    if (e.target.closest && e.target.closest('button, input, a, textarea')) return;
     startPtRef.current = { x: e.clientX, y: e.clientY };
-    // Долгое удержание 400ms — включаем drag mode
-    clearTimeout(armTimerRef.current);
-    armTimerRef.current = setTimeout(() => {
-      armedRef.current = true;
-      setArmed(true);
-      // Тактильный отклик — если браузер поддерживает
-      if (navigator.vibrate) navigator.vibrate(20);
-    }, 400);
+    if (navigator.vibrate) navigator.vibrate(15);
   };
 
   return (
     <div
       data-activity-key={activity._key}
-      onPointerDown={collapsed ? onPointerDown : undefined}
       style={{
         ...glass, borderRadius: 16, padding: '14px 14px', marginBottom: 10,
         opacity: isDragging ? 0.4 : 1,
         outline: isDragOver ? '2px solid rgba(39,174,96,0.6)' : 'none',
         outlineOffset: isDragOver ? -2 : 0,
-        cursor: collapsed ? (armed ? 'grabbing' : 'grab') : 'default',
-        // pan-y пока не armed — юзер может свободно скроллить.
-        // После арма — none, чтобы preventDefault на move работал.
-        touchAction: collapsed ? (armed ? 'none' : 'pan-y') : 'auto',
-        userSelect: collapsed ? 'none' : 'auto',
-        // Приподнимаем + тень когда armed, чтобы юзер понимал что можно тянуть
-        transform: armed && !isDragging ? 'scale(1.02)' : 'none',
-        boxShadow: armed && !isDragging ? '0 8px 24px rgba(0,0,0,0.15)' : 'none',
+        transform: isDragging ? 'scale(1.02)' : 'none',
+        boxShadow: isDragging ? '0 8px 24px rgba(0,0,0,0.15)' : 'none',
         transition: 'outline 0.15s, opacity 0.15s, transform 0.15s, box-shadow 0.15s',
       }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
@@ -1215,7 +1171,26 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onToggleDay, onRemove
           </button>
           <span style={{ fontSize: 13, fontWeight: 700, color: '#aaa' }}>Активность {index + 1}</span>
         </div>
-        <button onClick={onRemove} style={{ background: 'none', border: 'none', fontSize: 18, color: '#ccc', cursor: 'pointer', padding: 2 }}>✕</button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          {/* Drag handle — только для свёрнутой карточки. touch-action: none
+              изначально, чтобы браузер не перехватил скролл. */}
+          {collapsed && (
+            <div
+              onPointerDown={onHandlePointerDown}
+              aria-label="Перетащить"
+              title="Перетащить, чтобы поменять порядок"
+              style={{
+                width: 32, height: 32, borderRadius: 8, color: '#bbb',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                cursor: 'grab', touchAction: 'none', userSelect: 'none',
+              }}>
+              <svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+                <path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+              </svg>
+            </div>
+          )}
+          <button onClick={onRemove} style={{ background: 'none', border: 'none', fontSize: 18, color: '#ccc', cursor: 'pointer', padding: 2 }}>✕</button>
+        </div>
       </div>
 
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: collapsed ? 0 : 10 }}>
