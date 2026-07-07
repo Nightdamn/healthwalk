@@ -400,6 +400,15 @@ export default function Dashboard({
                           day: activeDay, viewOnly: true, alreadyDone: true,
                         }
                       : null;
+                    // Кнопка «Скачать запись» — только staff курса
+                    // (тренер / куратор / admin платформы). Ссылку на mp4
+                    // возвращает webhook Jibri; она публичная для того кто
+                    // знает URL, поэтому это только UI-скрытие — админ и так
+                    // может достать через сеть, но для UX для ученика скрыто.
+                    const isStaff = activeItem?.enrollRole === 'trainer'
+                      || activeItem?.enrollRole === 'curator'
+                      || userRole === 'admin';
+                    const downloadUrl = (callRec && isStaff) ? callRec.recording_url : null;
                     // «Начать»/«Продолжить» — под прогресс-баром вместо
                     // старой кнопки в правом верхнем углу. Показываем когда
                     // практика активна сегодня, ещё не сделана и это не эфир
@@ -485,17 +494,37 @@ export default function Dashboard({
                               : elapsedSec > 0 ? `${elapsedMin}:${String(elapsedRemSec).padStart(2, '0')} из ${totalMin} мин`
                               : `0 из ${totalMin} мин`}
                           </div>
-                          {(viewPayload || startPayload) && (
-                            <button onClick={(e) => { e.stopPropagation(); onStartTimer(viewPayload || startPayload); }}
-                              style={{
-                                padding: '10px 22px', background: '#1a1a2e', color: '#fff', border: 'none',
-                                borderRadius: 12, fontSize: 13, fontWeight: 600, cursor: 'pointer',
-                                boxShadow: '0 3px 10px rgba(26,26,46,0.15)',
-                                whiteSpace: 'nowrap',
-                              }}>
-                              {viewPayload ? 'Просмотр' : (elapsedSec > 0 ? 'Продолжить' : 'Начать')}
-                            </button>
-                          )}
+                          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+                            {downloadUrl && (
+                              <a href={downloadUrl}
+                                download
+                                onClick={e => e.stopPropagation()}
+                                title="Скачать запись"
+                                aria-label="Скачать запись"
+                                style={{
+                                  width: 40, height: 40, borderRadius: 12,
+                                  background: 'rgba(0,0,0,0.04)', color: '#1a1a2e',
+                                  border: '1px solid rgba(0,0,0,0.08)',
+                                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                  textDecoration: 'none', flexShrink: 0,
+                                }}>
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                                  <path d="M12 4v12m0 0l-5-5m5 5l5-5M4 20h16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                </svg>
+                              </a>
+                            )}
+                            {(viewPayload || startPayload) && (
+                              <button onClick={(e) => { e.stopPropagation(); onStartTimer(viewPayload || startPayload); }}
+                                style={{
+                                  padding: '10px 22px', background: '#1a1a2e', color: '#fff', border: 'none',
+                                  borderRadius: 12, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                                  boxShadow: '0 3px 10px rgba(26,26,46,0.15)',
+                                  whiteSpace: 'nowrap',
+                                }}>
+                                {viewPayload ? 'Просмотр' : (elapsedSec > 0 ? 'Продолжить' : 'Начать')}
+                              </button>
+                            )}
+                          </div>
                         </div>
                       </div>
                     );
