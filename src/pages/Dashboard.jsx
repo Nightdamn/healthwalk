@@ -502,11 +502,13 @@ export default function Dashboard({
                                 title="Скачать запись"
                                 aria-label="Скачать запись"
                                 style={{
-                                  width: 40, height: 40, borderRadius: 12,
+                                  padding: '10px 14px',
                                   background: 'rgba(0,0,0,0.04)', color: '#1a1a2e',
                                   border: '1px solid rgba(0,0,0,0.08)',
-                                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                  textDecoration: 'none', flexShrink: 0,
+                                  borderRadius: 12,
+                                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                                  textDecoration: 'none', flexShrink: 0, boxSizing: 'border-box',
+                                  lineHeight: 1,
                                 }}>
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
                                   <path d="M12 4v12m0 0l-5-5m5 5l5-5M4 20h16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
