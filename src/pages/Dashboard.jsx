@@ -442,22 +442,22 @@ export default function Dashboard({
                         border: done ? '1px solid rgba(26,26,46,0.08)' : '1px solid rgba(255,255,255,0.7)',
                         cursor: cardClickable ? 'pointer' : 'default',
                       }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, flex: 1 }}>
                             <div style={{
-                              width: 48, height: 48, borderRadius: 14,
+                              width: 48, height: 48, borderRadius: 14, flexShrink: 0,
                               background: done ? 'rgba(26,26,46,0.08)' : 'rgba(0,0,0,0.03)',
                               display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 6,
                             }}>
                               <img src={getIconPath(act.iconNum)} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
                             </div>
-                            <div>
-                              <div style={{ fontSize: 16, fontWeight: 600, color: '#1a1a2e' }}>{act.label}</div>
+                            <div style={{ minWidth: 0, flex: 1 }}>
+                              <div style={{ fontSize: 16, fontWeight: 600, color: '#1a1a2e', overflow: 'hidden', textOverflow: 'ellipsis' }}>{act.label}</div>
                               <div style={{ fontSize: 12, color: '#999', fontWeight: 500, marginTop: 2 }}>{act.practiceType === 'theory' ? 'Теория' : act.practiceType === 'call' ? 'Онлайн' : `${totalMin} минут`}</div>
                             </div>
                           </div>
                           {done ? (
-                            <div style={{ width: 38, height: 38, borderRadius: '50%', background: '#27ae60', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <div style={{ width: 38, height: 38, borderRadius: '50%', flexShrink: 0, background: '#27ae60', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                               <svg width="18" height="18" viewBox="0 0 16 16" fill="none"><polyline points="3,8.5 6.5,12 13,4" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="miter" fill="none" /></svg>
                             </div>
                           ) : (
@@ -465,7 +465,7 @@ export default function Dashboard({
                             // всех практик (текущий/прошлый день), кнопки
                             // «Начать»/«Просмотр» ушли под прогресс-бар.
                             <div title="Не выполнено" style={{
-                              width: 38, height: 38, borderRadius: '50%',
+                              width: 38, height: 38, borderRadius: '50%', flexShrink: 0,
                               border: '1.5px solid rgba(0,0,0,0.12)', background: 'transparent',
                               display: 'flex', alignItems: 'center', justifyContent: 'center',
                             }}>
@@ -810,15 +810,15 @@ function CourseMapView({ progress, allActivities, daysTotal, isActivityOnDay, cu
                         cursor: clickable ? 'pointer' : 'default',
                       }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-                        <img src={getIconPath(act.iconNum)} alt="" style={{ width: 28, height: 28, borderRadius: 8 }} />
-                        <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: '#1a1a2e' }}>{act.label}</span>
-                        <span style={{ fontSize: 12, color: '#aaa' }}>
+                        <img src={getIconPath(act.iconNum)} alt="" style={{ width: 28, height: 28, borderRadius: 8, flexShrink: 0 }} />
+                        <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: '#1a1a2e', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{act.label}</span>
+                        <span style={{ fontSize: 12, color: '#aaa', flexShrink: 0 }}>
                           {act.practiceType === 'theory' ? 'Теория'
                             : act.practiceType === 'call' ? 'Онлайн'
                             : `${totalMin} мин`}
                         </span>
                         {done && (
-                          <div style={{ width: 22, height: 22, borderRadius: '50%', background: GREEN, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <div style={{ width: 22, height: 22, borderRadius: '50%', flexShrink: 0, background: GREEN, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                             <svg width="12" height="12" viewBox="0 0 16 16"><polyline points="3,8.5 6.5,12 13,4" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" fill="none" /></svg>
                           </div>
                         )}
