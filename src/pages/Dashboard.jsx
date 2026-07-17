@@ -234,30 +234,28 @@ export default function Dashboard({
             </div>
 
             {/* ── Map/Stats buttons ── */}
-            {!courseFinished && (
-              <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-                <button onClick={() => setDashView(dashView === 'map' ? 'day' : 'map')}
-                  style={{
-                    flex: 1, padding: '12px 0', borderRadius: 14, fontSize: 13, fontWeight: 600,
-                    cursor: 'pointer', border: 'none',
-                    background: '#1a1a2e', color: '#fff',
-                    opacity: dashView === 'map' ? 0.85 : 1,
-                  }}>
-                  Карта курса
-                </button>
-                <button onClick={() => setDashView(dashView === 'stats' ? 'day' : 'stats')}
-                  style={{
-                    flex: 1, padding: '12px 0', borderRadius: 14, fontSize: 13, fontWeight: 600,
-                    cursor: 'pointer', border: 'none',
-                    background: '#1a1a2e', color: '#fff',
-                    opacity: dashView === 'stats' ? 0.85 : 1,
-                  }}>
-                  Статистика
-                </button>
-              </div>
-            )}
+            <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+              <button onClick={() => { setViewingDay(null); setDashView(dashView === 'map' ? (courseFinished ? 'completed' : 'day') : 'map'); }}
+                style={{
+                  flex: 1, padding: '12px 0', borderRadius: 14, fontSize: 13, fontWeight: 600,
+                  cursor: 'pointer', border: 'none',
+                  background: '#1a1a2e', color: '#fff',
+                  opacity: dashView === 'map' ? 0.85 : 1,
+                }}>
+                Карта курса
+              </button>
+              <button onClick={() => { setViewingDay(null); setDashView(dashView === 'stats' ? (courseFinished ? 'completed' : 'day') : 'stats'); }}
+                style={{
+                  flex: 1, padding: '12px 0', borderRadius: 14, fontSize: 13, fontWeight: 600,
+                  cursor: 'pointer', border: 'none',
+                  background: '#1a1a2e', color: '#fff',
+                  opacity: dashView === 'stats' ? 0.85 : 1,
+                }}>
+                Статистика
+              </button>
+            </div>
 
-            {courseFinished ? (
+            {courseFinished && dashView !== 'map' && dashView !== 'stats' && viewingDay === null ? (
               <CourseCompleteView
                 progress={progress}
                 allActivities={allActivities}
@@ -268,6 +266,7 @@ export default function Dashboard({
                 elapsedTime={elapsedTime}
                 currentDay={currentDay}
                 courseName={activeItem?.title}
+                onOpenMap={() => setDashView('map')}
               />
             ) : dashView === 'stats' ? (
               <CourseStatsView
@@ -545,7 +544,7 @@ export default function Dashboard({
 }
 
 /* ── Course completion view ── */
-function CourseCompleteView({ progress, allActivities, daysTotal, exclusions, isActivityOnDay, getElapsedForDay, elapsedTime, currentDay, courseName }) {
+function CourseCompleteView({ progress, allActivities, daysTotal, exclusions, isActivityOnDay, getElapsedForDay, elapsedTime, currentDay, courseName, onOpenMap }) {
   // Compute stats
   let completedDays = 0;
   let totalActiveDays = 0;
@@ -598,9 +597,19 @@ function CourseCompleteView({ progress, allActivities, daysTotal, exclusions, is
           </svg>
         </div>
         <div style={{ fontSize: 22, fontWeight: 800, color: '#1a1a2e', marginBottom: 4 }}>Поздравляем!</div>
-        <div style={{ fontSize: 15, color: '#555', fontWeight: 500 }}>
+        <div style={{ fontSize: 15, color: '#555', fontWeight: 500, marginBottom: 16 }}>
           Курс {courseName ? `«${courseName}»` : ''} окончен
         </div>
+        {onOpenMap && (
+          <button onClick={onOpenMap}
+            style={{
+              padding: '10px 22px', background: '#1a1a2e', color: '#fff', border: 'none',
+              borderRadius: 12, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+              boxShadow: '0 3px 10px rgba(26,26,46,0.15)',
+            }}>
+            Карта курса
+          </button>
+        )}
       </div>
 
       {/* Ring chart + key stats */}
