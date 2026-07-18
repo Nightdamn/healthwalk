@@ -16,7 +16,7 @@ import TopBar from '../components/TopBar';
 import {
   getCourseStudentsInfo, getCourseAllStudentsProgress,
   inviteToCourse, toggleStudentPause, removeStudentFromCourse,
-  changeStudentRole, loadCourseForEdit,
+  changeStudentRole, loadCourseForEdit, setEnrollmentMode,
   trainerToggleExclusion, trainerAddStudentActivity, trainerDeleteStudentActivity,
   trainerToggleCompletion,
   getCourseExclusions, getCourseCustomActivities,
@@ -124,6 +124,22 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
       if (onRefreshRole) onRefreshRole();
     } else {
       alert(result.error || 'Ошибка смены роли');
+    }
+    setActionId(null);
+  };
+
+  const courseMode = (m) => ({ daily: 'По дням', free: 'По прохождению', self_paced: 'Свободно' }[m] || 'По дням');
+
+  // v25: смена per-student режима зачёта дня (или reset к общему = null).
+  const handleChangeMode = async (enrollmentId, newMode) => {
+    setActionId(enrollmentId);
+    const result = await setEnrollmentMode(enrollmentId, newMode);
+    if (result?.error) {
+      alert(result.error);
+    } else {
+      setStudents(prev => prev.map(s =>
+        s.enrollment_id === enrollmentId ? { ...s, progression_mode_override: newMode } : s
+      ));
     }
     setActionId(null);
   };
@@ -467,6 +483,34 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
                         return result;
                       }}
                     />
+
+                    {/* v25: селектор per-student Режима зачёта дня. NULL = «Как у курса». */}
+                    {!isOwner && st.role === 'student' && (
+                      <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 10, background: 'rgba(0,0,0,0.02)' }}>
+                        <div style={{ fontSize: 11, color: '#888', fontWeight: 600, marginBottom: 6, textTransform: 'uppercase' }}>
+                          Режим зачёта дня
+                        </div>
+                        <select
+                          value={st.progression_mode_override || ''}
+                          disabled={isBusy}
+                          onChange={e => handleChangeMode(st.enrollment_id, e.target.value || null)}
+                          style={{
+                            width: '100%', padding: '8px 10px', borderRadius: 8,
+                            border: '1.5px solid rgba(0,0,0,0.08)', background: '#fff',
+                            fontSize: 13, color: '#1a1a2e',
+                          }}>
+                          <option value="">Как у курса ({courseMode(st.course_progression_mode)})</option>
+                          <option value="daily">По дням</option>
+                          <option value="free">По прохождению</option>
+                          <option value="self_paced">Свободно</option>
+                        </select>
+                        {typeof st.closed_days === 'string' || typeof st.closed_days === 'number' ? (
+                          <div style={{ fontSize: 11, color: '#888', marginTop: 4 }}>
+                            Закрытых дней: {st.closed_days}
+                          </div>
+                        ) : null}
+                      </div>
+                    )}
 
                     {/* Actions */}
                     {(

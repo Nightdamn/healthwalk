@@ -30,9 +30,15 @@ function getDayTimePct(h) {
 
 const SZ = 32, CX = SZ / 2, CY = SZ / 2, R = 12, CIRC = 2 * Math.PI * R, GREEN = '#27ae60', IR = R - 1.5;
 
-function DayCircle({ day, timePct, allDone, practicePct, isPast, isCurrent, isFuture, uid }) {
+function DayCircle({ day, timePct, allDone, practicePct, isPast, isCurrent, isFuture, uid, progressive }) {
   let arcPct = 0;
   if (isFuture) arcPct = 0;
+  else if (progressive) {
+    // free / self_paced — arc пропорционален прогрессу практик (0-100%).
+    // Полностью зелёный когда день закрыт (allDone).
+    if (allDone) arcPct = 100;
+    else arcPct = Math.max(0, Math.min(100, Math.round((practicePct || 0) * 100)));
+  }
   else if (allDone || isPast) arcPct = 100;
   else if (isCurrent) arcPct = Math.min(timePct, 100);
   const offset = CIRC - (arcPct / 100) * CIRC;
@@ -67,6 +73,10 @@ export default function Dashboard({
   dayInfo = { isUpcoming: false, daysUntilStart: 0 },
   courseCalls = [],
   courseMedia = [],
+  progressionMode = 'daily',
+  closures = [],
+  onCloseDay,
+  onReopenDay,
 }) {
   const { openMenu } = useMenu();
   const [viewingDay, setViewingDay] = useState(null);
@@ -82,6 +92,10 @@ export default function Dashboard({
   const effectiveCurrentDay = isUpcoming ? 1 : currentDay;
   const activeDay = viewingDay ?? effectiveCurrentDay;
   const isToday = !isUpcoming && activeDay === currentDay;
+  // v25: three progression modes.
+  const isProgressive = progressionMode === 'free' || progressionMode === 'self_paced';
+  const isSelfPaced = progressionMode === 'self_paced';
+  const closureSet = React.useMemo(() => new Set((closures || []).map(c => c.day)), [closures]);
 
   // Dynamic activities from active course/tracker + custom student activities
   const allActivities = [...(activeItem?.activities || []), ...customActivities];
@@ -205,27 +219,28 @@ export default function Dashboard({
                 <style>{`div::-webkit-scrollbar { display: none; }`}</style>
                 {Array.from({ length: daysTotal }, (_, i) => {
                   const day = i + 1;
-                  const allDone = isDayComplete(day);
+                  const allDone = isProgressive ? closureSet.has(day) : isDayComplete(day);
                   const isCurrent = !courseFinished && !isUpcoming && day === currentDay;
                   const isFuture = !courseFinished && (isUpcoming || day > currentDay);
                   const isPast = !isCurrent && !isFuture;
-                  // Все дни кликабельны — теорию/практику можно посмотреть в любом
-                  // дне, но кнопки «Начать»/«Изучено» рисуются только в isToday.
                   const practiceFrac = getPracticeFraction(day);
                   const showLine = day > 1;
                   const prevDay = day - 1;
-                  const lineGreen = courseFinished || (!isUpcoming && (prevDay < currentDay || (prevDay === currentDay && isDayComplete(prevDay))));
+                  const lineGreen = courseFinished || (!isUpcoming && (prevDay < currentDay || (prevDay === currentDay && (isProgressive ? closureSet.has(prevDay) : isDayComplete(prevDay)))));
 
                   return (
                     <React.Fragment key={day}>
                       {showLine && <div style={{ width: 12, minWidth: 12, height: 2.5, background: lineGreen ? GREEN : 'rgba(0,0,0,0.06)', marginLeft: -3, marginRight: -3, zIndex: 0, flexShrink: 0 }} />}
                       <div data-day={day} onClick={() => {
+                          // В progressive режимах future — заблокирован.
+                          if (isFuture && isProgressive) return;
                           if (day === currentDay && !isUpcoming) { setViewingDay(null); setDashView('day'); }
                           else setViewingDay(day);
                         }}
-                        style={{ cursor: 'pointer', flexShrink: 0, zIndex: 1, position: 'relative' }}>
+                        style={{ cursor: (isFuture && isProgressive) ? 'default' : 'pointer', flexShrink: 0, zIndex: 1, position: 'relative', opacity: (isFuture && isProgressive) ? 0.5 : 1 }}>
                         <DayCircle day={day} uid={uidRef.current} timePct={isCurrent ? timePct : (isPast ? 100 : 0)}
-                          allDone={allDone} practicePct={practiceFrac} isPast={isPast} isCurrent={isCurrent} isFuture={isFuture} />
+                          allDone={allDone} practicePct={practiceFrac} isPast={isPast} isCurrent={isCurrent} isFuture={isFuture}
+                          progressive={isProgressive} />
                       </div>
                     </React.Fragment>
                   );
@@ -531,6 +546,62 @@ export default function Dashboard({
                     );
                   })}
                 </div>
+
+                {/* v25: progressive-режимные кнопки под списком практик дня. */}
+                {isProgressive && dayActivities.length > 0 && isToday && !closureSet.has(activeDay) && (() => {
+                  const anyProgress = dayActivities.some(a => (dayElapsed[a.id] || 0) > 0 || todayProgress[a.id]);
+                  const allComplete = dayActivities.every(a => todayProgress[a.id]);
+                  if (allComplete) return null;
+                  if (isSelfPaced) {
+                    return (
+                      <button
+                        disabled={!anyProgress}
+                        onClick={async () => {
+                          if (!anyProgress) return;
+                          if (!confirm('Завершить день с текущим прогрессом?')) return;
+                          const res = await onCloseDay?.();
+                          if (res?.error) alert(`Ошибка: ${res.error}`);
+                        }}
+                        style={{
+                          width: '100%', marginTop: 12, padding: '12px 22px',
+                          background: anyProgress ? '#1a1a2e' : 'rgba(0,0,0,0.05)',
+                          color: anyProgress ? '#fff' : '#aaa',
+                          border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 600,
+                          cursor: anyProgress ? 'pointer' : 'not-allowed',
+                          boxShadow: anyProgress ? '0 3px 10px rgba(26,26,46,0.15)' : 'none',
+                        }}>
+                        Завершить день
+                      </button>
+                    );
+                  }
+                  // free: только подсказка
+                  return (
+                    <div style={{ marginTop: 12, padding: '10px 14px', fontSize: 12, color: '#888', textAlign: 'center', background: 'rgba(0,0,0,0.03)', borderRadius: 12 }}>
+                      Заверши все практики, чтобы открыть следующий день
+                    </div>
+                  );
+                })()}
+                {/* self_paced: «Пройти день заново» для закрытого past-дня с partial progress */}
+                {isSelfPaced && closureSet.has(activeDay) && !isToday && (() => {
+                  const allComplete = dayActivities.length > 0 && dayActivities.every(a => todayProgress[a.id]);
+                  if (allComplete) return null;
+                  return (
+                    <button
+                      onClick={async () => {
+                        if (!confirm('Вернуться к этому дню? Прогресс сохранится.')) return;
+                        const res = await onReopenDay?.(activeDay);
+                        if (res?.error) alert(`Ошибка: ${res.error}`);
+                      }}
+                      style={{
+                        width: '100%', marginTop: 12, padding: '12px 22px',
+                        background: 'rgba(0,0,0,0.04)', color: '#1a1a2e',
+                        border: '1px solid rgba(0,0,0,0.08)', borderRadius: 12,
+                        fontSize: 14, fontWeight: 600, cursor: 'pointer',
+                      }}>
+                      Пройти день заново
+                    </button>
+                  );
+                })()}
               </>
             )}
           </>
