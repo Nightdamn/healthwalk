@@ -13,6 +13,7 @@ import {
   getActivityCalls, createActivityCall, deleteActivityCall, patchActivityCall,
   updateActivityDuration, updateMediaDuration, patchMedia,
   patchCourseMeta, createActivity, patchActivity, deleteActivity,
+  getCourseStudentsInfo,
 } from '../lib/db';
 import { createAutoSaver } from '../lib/autoSave';
 import MediaSection, { extractYoutubeId } from '../components/MediaSection';
@@ -151,6 +152,9 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
   const [boundToCalendar, setBoundToCalendar] = useState(false);
   const [startDate, setStartDate] = useState('');
   const [accessDaysAfter, setAccessDaysAfter] = useState('');
+  // v25: режим зачёта дня (глобальный, для всех учеников по default).
+  const [progressionMode, setProgressionMode] = useState('daily');
+  const [enrollCount, setEnrollCount] = useState(0);
   const [avatarIcon, setAvatarIcon] = useState('health/1');
   const [avatarCustom, setAvatarCustom] = useState(null);
   const [activities, setActivities] = useState([]);
@@ -236,6 +240,12 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
     // Date input wants YYYY-MM-DD; trim ISO timestamp if backend ever returns full.
     setStartDate((course.start_date || '').slice(0, 10));
     setAccessDaysAfter(course.access_days_after == null ? '' : String(course.access_days_after));
+    setProgressionMode(course.progression_mode || 'daily');
+    // Считаем сколько студентов (для блокировки смены категории режима).
+    try {
+      const students = await getCourseStudentsInfo(courseId);
+      setEnrollCount((students || []).filter(s => s.role === 'student' && !s.is_owner).length);
+    } catch { setEnrollCount(0); }
     setAvatarIcon(course.avatar_icon || 'health/1');
     setAvatarCustom(course.avatar_custom || null);
     setCalls(callsData || []);
@@ -766,7 +776,49 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
             }}
             style={{ ...inputStyle, width: 100 }} />
 
-          {/* v22 calendar binding */}
+          {/* v25 Зачёт дня */}
+          <div style={{ marginTop: 14, padding: 12, borderRadius: 12, background: 'rgba(0,0,0,0.02)' }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: '#1a1a2e', marginBottom: 8 }}>Зачёт дня</div>
+            {[
+              { v: 'daily', title: 'По дням', desc: 'День завершается по реальным суткам, независимо от результата.' },
+              { v: 'free', title: 'По прохождению', desc: 'День завершается когда ученик выполнил все практики.' },
+              { v: 'self_paced', title: 'Свободно', desc: 'Как «По прохождению» + кнопки «Завершить день» и «Пройти день заново» у прошедших.' },
+            ].map(opt => {
+              const isCurrent = progressionMode === opt.v;
+              const wouldSwitchCategory = (progressionMode === 'daily') !== (opt.v === 'daily');
+              const blocked = wouldSwitchCategory && enrollCount > 0;
+              return (
+                <label key={opt.v} style={{
+                  display: 'flex', alignItems: 'flex-start', gap: 8, padding: '8px 0',
+                  cursor: blocked ? 'not-allowed' : 'pointer',
+                  opacity: blocked ? 0.5 : 1,
+                }}>
+                  <input type="radio" name="progression_mode" checked={isCurrent} disabled={blocked}
+                    onChange={() => {
+                      if (blocked) {
+                        alert(`В курсе ${enrollCount} учеников. Сначала переведите их индивидуально или удалите — только потом можно сменить глобально между «По дням» и остальными.`);
+                        return;
+                      }
+                      setProgressionMode(opt.v);
+                      scheduleMetaSave({ progressionMode: opt.v });
+                    }}
+                    style={{ marginTop: 3 }} />
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: '#1a1a2e' }}>{opt.title}</div>
+                    <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>{opt.desc}</div>
+                  </div>
+                </label>
+              );
+            })}
+            {progressionMode !== 'daily' && (
+              <div style={{ fontSize: 11, color: '#e67e22', marginTop: 6, fontStyle: 'italic' }}>
+                Календарные настройки (даты старта и окно доступа) для этого режима не применяются.
+              </div>
+            )}
+          </div>
+
+          {/* v22 calendar binding — только для daily */}
+          {progressionMode === 'daily' && (
           <div style={{ marginTop: 14, padding: 12, borderRadius: 12, background: 'rgba(0,0,0,0.02)' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 14, fontWeight: 600, color: '#1a1a2e' }}>
               <input type="checkbox" checked={boundToCalendar}
@@ -785,8 +837,10 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
               </div>
             )}
           </div>
+          )}
 
-          {/* v22 access window after course end */}
+          {/* v22 access window after course end — только для daily */}
+          {progressionMode === 'daily' && (
           <div style={{ marginTop: 12, padding: 12, borderRadius: 12, background: 'rgba(0,0,0,0.02)' }}>
             <label style={{ ...labelStyle, fontSize: 13 }}>
               Материалы доступны после окончания (дней)
@@ -800,6 +854,7 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
               onChange={e => onAccessDaysAfterChange(e.target.value)}
               style={{ ...inputStyle, width: 140 }} />
           </div>
+          )}
         </div>
 
         {/* Activities */}

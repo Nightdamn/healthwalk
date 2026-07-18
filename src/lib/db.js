@@ -51,6 +51,20 @@ export async function loadCourseProgress(userId, courseId) {
   }
 }
 
+// v25: progression modes.
+export async function closeCurrentDay(courseId) {
+  try { return await apiPost(`/api/courses/${courseId}/close-day`, {}); }
+  catch (err) { return { error: err.message }; }
+}
+export async function reopenClosedDay(courseId, day) {
+  try { return await apiDelete(`/api/courses/${courseId}/closures/${day}`); }
+  catch (err) { return { error: err.message }; }
+}
+export async function setEnrollmentMode(enrollmentId, mode) {
+  try { return await apiPatch(`/api/trainer/enrollments/${enrollmentId}/mode`, { mode }); }
+  catch (err) { return { error: err.message }; }
+}
+
 export async function saveCourseActivityProgress(userId, courseId, activityId, day, elapsed, completed) {
   try {
     await apiPost('/api/progress/course', { courseId, activityId, day, elapsed, completed });

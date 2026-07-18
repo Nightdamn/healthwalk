@@ -67,9 +67,9 @@ router.get('/items', async (req, res) => {
   try {
     // Enrolled courses
     const enrolled = await query(`
-      SELECT ce.role, ce.joined_at,
+      SELECT ce.id AS enrollment_id, ce.role, ce.joined_at, ce.progression_mode_override,
              c.id, c.title, c.description, c.days_count, c.avatar_icon, c.avatar_custom, c.owner_id, c.created_at,
-             c.bound_to_calendar, c.start_date, c.access_days_after,
+             c.bound_to_calendar, c.start_date, c.access_days_after, c.progression_mode,
              (SELECT count(*) FROM course_enrollments WHERE course_id = c.id) AS enroll_count
       FROM course_enrollments ce
       JOIN courses c ON c.id = ce.course_id
@@ -86,14 +86,24 @@ router.get('/items', async (req, res) => {
       const startDate = (e.bound_to_calendar && e.start_date)
         ? toISODate(e.start_date)
         : toISODate(e.joined_at || e.created_at);
+      // v25: effective progression_mode = enrollment.override ?? course.progression_mode.
+      const effectiveMode = e.progression_mode_override || e.progression_mode || 'daily';
+      const closures = await query(
+        'SELECT day, closure_type, closed_at FROM course_day_closures WHERE user_id = $1 AND course_id = $2 ORDER BY day',
+        [req.userId, e.id]
+      );
       items.push({
         type: 'course', id: e.id, title: e.title, description: e.description || '',
         daysCount: e.days_count, avatarIcon: e.avatar_icon, avatarCustom: e.avatar_custom,
-        ownerId: e.owner_id, enrollRole: e.role,
+        ownerId: e.owner_id, enrollRole: e.role, enrollmentId: e.enrollment_id,
         startDate,
         boundToCalendar: !!e.bound_to_calendar,
         accessDaysAfter: e.access_days_after,
         enrollCount: parseInt(e.enroll_count),
+        progressionMode: effectiveMode,
+        courseProgressionMode: e.progression_mode || 'daily',
+        enrollmentModeOverride: e.progression_mode_override || null,
+        closures: closures.map(c => ({ day: c.day, type: c.closure_type, closedAt: c.closed_at })),
         activities: acts.map(a => ({
           id: a.id, activityId: a.activity_id, label: a.label, durationMin: a.duration_min,
           iconNum: a.icon_num || 'health/1', practiceType: a.practice_type || 'media',
@@ -117,11 +127,15 @@ router.get('/items', async (req, res) => {
       items.push({
         type: 'course', id: c.id, title: c.title, description: c.description || '',
         daysCount: c.days_count, avatarIcon: c.avatar_icon, avatarCustom: c.avatar_custom,
-        ownerId: c.owner_id, enrollRole: 'trainer',
+        ownerId: c.owner_id, enrollRole: 'trainer', enrollmentId: null,
         startDate,
         boundToCalendar: !!c.bound_to_calendar,
         accessDaysAfter: c.access_days_after,
         enrollCount: parseInt(cnt?.n || 0),
+        progressionMode: c.progression_mode || 'daily',
+        courseProgressionMode: c.progression_mode || 'daily',
+        enrollmentModeOverride: null,
+        closures: [],
         activities: acts.map(a => ({
           id: a.id, activityId: a.activity_id, label: a.label, durationMin: a.duration_min,
           iconNum: a.icon_num || 'health/1', practiceType: a.practice_type || 'media',
@@ -182,7 +196,166 @@ router.post('/progress/course', async (req, res) => {
        DO UPDATE SET elapsed_seconds = $5, completed = $6, updated_at = NOW()`,
       [req.userId, courseId, activityId, day, elapsed, completed]
     );
+    // v25: auto-closure для free/self_paced когда день зачтён на 100%.
+    // Проверяем только когда только что поставили completed=true (иначе смысла нет).
+    if (completed) {
+      await maybeAutoCloseDay(req.userId, courseId, day);
+    }
     res.json({ ok: true });
+  } catch (err) { console.error(err); res.status(500).json({ error: err.message }); }
+});
+
+// ─── v25: Progression modes ───────────────────────────────────────────────
+// Effective mode для (user, course) с учётом enrollment override.
+async function getEffectiveMode(userId, courseId) {
+  const row = await queryOne(
+    `SELECT COALESCE(ce.progression_mode_override, c.progression_mode, 'daily') AS mode
+       FROM courses c
+       LEFT JOIN course_enrollments ce ON ce.course_id = c.id AND ce.user_id = $1
+      WHERE c.id = $2`,
+    [userId, courseId]
+  );
+  return row?.mode || 'daily';
+}
+
+// Все дни где практика активна (учитывая first_day/last_day/interval/exclusions).
+// Копия isActivityScheduled из frontend, но упрощённая под backend.
+function daysWithActivities(activities, day) {
+  return activities.filter(a => {
+    const fd = a.first_day || 1, ld = a.last_day || fd;
+    const iv = Math.max(1, a.interval_days || 1);
+    const excl = a.excluded_days || [];
+    const extra = a.extra_days || [];
+    if (excl.includes(day)) return false;
+    if (extra.includes(day)) return true;
+    if (day < fd || day > ld) return false;
+    return ((day - fd) % iv) === 0;
+  });
+}
+
+// Если mode ∈ {free, self_paced} и все активности этого дня done — INSERT closure.
+async function maybeAutoCloseDay(userId, courseId, day) {
+  const mode = await getEffectiveMode(userId, courseId);
+  if (mode === 'daily') return;
+  // Уже закрыт?
+  const existing = await queryOne(
+    'SELECT day FROM course_day_closures WHERE user_id=$1 AND course_id=$2 AND day=$3',
+    [userId, courseId, day]
+  );
+  if (existing) return;
+  // Все активности этого дня выполнены?
+  const acts = await query('SELECT * FROM course_activities WHERE course_id = $1', [courseId]);
+  const dayActs = daysWithActivities(acts, day);
+  if (dayActs.length === 0) return;
+  const progress = await query(
+    'SELECT activity_id, completed FROM course_progress WHERE user_id=$1 AND course_id=$2 AND day=$3',
+    [userId, courseId, day]
+  );
+  const doneIds = new Set(progress.filter(p => p.completed).map(p => p.activity_id));
+  const allDone = dayActs.every(a => doneIds.has(a.id));
+  if (!allDone) return;
+  await query(
+    `INSERT INTO course_day_closures (user_id, course_id, day, closure_type)
+     VALUES ($1, $2, $3, 'auto') ON CONFLICT DO NOTHING`,
+    [userId, courseId, day]
+  );
+}
+
+// POST /courses/:id/close-day — «Завершить день» в self_paced.
+// Разрешено только для currentDay (первый не-closed) и если есть хоть какой-то прогресс.
+router.post('/courses/:id/close-day', async (req, res) => {
+  try {
+    const courseId = req.params.id;
+    const mode = await getEffectiveMode(req.userId, courseId);
+    if (mode !== 'self_paced') return res.status(400).json({ error: 'Только для режима «Свободно»' });
+    const course = await queryOne('SELECT days_count FROM courses WHERE id=$1', [courseId]);
+    if (!course) return res.status(404).json({ error: 'Курс не найден' });
+    const closures = await query(
+      'SELECT day FROM course_day_closures WHERE user_id=$1 AND course_id=$2',
+      [req.userId, courseId]
+    );
+    const closedSet = new Set(closures.map(c => c.day));
+    let currentDay = 1;
+    while (closedSet.has(currentDay) && currentDay <= course.days_count) currentDay++;
+    if (currentDay > course.days_count) return res.status(400).json({ error: 'Все дни уже пройдены' });
+    // Хоть какой-то прогресс на этом дне?
+    const anyProgress = await queryOne(
+      'SELECT 1 FROM course_progress WHERE user_id=$1 AND course_id=$2 AND day=$3 AND elapsed_seconds > 0 LIMIT 1',
+      [req.userId, courseId, currentDay]
+    );
+    if (!anyProgress) return res.status(400).json({ error: 'Начните хотя бы одну практику' });
+    await query(
+      `INSERT INTO course_day_closures (user_id, course_id, day, closure_type)
+       VALUES ($1, $2, $3, 'forced') ON CONFLICT DO NOTHING`,
+      [req.userId, courseId, currentDay]
+    );
+    res.json({ ok: true, closedDay: currentDay });
+  } catch (err) { console.error(err); res.status(500).json({ error: err.message }); }
+});
+
+// DELETE /courses/:id/closures/:day — «Пройти день заново» в self_paced.
+// Разрешено только для closed past day с partial progress (не 100%).
+router.delete('/courses/:id/closures/:day', async (req, res) => {
+  try {
+    const courseId = req.params.id;
+    const day = parseInt(req.params.day);
+    if (!Number.isFinite(day) || day < 1) return res.status(400).json({ error: 'Bad day' });
+    const mode = await getEffectiveMode(req.userId, courseId);
+    if (mode !== 'self_paced') return res.status(400).json({ error: 'Только для режима «Свободно»' });
+    // Есть closure?
+    const existing = await queryOne(
+      'SELECT day FROM course_day_closures WHERE user_id=$1 AND course_id=$2 AND day=$3',
+      [req.userId, courseId, day]
+    );
+    if (!existing) return res.status(404).json({ error: 'День не закрыт' });
+    // Проверка: не 100% — иначе кнопка «Пройти заново» не имеет смысла.
+    const acts = await query('SELECT * FROM course_activities WHERE course_id=$1', [courseId]);
+    const dayActs = daysWithActivities(acts, day);
+    const progress = await query(
+      'SELECT activity_id, completed FROM course_progress WHERE user_id=$1 AND course_id=$2 AND day=$3',
+      [req.userId, courseId, day]
+    );
+    const doneIds = new Set(progress.filter(p => p.completed).map(p => p.activity_id));
+    const allDone = dayActs.length > 0 && dayActs.every(a => doneIds.has(a.id));
+    if (allDone) return res.status(400).json({ error: 'День выполнен на 100%, нечего добирать' });
+    await query(
+      'DELETE FROM course_day_closures WHERE user_id=$1 AND course_id=$2 AND day=$3',
+      [req.userId, courseId, day]
+    );
+    res.json({ ok: true, reopenedDay: day });
+  } catch (err) { console.error(err); res.status(500).json({ error: err.message }); }
+});
+
+// PATCH /trainer/enrollments/:enrollmentId/mode — тренер меняет per-student mode.
+// При переключении daily→progressive: закрываем все days < current_day (auto).
+// При переключении progressive→daily: user_settings.current_day = calendar day.
+router.patch('/trainer/enrollments/:enrollmentId/mode', async (req, res) => {
+  try {
+    const { mode } = req.body || {};
+    if (mode !== null && !['daily','free','self_paced'].includes(mode)) return res.status(400).json({ error: 'Bad mode' });
+    const enroll = await queryOne('SELECT * FROM course_enrollments WHERE id=$1', [req.params.enrollmentId]);
+    if (!enroll) return res.status(404).json({ error: 'Не найден' });
+    if (!await isTrainer(req.userId, enroll.course_id)) return res.status(403).json({ error: 'Нет прав' });
+    const oldEffective = await getEffectiveMode(enroll.user_id, enroll.course_id);
+    await query('UPDATE course_enrollments SET progression_mode_override=$1 WHERE id=$2',
+      [mode, req.params.enrollmentId]);
+    const newEffective = await getEffectiveMode(enroll.user_id, enroll.course_id);
+    // Reconciliation.
+    if (oldEffective === 'daily' && (newEffective === 'free' || newEffective === 'self_paced')) {
+      // Все days < user_settings.current_day → auto-closures (если ещё не).
+      const s = await queryOne('SELECT current_day FROM user_settings WHERE user_id=$1', [enroll.user_id]);
+      const cd = s?.current_day || 1;
+      for (let d = 1; d < cd; d++) {
+        await query(
+          `INSERT INTO course_day_closures (user_id, course_id, day, closure_type)
+           VALUES ($1,$2,$3,'auto') ON CONFLICT DO NOTHING`,
+          [enroll.user_id, enroll.course_id, d]
+        );
+      }
+    }
+    // progressive→daily: current_day в user_settings уже обновится recalcDay'ем
+    // на клиенте по календарю. Ничего не трогаем в БД — closures остаются как история.
+    res.json({ ok: true, effectiveMode: newEffective });
   } catch (err) { console.error(err); res.status(500).json({ error: err.message }); }
 });
 
@@ -410,7 +583,28 @@ router.patch('/courses/:id/meta', async (req, res) => {
     const {
       title, description, daysCount, avatarIcon, avatarCustom,
       boundToCalendar, startDate, accessDaysAfter,
+      progressionMode,
     } = req.body || {};
+    // v25: смена «категории» (daily ↔ progressive) блокируется если есть
+    // enrollments >0 не-owner ролей (тренер не считается). Между free ↔
+    // self_paced можно всегда.
+    if (progressionMode !== undefined && ['daily', 'free', 'self_paced'].includes(progressionMode)) {
+      const cur = await queryOne('SELECT progression_mode FROM courses WHERE id=$1', [courseId]);
+      const wasDaily = cur?.progression_mode === 'daily';
+      const willDaily = progressionMode === 'daily';
+      if (wasDaily !== willDaily) {
+        // Смена категории
+        const cnt = await queryOne(
+          "SELECT count(*) AS n FROM course_enrollments WHERE course_id=$1 AND role='student'",
+          [courseId]
+        );
+        if (parseInt(cnt?.n || 0) > 0) {
+          return res.status(409).json({
+            error: `В курсе ${cnt.n} учеников. Сначала переведите их индивидуально или удалите — только потом можно сменить глобальный режим.`,
+          });
+        }
+      }
+    }
     const sets = [];
     const params = [];
     let i = 1;
@@ -439,6 +633,9 @@ router.patch('/courses/:id/meta', async (req, res) => {
       const n = (accessDaysAfter === null || accessDaysAfter === '')
         ? null : Math.max(0, parseInt(accessDaysAfter));
       sets.push(`access_days_after=$${i++}`); params.push(Number.isFinite(n) ? n : null);
+    }
+    if (progressionMode !== undefined && ['daily', 'free', 'self_paced'].includes(progressionMode)) {
+      sets.push(`progression_mode=$${i++}`); params.push(progressionMode);
     }
     if (sets.length === 0) return res.json({ ok: true });
     sets.push(`updated_at=NOW()`);
@@ -886,7 +1083,10 @@ router.get('/trainer/students/:courseId', async (req, res) => {
     if (!await isTrainer(req.userId, req.params.courseId)) return res.status(403).json([]);
     const rows = await query(
       `SELECT ce.id AS enrollment_id, u.id AS user_id, u.email, u.display_name, ce.role, ce.paused, ce.joined_at,
-              (c.owner_id = u.id) AS is_owner
+              ce.progression_mode_override,
+              c.progression_mode AS course_progression_mode,
+              (c.owner_id = u.id) AS is_owner,
+              (SELECT COUNT(*) FROM course_day_closures WHERE user_id=u.id AND course_id=c.id) AS closed_days
        FROM course_enrollments ce JOIN users u ON u.id = ce.user_id JOIN courses c ON c.id = ce.course_id
        WHERE ce.course_id = $1 ORDER BY (c.owner_id = u.id) DESC, ce.role, ce.joined_at`,
       [req.params.courseId]

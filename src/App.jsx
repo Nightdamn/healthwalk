@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import LoginPage from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import TimerPage from './pages/Timer';
@@ -104,24 +104,45 @@ export default function App() {
   }, [activeItem?.daysCount]);
 
   // ─── Recalculate current day ───
+  // v25: три режима.
+  //   daily      — как раньше, currentDay = getCourseDay(startDate).
+  //   free / self_paced — currentDay = min day не в closures[]; courseFinished
+  //                       = closures.length === daysCount. Дата старта / access
+  //                       игнорируются (курс не привязан к календарю).
+  const progressionMode = activeItem?.progressionMode || 'daily';
+  const closureDays = React.useMemo(
+    () => new Set((activeItem?.closures || []).map(c => c.day)),
+    [activeItem?.closures]
+  );
   const recalcDay = useCallback(() => {
     if (!activeItem) return;
-    const startDate = activeItem.startDate || courseStartDate;
-    if (!startDate) return;
-    // Для трекеров (isUpcoming недоступен) или курсов без bound_to_calendar
-    // getCourseDayInfo всё равно вернёт корректный day; isUpcoming=false.
-    const info = getCourseDayInfo(startDate, activeItem.daysCount,
-                                  activeItem.accessDaysAfter,
-                                  tzOffsetMin, dayStartHour);
-    setDayInfo(info);
-    // Для дней «до старта» (isUpcoming) currentDay=0 — Dashboard сам решит,
-    // что показывать вместо «День X из N».
-    const day = info.day;
-    setCurrentDay(prev => {
-      if (prev !== day && user?.id) saveUserSettings(user.id, { current_day: day });
-      return day;
-    });
-  }, [courseStartDate, tzOffsetMin, dayStartHour, user?.id, activeItem]);
+    if (progressionMode === 'daily') {
+      const startDate = activeItem.startDate || courseStartDate;
+      if (!startDate) return;
+      const info = getCourseDayInfo(startDate, activeItem.daysCount,
+                                    activeItem.accessDaysAfter,
+                                    tzOffsetMin, dayStartHour);
+      setDayInfo(info);
+      const day = info.day;
+      setCurrentDay(prev => {
+        if (prev !== day && user?.id) saveUserSettings(user.id, { current_day: day });
+        return day;
+      });
+    } else {
+      // free / self_paced: currentDay = первый не-closed. Если все закрыты —
+      // isFinished=true (Dashboard покажет CourseCompleteView).
+      const daysCount = activeItem.daysCount || 30;
+      let day = 1;
+      while (closureDays.has(day) && day <= daysCount) day++;
+      const isFinished = closureDays.size >= daysCount;
+      setDayInfo({
+        day: isFinished ? daysCount : day,
+        isUpcoming: false, isFinished, isAccessExpired: false,
+        daysUntilStart: 0, daysSinceFinish: 0,
+      });
+      setCurrentDay(day > daysCount ? daysCount : day);
+    }
+  }, [courseStartDate, tzOffsetMin, dayStartHour, user?.id, activeItem, progressionMode, closureDays]);
 
   useEffect(() => {
     recalcDay();
@@ -131,7 +152,9 @@ export default function App() {
 
   // ─── Course finished check ───
   const courseFinished = activeItem
-    ? isCourseFinished(activeItem.startDate || courseStartDate, tzOffsetMin, dayStartHour, activeItem.daysCount)
+    ? (progressionMode === 'daily'
+        ? isCourseFinished(activeItem.startDate || courseStartDate, tzOffsetMin, dayStartHour, activeItem.daysCount)
+        : closureDays.size >= (activeItem.daysCount || 30))
     : false;
 
   // ─── Update elapsed when day changes ───
@@ -505,8 +528,29 @@ export default function App() {
     if (!user?.id) return;
     const items = await getAvailableItems(user.id);
     setAvailableItems(items);
+    // Обновить activeItem из свежего списка (сохранить выбранный курс, обновить closures/mode)
+    setActiveItem(prev => {
+      if (!prev) return prev;
+      return items.find(it => it.type === prev.type && it.id === prev.id) || prev;
+    });
     return items;
   };
+
+  // v25: close/reopen day + refresh активного курса чтобы closures пришли.
+  const handleCloseDay = useCallback(async () => {
+    if (!activeItem || activeItem.type !== 'course') return { error: 'Not a course' };
+    const { closeCurrentDay } = await import('./lib/db');
+    const res = await closeCurrentDay(activeItem.id);
+    if (!res?.error) await refreshItems();
+    return res;
+  }, [activeItem]);
+  const handleReopenDay = useCallback(async (day) => {
+    if (!activeItem || activeItem.type !== 'course') return { error: 'Not a course' };
+    const { reopenClosedDay } = await import('./lib/db');
+    const res = await reopenClosedDay(activeItem.id, day);
+    if (!res?.error) await refreshItems();
+    return res;
+  }, [activeItem]);
 
   const refreshUnread = useCallback(async () => {
     if (!user?.id) return;
@@ -665,7 +709,11 @@ export default function App() {
         activeItem={activeItem} availableItems={availableItems} onSwitchContext={handleSwitchContext}
         exclusions={exclusions} customActivities={customActivities}
         unreadCount={unreadCount} courseFinished={courseFinished} dayInfo={dayInfo}
-        courseCalls={courseCalls} courseMedia={courseMedia} />
+        courseCalls={courseCalls} courseMedia={courseMedia}
+        progressionMode={progressionMode}
+        closures={activeItem?.closures || []}
+        onCloseDay={handleCloseDay}
+        onReopenDay={handleReopenDay} />
     );
     }
   };

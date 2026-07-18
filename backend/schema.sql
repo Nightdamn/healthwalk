@@ -81,6 +81,10 @@ CREATE TABLE IF NOT EXISTS courses (
   bound_to_calendar BOOLEAN NOT NULL DEFAULT FALSE,
   start_date DATE,
   access_days_after INTEGER CHECK (access_days_after IS NULL OR access_days_after >= 0),
+  -- v25: режим зачёта дня. daily = по календарю, free = по 100% практик,
+  -- self_paced = free + возможность «Завершить день» / «Пройти день заново».
+  progression_mode TEXT NOT NULL DEFAULT 'daily'
+    CHECK (progression_mode IN ('daily', 'free', 'self_paced')),
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -114,11 +118,30 @@ CREATE TABLE IF NOT EXISTS course_enrollments (
   invited_by UUID REFERENCES users(id) ON DELETE SET NULL,
   paused BOOLEAN DEFAULT FALSE,
   joined_at TIMESTAMPTZ DEFAULT NOW(),
+  -- v25: индивидуальный override глобального progression_mode курса.
+  -- NULL = используется courses.progression_mode.
+  progression_mode_override TEXT NULL
+    CHECK (progression_mode_override IS NULL OR progression_mode_override IN ('daily', 'free', 'self_paced')),
   UNIQUE(course_id, user_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_enrollments_user ON course_enrollments(user_id);
 CREATE INDEX IF NOT EXISTS idx_enrollments_course ON course_enrollments(course_id);
+
+-- v25: закрытые дни (для free/self_paced режимов).
+-- currentDay = min day не в этой таблице для (user, course).
+-- courseFinished = COUNT = days_count.
+CREATE TABLE IF NOT EXISTS course_day_closures (
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  course_id UUID NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+  day INT NOT NULL CHECK (day >= 1),
+  closed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  -- 'auto' — все практики дня done, closure создан backend'ом автоматом.
+  -- 'forced' — ученик нажал «Завершить день» в self_paced.
+  closure_type TEXT NOT NULL DEFAULT 'auto' CHECK (closure_type IN ('auto', 'forced')),
+  PRIMARY KEY (user_id, course_id, day)
+);
+CREATE INDEX IF NOT EXISTS idx_day_closures_user_course ON course_day_closures(user_id, course_id);
 
 CREATE TABLE IF NOT EXISTS pending_invitations (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
