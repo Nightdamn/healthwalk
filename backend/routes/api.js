@@ -356,6 +356,25 @@ router.patch('/trainer/enrollments/:enrollmentId/mode', async (req, res) => {
       sd = Math.max(1, Math.min(parseInt(startDay) || 1, daysCount));
     }
 
+    // Если тренер поставил режим free/self_paced БЕЗ явного startDay, но
+    // раньше был daily — автоматически берём calendar_day этого enrollment
+    // (для bound_to_calendar от course.start_date, иначе от enrollment.joined_at).
+    if (sd === null && mode !== undefined && (newEffective === 'free' || newEffective === 'self_paced')) {
+      const c2 = await queryOne(
+        `SELECT c.start_date, c.bound_to_calendar, ce.joined_at
+           FROM courses c JOIN course_enrollments ce ON ce.course_id = c.id
+          WHERE ce.id = $1`,
+        [req.params.enrollmentId]
+      );
+      let startISO = c2?.bound_to_calendar && c2.start_date ? c2.start_date : c2.joined_at;
+      if (startISO) {
+        const startDay = new Date(startISO);
+        const today = new Date();
+        const diffDays = Math.floor((today - startDay) / (24 * 60 * 60 * 1000));
+        sd = Math.max(1, Math.min(diffDays + 1, daysCount));
+      }
+    }
+
     if (sd !== null && (newEffective === 'free' || newEffective === 'self_paced')) {
       // Полностью пересобираем closures: чистим все и вставляем 1..sd-1.
       await query('DELETE FROM course_day_closures WHERE user_id=$1 AND course_id=$2',
