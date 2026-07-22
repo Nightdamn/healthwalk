@@ -30,6 +30,20 @@ function getDayTimePct(h) {
 
 const SZ = 32, CX = SZ / 2, CY = SZ / 2, R = 12, CIRC = 2 * Math.PI * R, GREEN = '#27ae60', IR = R - 1.5;
 
+// Финальный кружок в конце трекера — «Курс завершён». Без цифры, только галочка.
+// Pale outline пока курс не завершён; зелёный заполненный когда завершён.
+function FinalCircle({ done }) {
+  return (
+    <svg width={SZ} height={SZ} style={{ display: 'block', overflow: 'visible', flexShrink: 0 }}>
+      <circle cx={CX} cy={CY} r={R} fill={done ? GREEN : 'none'}
+        stroke={done ? GREEN : 'rgba(0,0,0,0.15)'} strokeWidth={2} />
+      <polyline points={`${CX - 4},${CY} ${CX - 1},${CY + 3} ${CX + 4},${CY - 3}`}
+        fill="none" stroke={done ? '#fff' : 'rgba(0,0,0,0.25)'}
+        strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 function DayCircle({ day, timePct, allDone, practicePct, isPast, isCurrent, isFuture, uid, progressive }) {
   let arcPct = 0;
   if (isFuture) arcPct = 0;
@@ -131,7 +145,10 @@ export default function Dashboard({
     if (t) daysRowRef.current.scrollTo({ left: t.offsetLeft - daysRowRef.current.clientWidth / 2 + t.clientWidth / 2, behavior: 'smooth' });
   }, [activeDay]);
 
-  useEffect(() => { setViewingDay(null); setDashView('day'); }, [currentDay, activeItem?.id]);
+  useEffect(() => {
+    setViewingDay(null);
+    setDashView(courseFinished ? 'completed' : 'day');
+  }, [currentDay, activeItem?.id, courseFinished]);
 
   const todayProgress = progress[activeDay] || {};
   const completedCount = dayActivities.filter(a => todayProgress[a.id]).length;
@@ -234,8 +251,8 @@ export default function Dashboard({
                       <div data-day={day} onClick={() => {
                           // В progressive режимах future — заблокирован.
                           if (isFuture && isProgressive) return;
-                          if (day === currentDay && !isUpcoming) { setViewingDay(null); setDashView('day'); }
-                          else setViewingDay(day);
+                          setViewingDay(day);
+                          setDashView('day');
                         }}
                         style={{ cursor: (isFuture && isProgressive) ? 'default' : 'pointer', flexShrink: 0, zIndex: 1, position: 'relative', opacity: (isFuture && isProgressive) ? 0.5 : 1 }}>
                         <DayCircle day={day} uid={uidRef.current} timePct={isCurrent ? timePct : (isPast ? 100 : 0)}
@@ -245,6 +262,19 @@ export default function Dashboard({
                     </React.Fragment>
                   );
                 })}
+                {/* Финальный кружок «Курс завершён» — только для courses (не trackers).
+                    Клик всегда переключает на CourseCompleteView. Зелёный заполненный
+                    когда courseFinished, иначе pale outline. */}
+                {activeItem?.type === 'course' && (
+                  <React.Fragment key="final">
+                    <div style={{ width: 12, minWidth: 12, height: 2.5, background: courseFinished ? GREEN : 'rgba(0,0,0,0.06)', marginLeft: -3, marginRight: -3, zIndex: 0, flexShrink: 0 }} />
+                    <div onClick={() => { setViewingDay(null); setDashView('completed'); }}
+                      style={{ cursor: 'pointer', flexShrink: 0, zIndex: 1, position: 'relative' }}
+                      title="Курс завершён">
+                      <FinalCircle done={courseFinished} />
+                    </div>
+                  </React.Fragment>
+                )}
               </div>
             </div>
 
@@ -270,7 +300,7 @@ export default function Dashboard({
               </button>
             </div>
 
-            {courseFinished && dashView !== 'map' && dashView !== 'stats' && viewingDay === null ? (
+            {dashView === 'completed' ? (
               <CourseCompleteView
                 progress={progress}
                 allActivities={allActivities}
