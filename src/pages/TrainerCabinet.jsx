@@ -130,18 +130,33 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
 
   const courseMode = (m) => ({ daily: 'По дням', free: 'По прохождению', self_paced: 'Свободно' }[m] || 'По дням');
 
-  // v25: смена per-student режима зачёта дня (или reset к общему = null).
-  // Тренер может задать startDay — тогда:
-  //   progressive: closures чистятся и создаются 1..startDay-1 (auto)
-  //   daily (not bound): joined_at сдвигается так, чтобы currentDay = startDay
-  const handleChangeMode = async (enrollmentId, newMode, startDay) => {
+  // v25: смена per-student режима зачёта дня (без изменения текущего дня).
+  const handleChangeMode = async (enrollmentId, newMode) => {
     setActionId(enrollmentId);
-    const result = await setEnrollmentMode(enrollmentId, newMode, startDay);
+    const result = await setEnrollmentMode(enrollmentId, newMode);
     if (result?.error) {
       alert(result.error);
     } else {
-      // Перезагружаем список полностью — на бэке могли поменяться joined_at
-      // и closures. Проще перечитать чем локально предсказывать.
+      try {
+        const fresh = await import('../lib/db').then(m => m.getCourseStudentsInfo(courseId));
+        setStudents(fresh || []);
+      } catch {}
+    }
+    setActionId(null);
+  };
+
+  // v25: сдвиг «текущего дня» ученика (без изменения режима).
+  //   progressive: closures пересобираются 1..day-1 (auto)
+  //   daily (не bound): joined_at сдвигается на (day-1) дней назад
+  //   daily + bound: ошибка (нельзя сдвинуть индивидуально в bound-курсе)
+  //   При сдвиге course_progress не сбрасывается — прогресс уже сделанных
+  //   практик остаётся.
+  const handleChangeDay = async (enrollmentId, day) => {
+    setActionId(enrollmentId);
+    const result = await setEnrollmentMode(enrollmentId, undefined, day);
+    if (result?.error) {
+      alert(result.error);
+    } else {
       try {
         const fresh = await import('../lib/db').then(m => m.getCourseStudentsInfo(courseId));
         setStudents(fresh || []);
@@ -164,8 +179,14 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
     isActivityScheduled(a, d, effectiveStartDate(student));
 
   const getStudentStats = (student) => {
+    // v25: для progressive-режимов currentDay = closed_days + 1 (первый не-closed).
+    const effectiveMode = student.progression_mode_override || student.course_progression_mode || 'daily';
+    const isProgressive = effectiveMode === 'free' || effectiveMode === 'self_paced';
     const startDate = effectiveStartDate(student);
-    const studentCurrentDay = startDate ? getCourseDay(startDate, null, 0, daysCount) : 1;
+    const dailyCurrentDay = startDate ? getCourseDay(startDate, null, 0, daysCount) : 1;
+    const studentCurrentDay = isProgressive
+      ? Math.min(daysCount, Math.max(1, parseInt(student.closed_days) + 1 || 1))
+      : dailyCurrentDay;
     const elapsedDays = Math.max(0, studentCurrentDay - 1);
     const prog = allProgress[student.user_id] || {};
     const excl = allExclusions[student.user_id] || {};
@@ -496,50 +517,36 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
                         <div style={{ fontSize: 11, color: '#888', fontWeight: 600, marginBottom: 6, textTransform: 'uppercase' }}>
                           Режим зачёта дня
                         </div>
-                        <select
+                        <Dropdown
                           value={st.progression_mode_override || ''}
                           disabled={isBusy}
-                          onChange={e => {
-                            const newMode = e.target.value || null;
-                            // Спрашиваем startDay для всех явных режимов (daily/free/self_paced).
-                            // «Как у курса» (null) применяем сразу без сдвига дня.
-                            if (newMode === null) {
-                              handleChangeMode(st.enrollment_id, newMode);
-                              return;
-                            }
-                            const label = { daily: 'По дням', free: 'По прохождению', self_paced: 'Свободно' }[newMode];
-                            const raw = prompt(
-                              `Включить режим «${label}» с какого дня?\n\n` +
-                              `Введите число от 1 до ${daysCount}.\n` +
-                              `Все дни ДО указанного будут отмечены как завершённые.\n\n` +
-                              `Оставьте пустым и нажмите OK — применить без сдвига дня.`,
-                              String(1)
-                            );
-                            if (raw === null) return; // отмена
-                            const trimmed = raw.trim();
-                            if (trimmed === '') {
-                              handleChangeMode(st.enrollment_id, newMode);
-                              return;
-                            }
-                            const n = parseInt(trimmed);
-                            if (!Number.isFinite(n) || n < 1 || n > daysCount) {
-                              alert(`Нужно число от 1 до ${daysCount}`);
-                              return;
-                            }
-                            handleChangeMode(st.enrollment_id, newMode, n);
+                          fullWidth
+                          onChange={(newMode) => {
+                            handleChangeMode(st.enrollment_id, newMode || null);
                           }}
-                          style={{
-                            width: '100%', padding: '8px 10px', borderRadius: 8,
-                            border: '1.5px solid rgba(0,0,0,0.08)', background: '#fff',
-                            fontSize: 13, color: '#1a1a2e',
-                          }}>
-                          <option value="">Как у курса ({courseMode(st.course_progression_mode)})</option>
-                          <option value="daily">По дням</option>
-                          <option value="free">По прохождению</option>
-                          <option value="self_paced">Свободно</option>
-                        </select>
+                          options={[
+                            { value: '', label: `Как у курса (${courseMode(st.course_progression_mode)})` },
+                            { value: 'daily', label: 'По дням' },
+                            { value: 'free', label: 'По прохождению' },
+                            { value: 'self_paced', label: 'Свободно' },
+                          ]}
+                        />
+                        {/* Текущий день ученика — отдельный inline-input. Меняем
+                            → PATCH со startDay. progressive: closures пересобираются;
+                            daily (не bound): joined_at сдвигается. Прогресс не сбрасывается. */}
+                        <div style={{ marginTop: 10 }}>
+                          <div style={{ fontSize: 11, color: '#888', fontWeight: 600, marginBottom: 6, textTransform: 'uppercase' }}>
+                            Текущий день
+                          </div>
+                          <StudentDayInput
+                            currentDay={stats.studentCurrentDay}
+                            maxDay={daysCount}
+                            disabled={isBusy}
+                            onApply={(d) => handleChangeDay(st.enrollment_id, d)}
+                          />
+                        </div>
                         {typeof st.closed_days === 'string' || typeof st.closed_days === 'number' ? (
-                          <div style={{ fontSize: 11, color: '#888', marginTop: 4 }}>
+                          <div style={{ fontSize: 11, color: '#888', marginTop: 6 }}>
                             Закрытых дней: {st.closed_days}
                           </div>
                         ) : null}
@@ -1107,6 +1114,57 @@ function DaySquare({ day, frac, allDone, isFuture, isSelected, title, onClick })
         {day}
       </text>
     </svg>
+  );
+}
+
+// v25: input «Текущий день ученика». Draft редактируется локально, при blur или
+// нажатии Enter — onApply(number). Ничего не происходит если число не изменилось
+// или невалидно. Кнопка «Применить» рядом для явного триггера на touch-устройствах.
+function StudentDayInput({ currentDay, maxDay, disabled, onApply }) {
+  const [draft, setDraft] = useState(String(currentDay || 1));
+  useEffect(() => { setDraft(String(currentDay || 1)); }, [currentDay]);
+  const commit = () => {
+    const n = parseInt(String(draft).trim());
+    if (!Number.isFinite(n) || n < 1 || n > maxDay) {
+      setDraft(String(currentDay || 1));
+      return;
+    }
+    if (n === currentDay) return;
+    onApply(n);
+  };
+  const changed = (() => {
+    const n = parseInt(String(draft).trim());
+    return Number.isFinite(n) && n !== currentDay && n >= 1 && n <= maxDay;
+  })();
+  return (
+    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+      <input
+        type="number" min={1} max={maxDay}
+        value={draft}
+        disabled={disabled}
+        onChange={e => setDraft(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter') commit(); }}
+        onBlur={commit}
+        style={{
+          width: 80, padding: '8px 10px', borderRadius: 8,
+          border: '1.5px solid rgba(0,0,0,0.08)', background: '#fff',
+          fontSize: 13, color: '#1a1a2e', textAlign: 'center',
+        }}
+      />
+      <span style={{ fontSize: 12, color: '#888' }}>из {maxDay}</span>
+      {changed && (
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={commit}
+          style={{
+            marginLeft: 'auto', padding: '6px 12px', borderRadius: 8,
+            border: 'none', background: '#1a1a2e', color: '#fff',
+            fontSize: 12, fontWeight: 600, cursor: disabled ? 'wait' : 'pointer',
+          }}
+        >Применить</button>
+      )}
+    </div>
   );
 }
 

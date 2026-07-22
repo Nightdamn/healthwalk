@@ -332,14 +332,21 @@ router.delete('/courses/:id/closures/:day', async (req, res) => {
 router.patch('/trainer/enrollments/:enrollmentId/mode', async (req, res) => {
   try {
     const { mode, startDay } = req.body || {};
-    if (mode !== null && !['daily','free','self_paced'].includes(mode)) return res.status(400).json({ error: 'Bad mode' });
+    // mode === undefined → не меняем режим (изменение только startDay).
+    // mode === null → сбрасываем override (использовать общий курса).
+    // mode !== undefined → валидируем.
+    if (mode !== undefined && mode !== null && !['daily','free','self_paced'].includes(mode)) {
+      return res.status(400).json({ error: 'Bad mode' });
+    }
     const enroll = await queryOne('SELECT * FROM course_enrollments WHERE id=$1', [req.params.enrollmentId]);
     if (!enroll) return res.status(404).json({ error: 'Не найден' });
     if (!await isTrainer(req.userId, enroll.course_id)) return res.status(403).json({ error: 'Нет прав' });
     const course = await queryOne('SELECT days_count, bound_to_calendar FROM courses WHERE id=$1', [enroll.course_id]);
     const daysCount = course?.days_count || 30;
-    await query('UPDATE course_enrollments SET progression_mode_override=$1 WHERE id=$2',
-      [mode, req.params.enrollmentId]);
+    if (mode !== undefined) {
+      await query('UPDATE course_enrollments SET progression_mode_override=$1 WHERE id=$2',
+        [mode, req.params.enrollmentId]);
+    }
     const newEffective = await getEffectiveMode(enroll.user_id, enroll.course_id);
 
     // Тренер указал явный startDay — перезаписываем состояние ученика так,

@@ -61,7 +61,10 @@ export async function reopenClosedDay(courseId, day) {
   catch (err) { return { error: err.message }; }
 }
 export async function setEnrollmentMode(enrollmentId, mode, startDay) {
-  try { return await apiPatch(`/api/trainer/enrollments/${enrollmentId}/mode`, { mode, startDay }); }
+  const body = {};
+  if (mode !== undefined) body.mode = mode;
+  if (startDay !== undefined) body.startDay = startDay;
+  try { return await apiPatch(`/api/trainer/enrollments/${enrollmentId}/mode`, body); }
   catch (err) { return { error: err.message }; }
 }
 
