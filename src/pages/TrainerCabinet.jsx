@@ -131,15 +131,21 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
   const courseMode = (m) => ({ daily: 'По дням', free: 'По прохождению', self_paced: 'Свободно' }[m] || 'По дням');
 
   // v25: смена per-student режима зачёта дня (или reset к общему = null).
-  const handleChangeMode = async (enrollmentId, newMode) => {
+  // Тренер может задать startDay — тогда:
+  //   progressive: closures чистятся и создаются 1..startDay-1 (auto)
+  //   daily (not bound): joined_at сдвигается так, чтобы currentDay = startDay
+  const handleChangeMode = async (enrollmentId, newMode, startDay) => {
     setActionId(enrollmentId);
-    const result = await setEnrollmentMode(enrollmentId, newMode);
+    const result = await setEnrollmentMode(enrollmentId, newMode, startDay);
     if (result?.error) {
       alert(result.error);
     } else {
-      setStudents(prev => prev.map(s =>
-        s.enrollment_id === enrollmentId ? { ...s, progression_mode_override: newMode } : s
-      ));
+      // Перезагружаем список полностью — на бэке могли поменяться joined_at
+      // и closures. Проще перечитать чем локально предсказывать.
+      try {
+        const fresh = await import('../lib/db').then(m => m.getCourseStudentsInfo(courseId));
+        setStudents(fresh || []);
+      } catch {}
     }
     setActionId(null);
   };
@@ -493,7 +499,35 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
                         <select
                           value={st.progression_mode_override || ''}
                           disabled={isBusy}
-                          onChange={e => handleChangeMode(st.enrollment_id, e.target.value || null)}
+                          onChange={e => {
+                            const newMode = e.target.value || null;
+                            // Спрашиваем startDay для всех явных режимов (daily/free/self_paced).
+                            // «Как у курса» (null) применяем сразу без сдвига дня.
+                            if (newMode === null) {
+                              handleChangeMode(st.enrollment_id, newMode);
+                              return;
+                            }
+                            const label = { daily: 'По дням', free: 'По прохождению', self_paced: 'Свободно' }[newMode];
+                            const raw = prompt(
+                              `Включить режим «${label}» с какого дня?\n\n` +
+                              `Введите число от 1 до ${daysCount}.\n` +
+                              `Все дни ДО указанного будут отмечены как завершённые.\n\n` +
+                              `Оставьте пустым и нажмите OK — применить без сдвига дня.`,
+                              String(1)
+                            );
+                            if (raw === null) return; // отмена
+                            const trimmed = raw.trim();
+                            if (trimmed === '') {
+                              handleChangeMode(st.enrollment_id, newMode);
+                              return;
+                            }
+                            const n = parseInt(trimmed);
+                            if (!Number.isFinite(n) || n < 1 || n > daysCount) {
+                              alert(`Нужно число от 1 до ${daysCount}`);
+                              return;
+                            }
+                            handleChangeMode(st.enrollment_id, newMode, n);
+                          }}
                           style={{
                             width: '100%', padding: '8px 10px', borderRadius: 8,
                             border: '1.5px solid rgba(0,0,0,0.08)', background: '#fff',

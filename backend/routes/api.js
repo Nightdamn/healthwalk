@@ -331,30 +331,54 @@ router.delete('/courses/:id/closures/:day', async (req, res) => {
 // При переключении progressive→daily: user_settings.current_day = calendar day.
 router.patch('/trainer/enrollments/:enrollmentId/mode', async (req, res) => {
   try {
-    const { mode } = req.body || {};
+    const { mode, startDay } = req.body || {};
     if (mode !== null && !['daily','free','self_paced'].includes(mode)) return res.status(400).json({ error: 'Bad mode' });
     const enroll = await queryOne('SELECT * FROM course_enrollments WHERE id=$1', [req.params.enrollmentId]);
     if (!enroll) return res.status(404).json({ error: 'Не найден' });
     if (!await isTrainer(req.userId, enroll.course_id)) return res.status(403).json({ error: 'Нет прав' });
-    const oldEffective = await getEffectiveMode(enroll.user_id, enroll.course_id);
+    const course = await queryOne('SELECT days_count, bound_to_calendar FROM courses WHERE id=$1', [enroll.course_id]);
+    const daysCount = course?.days_count || 30;
     await query('UPDATE course_enrollments SET progression_mode_override=$1 WHERE id=$2',
       [mode, req.params.enrollmentId]);
     const newEffective = await getEffectiveMode(enroll.user_id, enroll.course_id);
-    // Reconciliation.
-    if (oldEffective === 'daily' && (newEffective === 'free' || newEffective === 'self_paced')) {
-      // Все days < user_settings.current_day → auto-closures (если ещё не).
-      const s = await queryOne('SELECT current_day FROM user_settings WHERE user_id=$1', [enroll.user_id]);
-      const cd = s?.current_day || 1;
-      for (let d = 1; d < cd; d++) {
+
+    // Тренер указал явный startDay — перезаписываем состояние ученика так,
+    // чтобы его currentDay стал = startDay.
+    let sd = null;
+    if (startDay !== undefined && startDay !== null && startDay !== '') {
+      sd = Math.max(1, Math.min(parseInt(startDay) || 1, daysCount));
+    }
+
+    if (sd !== null && (newEffective === 'free' || newEffective === 'self_paced')) {
+      // Полностью пересобираем closures: чистим все и вставляем 1..sd-1.
+      await query('DELETE FROM course_day_closures WHERE user_id=$1 AND course_id=$2',
+        [enroll.user_id, enroll.course_id]);
+      for (let d = 1; d < sd; d++) {
         await query(
           `INSERT INTO course_day_closures (user_id, course_id, day, closure_type)
-           VALUES ($1,$2,$3,'auto') ON CONFLICT DO NOTHING`,
+           VALUES ($1,$2,$3,'auto')`,
           [enroll.user_id, enroll.course_id, d]
         );
       }
+    } else if (sd !== null && newEffective === 'daily') {
+      // Для daily надо, чтобы клиент вычислил currentDay = sd. Это работает
+      // через сдвиг «даты старта для этого ученика». Для bound-курса стартовая
+      // дата общая (courses.start_date), сдвинуть её нельзя — вернём warning.
+      if (course.bound_to_calendar) {
+        return res.status(400).json({
+          error: 'Курс привязан к общей дате начала — сместить день индивидуально в daily-режиме нельзя. Уберите привязку или используйте прогрессивный режим.'
+        });
+      }
+      // enrollment.joined_at = today - (sd - 1) дней. Клиент вычислит день
+      // как (today - joined_at) + 1 = sd.
+      await query(
+        `UPDATE course_enrollments SET joined_at = NOW() - INTERVAL '1 day' * ($1 - 1) WHERE id=$2`,
+        [sd, req.params.enrollmentId]
+      );
+      // Также очищаем closures (в daily режиме они не используются).
+      await query('DELETE FROM course_day_closures WHERE user_id=$1 AND course_id=$2',
+        [enroll.user_id, enroll.course_id]);
     }
-    // progressive→daily: current_day в user_settings уже обновится recalcDay'ем
-    // на клиенте по календарю. Ничего не трогаем в БД — closures остаются как история.
     res.json({ ok: true, effectiveMode: newEffective });
   } catch (err) { console.error(err); res.status(500).json({ error: err.message }); }
 });

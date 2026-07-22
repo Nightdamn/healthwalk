@@ -60,8 +60,8 @@ export async function reopenClosedDay(courseId, day) {
   try { return await apiDelete(`/api/courses/${courseId}/closures/${day}`); }
   catch (err) { return { error: err.message }; }
 }
-export async function setEnrollmentMode(enrollmentId, mode) {
-  try { return await apiPatch(`/api/trainer/enrollments/${enrollmentId}/mode`, { mode }); }
+export async function setEnrollmentMode(enrollmentId, mode, startDay) {
+  try { return await apiPatch(`/api/trainer/enrollments/${enrollmentId}/mode`, { mode, startDay }); }
   catch (err) { return { error: err.message }; }
 }
 
