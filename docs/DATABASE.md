@@ -184,6 +184,43 @@ UNIQUE(course_id, user_id, activity_id, day)
 
 ---
 
+## Лист практик (Practice Library, v27)
+
+Личный банк переиспользуемых практик тренера. Активность в курсе можно
+«сохранить в лист» — получается снимок в `practice_library` + все media
+в `practice_library_media`. Из другого курса можно multi-select добавить
+несколько практик — копия целиком со всеми расписаниями (расписания
+clamp'ятся по `days_count` целевого курса). Кнопка «Обновить в Листе»
+перезаписывает snapshot из активности; unlink просто зануляет
+`course_activities.library_practice_id`.
+
+`is_public` — задел на будущее (публичная витрина).
+
+### practice_library
+| Колонка | Тип | Описание |
+|---------|-----|----------|
+| id | UUID PK | |
+| owner_id | UUID | FK → users, ON DELETE CASCADE |
+| label | TEXT | Название |
+| icon_num | TEXT | Иконка |
+| practice_type | TEXT | media / theory / call |
+| description_html | TEXT | |
+| duration_min | INT | |
+| first_day / last_day | INT | Шаблон расписания |
+| interval_days | INT | |
+| excluded_days / extra_days | INT[] | |
+| is_public | BOOLEAN | Задел на витрину |
+| created_at / updated_at | TIMESTAMPTZ | |
+
+### practice_library_media
+Та же структура, что `activity_media`, но с FK на `practice_library`.
+
+### course_activities.library_practice_id
+UUID, ON DELETE SET NULL. При удалении шаблона из библиотеки копии в
+курсах не пропадают, просто теряют связь.
+
+---
+
 ## Сообщения
 
 ### messages
