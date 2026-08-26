@@ -1184,9 +1184,11 @@ router.post('/library', async (req, res) => {
        act.description_html, act.duration_min, act.first_day || 1, act.last_day || 30,
        act.interval_days || 1, act.excluded_days || [], act.extra_days || []]
     );
+    // NB: activity_media.activity_id — TEXT, но хранит UUID row course_activities
+    // (клиент пишет туда a.dbId = row.id, не текстовый ключ activity_id).
     const media = await query(
       `SELECT * FROM activity_media WHERE course_id = $1 AND activity_id = $2 ORDER BY sort_order`,
-      [act.course_id, act.activity_id]
+      [act.course_id, act.id]
     );
     for (const m of media) {
       await query(
@@ -1231,9 +1233,11 @@ router.patch('/library/:id', async (req, res) => {
     );
     // Полностью пересобираем медиа: DELETE + INSERT из свежего snapshot.
     await query('DELETE FROM practice_library_media WHERE practice_id = $1', [lib.id]);
+    // NB: activity_media.activity_id — TEXT, но хранит UUID row course_activities
+    // (клиент пишет туда a.dbId = row.id, не текстовый ключ activity_id).
     const media = await query(
       `SELECT * FROM activity_media WHERE course_id = $1 AND activity_id = $2 ORDER BY sort_order`,
-      [act.course_id, act.activity_id]
+      [act.course_id, act.id]
     );
     for (const m of media) {
       await query(
@@ -1298,7 +1302,8 @@ router.post('/courses/:courseId/activities/from-library', async (req, res) => {
          lib.interval_days || 1, nextSort++, clampDays(lib.excluded_days),
          clampDays(lib.extra_days), lib.id]
       );
-      // Копируем media
+      // Копируем media. NB: activity_media.activity_id — TEXT, но клиент
+      // читает медиа по row.id (UUID), не по текстовому ключу.
       const libMedia = await query(
         'SELECT * FROM practice_library_media WHERE practice_id = $1 ORDER BY sort_order',
         [lib.id]
@@ -1310,7 +1315,7 @@ router.post('/courses/:courseId/activities/from-library', async (req, res) => {
               file_size, duration_sec, first_day, last_day, interval_days,
               excluded_days, extra_days, sort_order)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
-          [courseId, activityKey, m.media_type, m.source_type, m.media_url,
+          [courseId, row.id, m.media_type, m.source_type, m.media_url,
            m.text_content, m.description_html, m.file_size, m.duration_sec,
            clampDay(m.first_day), clampDay(m.last_day), m.interval_days || 1,
            clampDays(m.excluded_days), clampDays(m.extra_days), m.sort_order || 0]
