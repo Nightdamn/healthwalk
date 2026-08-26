@@ -71,4 +71,8 @@ ALTER TABLE course_activities
 CREATE INDEX IF NOT EXISTS idx_activities_library ON course_activities(library_practice_id)
   WHERE library_practice_id IS NOT NULL;
 
+-- Миграция накатывается под postgres, а приложение подключается под instep —
+-- без явного GRANT новые таблицы будут возвращать «permission denied».
+GRANT ALL PRIVILEGES ON TABLE practice_library, practice_library_media TO instep;
+
 COMMIT;
