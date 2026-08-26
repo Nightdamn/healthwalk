@@ -94,6 +94,23 @@ export async function getGeo() {
   catch { return { country: null }; }
 }
 
+// v27: Practice Library
+export async function getLibrary() {
+  return await apiGet('/api/library');
+}
+export async function saveActivityToLibrary(activityId) {
+  return await apiPost('/api/library', { activityId });
+}
+export async function refreshLibraryFromActivity(libraryId, activityId) {
+  return await apiPatch(`/api/library/${libraryId}`, { activityId });
+}
+export async function deleteLibraryEntry(libraryId) {
+  return await apiDelete(`/api/library/${libraryId}`);
+}
+export async function copyLibraryToCourse(courseId, libraryIds) {
+  return await apiPost(`/api/courses/${courseId}/activities/from-library`, { libraryIds });
+}
+
 export function signInWithGoogle() {
   window.location.href = `${API_BASE}/api/auth/google`;
 }

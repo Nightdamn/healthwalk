@@ -15,6 +15,7 @@ import CreateTrackerPage from './pages/CreateTracker';
 import EditCoursePage from './pages/EditCourse';
 import EditTrackerPage from './pages/EditTracker';
 import TrainerCabinetPage from './pages/TrainerCabinet';
+import LibraryPage from './pages/Library';
 import Layout from './components/Layout';
 import { MenuProvider } from './components/MenuContext';
 import MenuDrawer from './components/MenuDrawer';
@@ -63,6 +64,12 @@ export default function App() {
   const [editCourseId, setEditCourseId] = useState(null);
   const [editTrackerId, setEditTrackerId] = useState(null);
   const [trainerCourseId, setTrainerCourseId] = useState(null);
+  // v27: Practice Library — режим «выбрать из листа для добавления в курс».
+  // Когда установлено — Library открывается в pickerMode, при возврате
+  // делаем re-mount EditCoursePage (через editCourseKey), чтобы подтянуть
+  // новые активности с сервера.
+  const [libraryPickerCourseId, setLibraryPickerCourseId] = useState(null);
+  const [editCourseKey, setEditCourseKey] = useState(0);
 
   // Progress for active context (keyed by activity UUID)
   const [progress, setProgress] = useState({});       // { day: { actId: true/false } }
@@ -583,6 +590,39 @@ export default function App() {
     setScreen('trainer_cabinet');
   };
 
+  // v27: открыть Лист практик в режиме выбора для добавления в курс.
+  const handleOpenLibraryForCourse = (courseId) => {
+    setLibraryPickerCourseId(courseId);
+    setScreen('library');
+  };
+
+  // Возврат из library-picker: если добавили новые активности — форс-перемонтаж
+  // EditCoursePage через смену key, чтобы страница перечитала данные курса.
+  const handleLibraryPickerDone = (added) => {
+    const courseId = libraryPickerCourseId;
+    setLibraryPickerCourseId(null);
+    if (Array.isArray(added) && added.length > 0) {
+      setEditCourseKey(k => k + 1);
+    }
+    if (courseId) {
+      setEditCourseId(courseId);
+      setScreen('edit_course');
+    } else {
+      setScreen('my_courses');
+    }
+  };
+
+  const handleLibraryBack = () => {
+    if (libraryPickerCourseId) {
+      const courseId = libraryPickerCourseId;
+      setLibraryPickerCourseId(null);
+      setEditCourseId(courseId);
+      setScreen('edit_course');
+    } else {
+      setScreen('main');
+    }
+  };
+
   const handleEditCourseBack = async () => {
     // Editor auto-saves while open, so on back we just need to refresh
     // course list + active context so the dashboard reflects the latest state.
@@ -696,7 +736,8 @@ export default function App() {
     case 'assign_role': return <AssignRolePage onBack={goMain} onAssign={handleAssignRole} />;
     case 'my_courses': return <MyCoursesPage user={user} userRole={userRole} onBack={goMain} onNavigate={setScreen} onEditCourse={handleEditCourse} onTrainerCabinet={handleTrainerCabinet} onRefresh={refreshItems} availableItems={availableItems} />;
     case 'create_course': return <CreateCoursePage user={user} onBack={() => setScreen('my_courses')} onCreated={handleCourseCreated} />;
-    case 'edit_course': return <EditCoursePage courseId={editCourseId} onBack={handleEditCourseBack} onSaved={handleCourseSaved} onDeleted={handleCourseDeleted} tzOffsetMin={tzOffsetMin} />;
+    case 'edit_course': return <EditCoursePage key={`edit-${editCourseId}-${editCourseKey}`} courseId={editCourseId} onBack={handleEditCourseBack} onSaved={handleCourseSaved} onDeleted={handleCourseDeleted} tzOffsetMin={tzOffsetMin} onOpenLibrary={() => handleOpenLibraryForCourse(editCourseId)} />;
+    case 'library': return <LibraryPage onBack={handleLibraryBack} pickerCourseId={libraryPickerCourseId} onPickerDone={handleLibraryPickerDone} />;
     case 'trainer_cabinet': return <TrainerCabinetPage courseId={trainerCourseId} user={user} onBack={() => setScreen('my_courses')} onRefreshRole={refreshRole} onEditCourse={handleEditCourse} />;
     case 'invite': return <InvitePage user={user} onBack={() => setScreen('my_courses')} />;
     case 'my_trackers': return <MyTrackersPage user={user} onBack={goMain} onNavigate={setScreen} onEditTracker={handleEditTracker} />;

@@ -19,6 +19,8 @@ import { createAutoSaver } from '../lib/autoSave';
 import MediaSection, { extractYoutubeId } from '../components/MediaSection';
 import RichTextEditor from '../components/RichTextEditor';
 import Dropdown from '../components/Dropdown';
+import { saveActivityToLibrary, refreshLibraryFromActivity } from '../lib/supabase';
+import { apiPatch } from '../lib/supabase';
 
 // Detect a video's duration without showing it. Used at trainer-edit time so
 // the practice length auto-syncs with the actual runtime.
@@ -141,7 +143,7 @@ function emptyActivity(daysCount) {
   return { dbId: null, label: '', iconNum: 'health/1', practiceType: 'media', descriptionHtml: '', firstDay: 1, lastDay: daysCount, durationMin: 10, intervalDays: 1, excludedDays: [], extraDays: [], _key: Date.now() + Math.random() };
 }
 
-export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, tzOffsetMin }) {
+export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, tzOffsetMin, onOpenLibrary }) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [daysCount, setDaysCount] = useState(30);
@@ -295,6 +297,7 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
           intervalDays: a.interval_days || 1,
           excludedDays: newExc,
           extraDays: newExt,
+          libraryPracticeId: a.library_practice_id || null,
           _key: a.id,
         };
       });
@@ -543,6 +546,70 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
       if (result?.error) setError(`Ошибка удаления активности: ${result.error}`);
       // Refresh videos cached in state — server cascaded them on disk + DB.
       setVideos(prev => prev.filter(v => v.activity_id !== act.dbId));
+    }
+  };
+
+  // ── v27: Practice Library integration ───────────────────────────────
+  // libraryBusyIds — id активностей, для которых сейчас идёт запрос к /api/library.
+  // Показываем visual busy на карточке чтобы юзер не спамил кнопку.
+  const [libraryBusyIds, setLibraryBusyIds] = useState(new Set());
+  const markLibBusy = (id, on) => setLibraryBusyIds(prev => {
+    const n = new Set(prev);
+    if (on) n.add(id); else n.delete(id);
+    return n;
+  });
+
+  const handleSaveToLibrary = async (act) => {
+    if (!act?.dbId) return;
+    // Прежде чем снимать snapshot — сбросим отложенные патчи, чтобы серверная
+    // копия точно соответствовала тому, что видит юзер.
+    saverRef.current.flushAll();
+    markLibBusy(act.dbId, true);
+    try {
+      const res = await saveActivityToLibrary(act.dbId);
+      const created = res?.data || res;
+      if (created?.error || !created?.id) {
+        setError(`Ошибка сохранения в лист: ${created?.error || 'unknown'}`);
+        return;
+      }
+      setActivities(prev => prev.map(a => a.dbId === act.dbId
+        ? { ...a, libraryPracticeId: created.id }
+        : a));
+    } catch (e) {
+      setError(`Ошибка сохранения в лист: ${e.message}`);
+    } finally {
+      markLibBusy(act.dbId, false);
+    }
+  };
+
+  const handleRefreshLibrary = async (act) => {
+    if (!act?.dbId || !act?.libraryPracticeId) return;
+    saverRef.current.flushAll();
+    markLibBusy(act.dbId, true);
+    try {
+      const res = await refreshLibraryFromActivity(act.libraryPracticeId, act.dbId);
+      if (res?.error) setError(`Ошибка обновления: ${res.error}`);
+    } catch (e) {
+      setError(`Ошибка обновления: ${e.message}`);
+    } finally {
+      markLibBusy(act.dbId, false);
+    }
+  };
+
+  const handleUnlinkLibrary = async (act) => {
+    if (!act?.dbId || !act.libraryPracticeId) return;
+    markLibBusy(act.dbId, true);
+    try {
+      const res = await patchActivity(act.dbId, { libraryPracticeId: null });
+      if (res?.error) {
+        setError(`Ошибка: ${res.error}`);
+        return;
+      }
+      setActivities(prev => prev.map(a => a.dbId === act.dbId
+        ? { ...a, libraryPracticeId: null }
+        : a));
+    } finally {
+      markLibBusy(act.dbId, false);
     }
   };
 
@@ -892,14 +959,27 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
             onDragBegin={() => setDragKey(a._key)}
             onDragOverKey={(key) => { if (dragKey && dragKey !== key) setDragOverKey(key); }}
             onDragEnd={() => { setDragKey(null); setDragOverKey(null); }}
-            onDropOn={(key) => handleDrop(key)} />
+            onDropOn={(key) => handleDrop(key)}
+            onSaveToLibrary={a.dbId ? () => handleSaveToLibrary(a) : null}
+            onRefreshLibrary={() => handleRefreshLibrary(a)}
+            onUnlinkLibrary={() => handleUnlinkLibrary(a)}
+            libraryBusy={libraryBusyIds.has(a.dbId)} />
         ))}
 
-        <button onClick={addActivity} style={{
-          width: '100%', padding: 14, borderRadius: 14,
-          border: '2px dashed rgba(39,174,96,0.3)', background: 'rgba(39,174,96,0.04)',
-          color: GREEN, fontSize: 15, fontWeight: 600, cursor: 'pointer', marginBottom: 20,
-        }}>+ Добавить активность</button>
+        <div style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
+          <button onClick={addActivity} style={{
+            flex: 1, padding: 14, borderRadius: 14,
+            border: '2px dashed rgba(39,174,96,0.3)', background: 'rgba(39,174,96,0.04)',
+            color: GREEN, fontSize: 15, fontWeight: 600, cursor: 'pointer',
+          }}>+ Добавить активность</button>
+          {onOpenLibrary && (
+            <button onClick={onOpenLibrary} style={{
+              flex: 1, padding: 14, borderRadius: 14,
+              border: '2px dashed rgba(39,174,96,0.3)', background: 'rgba(39,174,96,0.04)',
+              color: GREEN, fontSize: 15, fontWeight: 600, cursor: 'pointer',
+            }}>+ Лист практик</button>
+          )}
+        </div>
 
         {/* Delete course */}
         {onDeleted && (
@@ -1094,7 +1174,7 @@ function CallRow({ call, courseStartDate, tzMin, onPatch }) {
   );
 }
 
-function ActivityCard({ activity, index, maxDay, onUpdate, onToggleDay, onRemove, onPickIcon, videos, courseId, videoUploadingId, uploadProgress, uploadPhase, activityId: propActivityId, onVideoUpload, onAddLink, onAddEmpty, onDeleteVideo, onPatchVideo, calls, onCreateCall, onDeleteCall, onPatchCall, tzOffsetMin, boundToCalendar, courseStartDate, collapsed = false, onToggleCollapsed, isDragging = false, isDragOver = false, onDragBegin, onDragOverKey, onDragEnd, onDropOn }) {
+function ActivityCard({ activity, index, maxDay, onUpdate, onToggleDay, onRemove, onPickIcon, videos, courseId, videoUploadingId, uploadProgress, uploadPhase, activityId: propActivityId, onVideoUpload, onAddLink, onAddEmpty, onDeleteVideo, onPatchVideo, calls, onCreateCall, onDeleteCall, onPatchCall, tzOffsetMin, boundToCalendar, courseStartDate, collapsed = false, onToggleCollapsed, isDragging = false, isDragOver = false, onDragBegin, onDragOverKey, onDragEnd, onDropOn, onSaveToLibrary, onRefreshLibrary, onUnlinkLibrary, libraryBusy = false }) {
   // Trainer's timezone comes from THEIR profile (user_settings.tz_offset_min),
   // NOT from the browser — VPNs make browser tz unreliable; profile is the
   // single source of truth. Default fallback: Moscow (UTC+3, offset=180).
@@ -1275,6 +1355,52 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onToggleDay, onRemove
             placeholder="Название активности" style={{ ...inputStyle, flex: 1 }} />
         )}
       </div>
+
+      {!collapsed && (onSaveToLibrary || activity.libraryPracticeId) && (
+        <div style={{
+          marginBottom: 10, padding: '8px 10px', borderRadius: 10,
+          background: 'rgba(39,174,96,0.05)',
+          border: '1px solid rgba(39,174,96,0.15)',
+          display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+        }}>
+          {activity.libraryPracticeId ? (
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: libraryBusy ? 'wait' : 'pointer', flex: 1, minWidth: 0 }}
+                onClick={() => !libraryBusy && onUnlinkLibrary?.()}>
+                <div style={{
+                  width: 20, height: 20, borderRadius: 6, flexShrink: 0,
+                  border: `2px solid ${GREEN}`, background: GREEN,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                    <path d="M2 6L5 9L10 3" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </div>
+                <span style={{ fontSize: 13, color: '#1a1a2e', fontWeight: 500 }}>
+                  Сохранено в Лист практик
+                </span>
+              </div>
+              <button onClick={() => onRefreshLibrary?.()} disabled={libraryBusy}
+                style={{
+                  padding: '6px 10px', borderRadius: 8, border: `1px solid ${GREEN}`,
+                  background: 'transparent', color: GREEN, fontSize: 12, fontWeight: 600,
+                  cursor: libraryBusy ? 'wait' : 'pointer',
+                }}>Обновить в Листе</button>
+            </>
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: libraryBusy ? 'wait' : 'pointer', flex: 1 }}
+              onClick={() => !libraryBusy && onSaveToLibrary?.()}>
+              <div style={{
+                width: 20, height: 20, borderRadius: 6, flexShrink: 0,
+                border: '2px solid rgba(0,0,0,0.15)', background: '#fff',
+              }} />
+              <span style={{ fontSize: 13, color: '#1a1a2e', fontWeight: 500 }}>
+                Сохранить в Лист практик
+              </span>
+            </div>
+          )}
+        </div>
+      )}
 
       {!collapsed && (<>
       {/* Practice type selector */}

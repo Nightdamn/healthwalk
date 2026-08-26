@@ -742,7 +742,7 @@ router.patch('/activities/:id', async (req, res) => {
     const days = await queryOne('SELECT days_count FROM courses WHERE id = $1', [act.course_id]);
     const daysCount = days?.days_count || 30;
 
-    const { label, iconNum, practiceType, descriptionHtml, firstDay, lastDay, durationMin, intervalDays, sortOrder, excludedDays, extraDays } = req.body || {};
+    const { label, iconNum, practiceType, descriptionHtml, firstDay, lastDay, durationMin, intervalDays, sortOrder, excludedDays, extraDays, libraryPracticeId } = req.body || {};
     const sets = [];
     const params = [];
     let i = 1;
@@ -785,6 +785,11 @@ router.patch('/activities/:id', async (req, res) => {
     }
     if (Array.isArray(extraDays)) {
       sets.push(`extra_days=$${i++}`); params.push(sanitizeDays(extraDays));
+    }
+    // v27: явное значение libraryPracticeId (null для отвязки, uuid для привязки).
+    if (libraryPracticeId !== undefined) {
+      sets.push(`library_practice_id=$${i++}`);
+      params.push(libraryPracticeId || null);
     }
     if (sets.length === 0) return res.json({ ok: true });
     params.push(req.params.id);
@@ -1127,6 +1132,195 @@ async function isTrainer(userId, courseId) {
   );
   return !!enroll;
 }
+
+// ═══════════════════════════════════════════════════════════
+// PRACTICE LIBRARY (v27) — переиспользуемые шаблоны активностей
+// ═══════════════════════════════════════════════════════════
+
+// GET /library — все практики текущего юзера + media (для отображения иконок).
+router.get('/library', async (req, res) => {
+  try {
+    const rows = await query(
+      `SELECT * FROM practice_library WHERE owner_id = $1 ORDER BY updated_at DESC`,
+      [req.userId]
+    );
+    const ids = rows.map(r => r.id);
+    let mediaByPractice = {};
+    if (ids.length) {
+      const media = await query(
+        `SELECT id, practice_id, media_type, source_type, media_url, duration_sec
+           FROM practice_library_media
+          WHERE practice_id = ANY($1) ORDER BY sort_order`,
+        [ids]
+      );
+      for (const m of media) {
+        (mediaByPractice[m.practice_id] ||= []).push(m);
+      }
+    }
+    res.json(rows.map(p => ({ ...p, media: mediaByPractice[p.id] || [] })));
+  } catch (err) { console.error('[Library] GET:', err); res.status(500).json({ error: err.message }); }
+});
+
+// POST /library — сохранить активность как шаблон в лист.
+// body: { activityId } — снимок берётся с course_activities по id.
+// Возвращает созданную запись; клиент запишет её id в activity.library_practice_id.
+router.post('/library', async (req, res) => {
+  try {
+    const { activityId } = req.body || {};
+    if (!activityId) return res.status(400).json({ error: 'activityId обязателен' });
+    const act = await queryOne('SELECT * FROM course_activities WHERE id = $1', [activityId]);
+    if (!act) return res.status(404).json({ error: 'Активность не найдена' });
+    if (!await isTrainer(req.userId, act.course_id)) return res.status(403).json({ error: 'Нет прав' });
+
+    // Создаём запись + копируем все медиа. Всё в одной transactionn'ой цепочке
+    // через try/catch — простая версия, без явного BEGIN.
+    const created = await queryOne(
+      `INSERT INTO practice_library
+         (owner_id, label, icon_num, practice_type, description_html,
+          duration_min, first_day, last_day, interval_days,
+          excluded_days, extra_days)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
+      [req.userId, act.label || '', act.icon_num || 'health/1', act.practice_type || 'media',
+       act.description_html, act.duration_min, act.first_day || 1, act.last_day || 30,
+       act.interval_days || 1, act.excluded_days || [], act.extra_days || []]
+    );
+    const media = await query(
+      `SELECT * FROM activity_media WHERE course_id = $1 AND activity_id = $2 ORDER BY sort_order`,
+      [act.course_id, act.activity_id]
+    );
+    for (const m of media) {
+      await query(
+        `INSERT INTO practice_library_media
+           (practice_id, media_type, source_type, media_url, text_content, description_html,
+            file_size, duration_sec, first_day, last_day, interval_days,
+            excluded_days, extra_days, sort_order)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+        [created.id, m.media_type, m.source_type, m.media_url, m.text_content, m.description_html,
+         m.file_size, m.duration_sec, m.first_day, m.last_day, m.interval_days,
+         m.excluded_days || [], m.extra_days || [], m.sort_order || 0]
+      );
+    }
+    // Сразу связываем activity → library
+    await query('UPDATE course_activities SET library_practice_id = $1 WHERE id = $2', [created.id, activityId]);
+    res.json({ data: created });
+  } catch (err) { console.error('[Library] POST:', err); res.status(500).json({ error: err.message }); }
+});
+
+// PATCH /library/:id — обновить снимок из активности («Обновить в листе»).
+// body: { activityId } — берём свежее состояние активности и её media.
+router.patch('/library/:id', async (req, res) => {
+  try {
+    const { activityId } = req.body || {};
+    if (!activityId) return res.status(400).json({ error: 'activityId обязателен' });
+    const lib = await queryOne('SELECT * FROM practice_library WHERE id = $1', [req.params.id]);
+    if (!lib) return res.status(404).json({ error: 'Запись листа не найдена' });
+    if (lib.owner_id !== req.userId) return res.status(403).json({ error: 'Нет прав' });
+    const act = await queryOne('SELECT * FROM course_activities WHERE id = $1', [activityId]);
+    if (!act) return res.status(404).json({ error: 'Активность не найдена' });
+    if (!await isTrainer(req.userId, act.course_id)) return res.status(403).json({ error: 'Нет прав на курс' });
+
+    await query(
+      `UPDATE practice_library SET
+         label=$1, icon_num=$2, practice_type=$3, description_html=$4,
+         duration_min=$5, first_day=$6, last_day=$7, interval_days=$8,
+         excluded_days=$9, extra_days=$10, updated_at=NOW()
+       WHERE id=$11`,
+      [act.label, act.icon_num, act.practice_type, act.description_html,
+       act.duration_min, act.first_day, act.last_day, act.interval_days,
+       act.excluded_days || [], act.extra_days || [], lib.id]
+    );
+    // Полностью пересобираем медиа: DELETE + INSERT из свежего snapshot.
+    await query('DELETE FROM practice_library_media WHERE practice_id = $1', [lib.id]);
+    const media = await query(
+      `SELECT * FROM activity_media WHERE course_id = $1 AND activity_id = $2 ORDER BY sort_order`,
+      [act.course_id, act.activity_id]
+    );
+    for (const m of media) {
+      await query(
+        `INSERT INTO practice_library_media
+           (practice_id, media_type, source_type, media_url, text_content, description_html,
+            file_size, duration_sec, first_day, last_day, interval_days,
+            excluded_days, extra_days, sort_order)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+        [lib.id, m.media_type, m.source_type, m.media_url, m.text_content, m.description_html,
+         m.file_size, m.duration_sec, m.first_day, m.last_day, m.interval_days,
+         m.excluded_days || [], m.extra_days || [], m.sort_order || 0]
+      );
+    }
+    res.json({ ok: true });
+  } catch (err) { console.error('[Library] PATCH:', err); res.status(500).json({ error: err.message }); }
+});
+
+// DELETE /library/:id — окончательное удаление шаблона из листа.
+// course_activities.library_practice_id ставится в NULL через FK ON DELETE SET NULL.
+router.delete('/library/:id', async (req, res) => {
+  try {
+    const lib = await queryOne('SELECT owner_id FROM practice_library WHERE id = $1', [req.params.id]);
+    if (!lib) return res.status(404).json({ error: 'Не найдено' });
+    if (lib.owner_id !== req.userId) return res.status(403).json({ error: 'Нет прав' });
+    await query('DELETE FROM practice_library WHERE id = $1', [req.params.id]);
+    res.json({ ok: true });
+  } catch (err) { console.error('[Library] DELETE:', err); res.status(500).json({ error: err.message }); }
+});
+
+// POST /courses/:courseId/activities/from-library — batch копирование из листа.
+// body: { libraryIds: [id, id, ...] }. Каждая практика копируется вместе с медиа,
+// расписание clamp'ится под days_count курса. Возвращает список созданных activities.
+router.post('/courses/:courseId/activities/from-library', async (req, res) => {
+  try {
+    const { courseId } = req.params;
+    const { libraryIds } = req.body || {};
+    if (!Array.isArray(libraryIds) || libraryIds.length === 0) {
+      return res.status(400).json({ error: 'libraryIds обязательны' });
+    }
+    if (!await isTrainer(req.userId, courseId)) return res.status(403).json({ error: 'Нет прав' });
+    const days = await queryOne('SELECT days_count FROM courses WHERE id = $1', [courseId]);
+    const daysCount = days?.days_count || 30;
+    const clampDay = (d) => Math.max(1, Math.min(parseInt(d) || 1, daysCount));
+    const clampDays = (arr) => (arr || []).map(d => parseInt(d)).filter(d => d >= 1 && d <= daysCount);
+
+    const lastRow = await queryOne('SELECT COALESCE(MAX(sort_order), -1) AS m FROM course_activities WHERE course_id = $1', [courseId]);
+    let nextSort = parseInt(lastRow?.m ?? -1) + 1;
+
+    const created = [];
+    for (const libId of libraryIds) {
+      const lib = await queryOne('SELECT * FROM practice_library WHERE id = $1 AND owner_id = $2', [libId, req.userId]);
+      if (!lib) continue;
+      const activityKey = `act_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const row = await queryOne(
+        `INSERT INTO course_activities
+           (course_id, activity_id, label, duration_min, icon_num, practice_type,
+            description_html, first_day, last_day, interval_days, sort_order,
+            excluded_days, extra_days, library_practice_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
+        [courseId, activityKey, lib.label, lib.duration_min, lib.icon_num, lib.practice_type,
+         lib.description_html, clampDay(lib.first_day), clampDay(lib.last_day),
+         lib.interval_days || 1, nextSort++, clampDays(lib.excluded_days),
+         clampDays(lib.extra_days), lib.id]
+      );
+      // Копируем media
+      const libMedia = await query(
+        'SELECT * FROM practice_library_media WHERE practice_id = $1 ORDER BY sort_order',
+        [lib.id]
+      );
+      for (const m of libMedia) {
+        await query(
+          `INSERT INTO activity_media
+             (course_id, activity_id, media_type, source_type, media_url, text_content, description_html,
+              file_size, duration_sec, first_day, last_day, interval_days,
+              excluded_days, extra_days, sort_order)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+          [courseId, activityKey, m.media_type, m.source_type, m.media_url,
+           m.text_content, m.description_html, m.file_size, m.duration_sec,
+           clampDay(m.first_day), clampDay(m.last_day), m.interval_days || 1,
+           clampDays(m.excluded_days), clampDays(m.extra_days), m.sort_order || 0]
+        );
+      }
+      created.push(row);
+    }
+    res.json({ data: created, count: created.length });
+  } catch (err) { console.error('[Library] copy-to-course:', err); res.status(500).json({ error: err.message }); }
+});
 
 router.get('/trainer/students/:courseId', async (req, res) => {
   try {
