@@ -19,6 +19,13 @@ CREATE TABLE IF NOT EXISTS users (
   avatar_url TEXT,
   provider TEXT NOT NULL DEFAULT 'email',  -- 'email' | 'google'
   provider_id TEXT,                  -- Google sub ID
+  -- v26: email verification + password reset + consent 152-ФЗ
+  email_verified BOOLEAN NOT NULL DEFAULT FALSE,
+  email_verification_code TEXT,
+  email_verification_expires TIMESTAMPTZ,
+  password_reset_code TEXT,
+  password_reset_expires TIMESTAMPTZ,
+  consent_pd_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );

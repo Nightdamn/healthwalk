@@ -28,7 +28,10 @@ export async function api(path, options = {}) {
     body: options.body instanceof FormData ? options.body : (options.body ? JSON.stringify(options.body) : undefined),
   });
 
-  if (res.status === 401) {
+  // 401 от НЕ-auth endpoint = токен просрочен → форс-релогин.
+  // 401 от /api/auth/* — валидная бизнес-ошибка (например «неверный пароль») →
+  // не рестартуем сессию, возвращаем json с error.
+  if (res.status === 401 && !path.startsWith('/api/auth/')) {
     setToken(null);
     window.location.reload();
     throw new Error('Unauthorized');
@@ -64,10 +67,31 @@ export async function signInWithPassword(email, password) {
   return data;
 }
 
-export async function signUp(email, password, name) {
-  const data = await apiPost('/api/auth/register', { email, password, name });
+export async function signUp(email, password, name, consent) {
+  const data = await apiPost('/api/auth/register', { email, password, name, consent });
   if (data.token) setToken(data.token);
   return data;
+}
+
+// v26: email verification / password reset / change / geo.
+export async function verifyEmail(email, code) {
+  return await apiPost('/api/auth/verify-email', { email, code });
+}
+export async function resendVerification(email) {
+  return await apiPost('/api/auth/resend-verification', { email });
+}
+export async function requestPasswordReset(email) {
+  return await apiPost('/api/auth/reset-request', { email });
+}
+export async function confirmPasswordReset(email, code, newPassword) {
+  return await apiPost('/api/auth/reset-confirm', { email, code, newPassword });
+}
+export async function changePassword(oldPassword, newPassword) {
+  return await apiPost('/api/auth/change-password', { oldPassword, newPassword });
+}
+export async function getGeo() {
+  try { return await apiGet('/api/auth/geo'); }
+  catch { return { country: null }; }
 }
 
 export function signInWithGoogle() {

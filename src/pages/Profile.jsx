@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import Layout from '../components/Layout';
 import { glass } from '../styles/shared';
 import { isNativeApp, checkForUpdate, startUpdate, APP_VERSION } from '../lib/updater';
+import { changePassword, resendVerification, verifyEmail, getMe } from '../lib/supabase';
 
 const TIMEZONES = [
   { label: "UTC−12 Бейкер", offset: -720 },
@@ -216,6 +217,9 @@ export default function ProfilePage({ user, currentDay, progress, tzOffsetMin, d
           )}
         </div>
 
+        {/* v26: «Вход в аккаунт» — смена/установка пароля + верификация email */}
+        <AccountAccessSection user={user} />
+
         {/* Logout */}
         <button onClick={handleLogout} disabled={loggingOut}
           style={{
@@ -230,5 +234,123 @@ export default function ProfilePage({ user, currentDay, progress, tzOffsetMin, d
         </button>
       </div>
     </Layout>
+  );
+}
+
+// ─── v26: «Вход в аккаунт» — смена пароля + верификация email ───────────────
+function AccountAccessSection({ user }) {
+  const [me, setMe] = useState(null);
+  const [oldPw, setOldPw] = useState('');
+  const [newPw, setNewPw] = useState('');
+  const [newPw2, setNewPw2] = useState('');
+  const [code, setCode] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+  const [err, setErr] = useState('');
+
+  useEffect(() => { getMe().then(setMe).catch(() => {}); }, []);
+
+  const clear = () => { setMsg(''); setErr(''); };
+
+  const handleChangePw = async () => {
+    clear();
+    if (newPw.length < 8) return setErr('Пароль минимум 8 символов');
+    if (!/[a-zA-Zа-яА-Я]/.test(newPw) || !/\d/.test(newPw)) return setErr('Пароль должен содержать буквы и цифры');
+    if (newPw !== newPw2) return setErr('Пароли не совпадают');
+    if (me?.hasPassword && !oldPw) return setErr('Введите текущий пароль');
+    setBusy(true);
+    try {
+      const r = await changePassword(me?.hasPassword ? oldPw : undefined, newPw);
+      if (r?.error) setErr(r.error);
+      else {
+        setMsg('Пароль обновлён');
+        setOldPw(''); setNewPw(''); setNewPw2('');
+        const fresh = await getMe(); if (fresh) setMe(fresh);
+      }
+    } catch (e) { setErr(e?.message || 'Ошибка'); }
+    finally { setBusy(false); }
+  };
+
+  const handleResend = async () => {
+    clear(); setBusy(true);
+    try { await resendVerification(me?.email || user?.email); setMsg('Код отправлен на email'); }
+    catch (e) { setErr(e?.message || 'Ошибка'); }
+    finally { setBusy(false); }
+  };
+
+  const handleVerify = async () => {
+    clear();
+    if (!code.trim()) return setErr('Введите код');
+    setBusy(true);
+    try {
+      const r = await verifyEmail(me?.email || user?.email, code.trim());
+      if (r?.error) setErr(r.error);
+      else {
+        setMsg('Email подтверждён');
+        setCode('');
+        const fresh = await getMe(); if (fresh) setMe(fresh);
+      }
+    } catch (e) { setErr(e?.message || 'Ошибка'); }
+    finally { setBusy(false); }
+  };
+
+  if (!me) return null;
+
+  const inp = {
+    width: '100%', padding: '10px 12px', border: '1.5px solid rgba(0,0,0,0.08)',
+    borderRadius: 10, fontSize: 14, boxSizing: 'border-box', background: '#fff', color: '#1a1a2e',
+  };
+  const btn = (primary) => ({
+    padding: '10px 18px', border: 'none', borderRadius: 10,
+    background: primary ? '#1a1a2e' : 'rgba(0,0,0,0.04)',
+    color: primary ? '#fff' : '#1a1a2e',
+    fontSize: 13, fontWeight: 600, cursor: busy ? 'wait' : 'pointer',
+    opacity: busy ? 0.6 : 1,
+  });
+
+  return (
+    <div style={{ ...glass, borderRadius: 16, padding: 20, marginTop: 20 }}>
+      <div style={{ fontSize: 15, fontWeight: 700, color: '#1a1a2e', marginBottom: 12 }}>Вход в аккаунт</div>
+      <div style={{ fontSize: 12, color: '#666', marginBottom: 16 }}>{me.email}</div>
+
+      {err && <div style={{ padding: '8px 12px', marginBottom: 12, borderRadius: 8, background: 'rgba(220,50,50,0.08)', color: '#c0392b', fontSize: 13 }}>{err}</div>}
+      {msg && <div style={{ padding: '8px 12px', marginBottom: 12, borderRadius: 8, background: 'rgba(39,174,96,0.08)', color: '#27ae60', fontSize: 13 }}>{msg}</div>}
+
+      {/* Email verification */}
+      {!me.emailVerified && (
+        <div style={{ marginBottom: 20, padding: 12, borderRadius: 12, background: 'rgba(230,150,30,0.06)', border: '1px solid rgba(230,150,30,0.2)' }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: '#e67e22', marginBottom: 4 }}>Email не подтверждён</div>
+          <div style={{ fontSize: 12, color: '#888', marginBottom: 10 }}>Введите код из письма или отправьте новый.</div>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+            <input type="text" inputMode="numeric" placeholder="Код" value={code} disabled={busy} maxLength={6}
+              onChange={e => setCode(e.target.value.replace(/\D/g, ''))}
+              style={{ ...inp, flex: 1, textAlign: 'center', letterSpacing: 4, fontWeight: 600 }} />
+            <button onClick={handleVerify} disabled={busy} style={btn(true)}>Подтвердить</button>
+          </div>
+          <button onClick={handleResend} disabled={busy} style={{ ...btn(false), fontSize: 12 }}>Отправить снова</button>
+        </div>
+      )}
+
+      {/* Password change */}
+      <div style={{ fontSize: 13, fontWeight: 600, color: '#1a1a2e', marginBottom: 8 }}>
+        {me.hasPassword ? 'Смена пароля' : 'Установить пароль'}
+      </div>
+      <div style={{ fontSize: 12, color: '#888', marginBottom: 12 }}>
+        {me.hasPassword ? 'Минимум 8 символов, буквы и цифры.' : 'Позволит входить по email + пароль (в дополнение к Google).'}
+      </div>
+      {me.hasPassword && (
+        <input type="password" placeholder="Текущий пароль" value={oldPw} disabled={busy}
+          onChange={e => setOldPw(e.target.value)} style={{ ...inp, marginBottom: 8 }} />
+      )}
+      <input type="password" placeholder="Новый пароль" value={newPw} disabled={busy}
+        onChange={e => setNewPw(e.target.value)} style={{ ...inp, marginBottom: 8 }} />
+      <input type="password" placeholder="Повторите новый пароль" value={newPw2} disabled={busy}
+        onChange={e => setNewPw2(e.target.value)}
+        onKeyDown={e => e.key === 'Enter' && handleChangePw()}
+        style={{ ...inp, marginBottom: 12 }} />
+      <button onClick={handleChangePw} disabled={busy} style={btn(true)}>
+        {me.hasPassword ? 'Обновить пароль' : 'Установить пароль'}
+      </button>
+    </div>
   );
 }
