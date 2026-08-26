@@ -94,6 +94,18 @@ export async function getGeo() {
   catch { return { country: null }; }
 }
 
+// v28: Admin panel — модерация витрины, блокировки, аудит.
+export async function adminGetTrainers() { return await apiGet('/api/admin/trainers'); }
+export async function adminGetTrainerCourses(trainerId) { return await apiGet(`/api/admin/trainers/${trainerId}/courses`); }
+export async function adminGetCourse(courseId) { return await apiGet(`/api/admin/courses/${courseId}`); }
+export async function adminGetAudit(limit = 100) { return await apiGet(`/api/admin/audit?limit=${limit}`); }
+export async function adminApproveCourse(courseId) { return await apiPost(`/api/admin/courses/${courseId}/approve`, {}); }
+export async function adminRejectCourse(courseId, reason) { return await apiPost(`/api/admin/courses/${courseId}/reject`, { reason }); }
+export async function adminBlockCourse(courseId, reason) { return await apiPost(`/api/admin/courses/${courseId}/block`, { reason }); }
+export async function adminUnblockCourse(courseId) { return await apiPost(`/api/admin/courses/${courseId}/unblock`, {}); }
+export async function adminBlockTrainer(trainerId, reason) { return await apiPost(`/api/admin/trainers/${trainerId}/block`, { reason }); }
+export async function adminUnblockTrainer(trainerId) { return await apiPost(`/api/admin/trainers/${trainerId}/unblock`, {}); }
+
 // v27: Practice Library
 export async function getLibrary() {
   return await apiGet('/api/library');

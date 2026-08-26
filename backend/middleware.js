@@ -1,4 +1,5 @@
 import jwt from 'jsonwebtoken';
+import { queryOne } from './db.js';
 
 // A-5: never silently fall back to a known secret. In production we hard-fail
 // at first use so a misconfigured deploy can't mint forgeable tokens.
@@ -33,5 +34,19 @@ export function requireAuth(req, res, next) {
     next();
   } catch {
     return res.status(401).json({ error: 'Invalid token' });
+  }
+}
+
+// v28: admin-only guard. Ставится после requireAuth. Читает user_roles —
+// один короткий запрос на каждый admin-endpoint, приемлемо (админов мало,
+// частота обращений низкая).
+export async function requireAdmin(req, res, next) {
+  try {
+    const row = await queryOne('SELECT role FROM user_roles WHERE user_id = $1', [req.userId]);
+    if (row?.role !== 'admin') return res.status(403).json({ error: 'Требуются права администратора' });
+    next();
+  } catch (err) {
+    console.error('[requireAdmin]', err);
+    res.status(500).json({ error: 'Ошибка проверки прав' });
   }
 }

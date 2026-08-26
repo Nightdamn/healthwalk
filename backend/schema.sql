@@ -26,12 +26,19 @@ CREATE TABLE IF NOT EXISTS users (
   password_reset_code TEXT,
   password_reset_expires TIMESTAMPTZ,
   consent_pd_at TIMESTAMPTZ,
+  -- v28: блокировка тренера. Заблокированный пользователь остаётся в БД
+  -- (данные учеников зависят от него), но его курсы скрываются от витрины
+  -- и от новых записей.
+  blocked_at TIMESTAMPTZ,
+  blocked_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  blocked_reason TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_users_provider ON users(provider, provider_id);
+CREATE INDEX IF NOT EXISTS idx_users_blocked ON users(blocked_at) WHERE blocked_at IS NOT NULL;
 
 -- ═══════════════════════════════════════════════════════════
 -- USER SETTINGS
@@ -92,11 +99,43 @@ CREATE TABLE IF NOT EXISTS courses (
   -- self_paced = free + возможность «Завершить день» / «Пройти день заново».
   progression_mode TEXT NOT NULL DEFAULT 'daily'
     CHECK (progression_mode IN ('daily', 'free', 'self_paced')),
+  -- v28: витрина курсов + модерация + цена + блокировка.
+  store_status TEXT NOT NULL DEFAULT 'draft'
+    CHECK (store_status IN ('draft', 'pending', 'approved', 'rejected', 'blocked')),
+  store_submitted_at TIMESTAMPTZ,
+  store_reviewed_at TIMESTAMPTZ,
+  store_reviewed_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  store_reject_reason TEXT,
+  price_amount NUMERIC(10, 2) NOT NULL DEFAULT 0 CHECK (price_amount >= 0),
+  price_currency TEXT NOT NULL DEFAULT 'RUB',
+  blocked_at TIMESTAMPTZ,
+  blocked_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  blocked_reason TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_courses_owner ON courses(owner_id);
+CREATE INDEX IF NOT EXISTS idx_courses_store_status ON courses(store_status)
+  WHERE store_status IN ('pending', 'approved');
+CREATE INDEX IF NOT EXISTS idx_courses_blocked ON courses(blocked_at) WHERE blocked_at IS NOT NULL;
+
+-- v28: admin_audit_log — журнал модерации.
+CREATE TABLE IF NOT EXISTS admin_audit_log (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  actor_id UUID NOT NULL REFERENCES users(id) ON DELETE SET NULL,
+  action TEXT NOT NULL CHECK (action IN (
+    'approve_course', 'reject_course',
+    'block_course', 'unblock_course',
+    'block_trainer', 'unblock_trainer'
+  )),
+  target_type TEXT NOT NULL CHECK (target_type IN ('course', 'user')),
+  target_id UUID NOT NULL,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_audit_actor ON admin_audit_log(actor_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_target ON admin_audit_log(target_type, target_id, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS course_activities (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,

@@ -24,7 +24,10 @@ export default function MenuDrawer({
     { label: 'Рекомендации', icon: '💡', target: 'recommendations' },
     { label: 'Вопрос тренеру', icon: '💬', target: 'ask' },
   );
-  if (userRole === 'admin') items.push({ label: 'Назначить роль', icon: '🔑', target: 'assign_role' });
+  if (userRole === 'admin') {
+    items.push({ label: 'Админ-панель', icon: '🛡', target: 'admin' });
+    items.push({ label: 'Назначить роль', icon: '🔑', target: 'assign_role' });
+  }
 
   return (
     <>
