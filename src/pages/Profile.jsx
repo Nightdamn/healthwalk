@@ -318,39 +318,60 @@ function AccountAccessSection({ user }) {
 
       {/* Email verification */}
       {!me.emailVerified && (
-        <div style={{ marginBottom: 20, padding: 12, borderRadius: 12, background: 'rgba(230,150,30,0.06)', border: '1px solid rgba(230,150,30,0.2)' }}>
+        <form onSubmit={(e) => { e.preventDefault(); handleVerify(); }}
+          method="POST" action="/api/auth/verify-email" noValidate
+          style={{ marginBottom: 20, padding: 12, borderRadius: 12, background: 'rgba(230,150,30,0.06)', border: '1px solid rgba(230,150,30,0.2)' }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: '#e67e22', marginBottom: 4 }}>Email не подтверждён</div>
           <div style={{ fontSize: 12, color: '#888', marginBottom: 10 }}>Введите код из письма или отправьте новый.</div>
+          {/* Hidden username-подсказка — чтобы Keychain/менеджеры связали
+              код с конкретным аккаунтом. */}
+          <input type="email" name="email" autoComplete="username" defaultValue={me.email}
+            readOnly hidden />
           <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-            <input type="text" inputMode="numeric" placeholder="Код" value={code} disabled={busy} maxLength={6}
+            <input type="text" name="code" id="profile-verify-code" inputMode="numeric"
+              placeholder="Код" autoComplete="one-time-code"
+              value={code} disabled={busy} maxLength={6}
               onChange={e => setCode(e.target.value.replace(/\D/g, ''))}
               style={{ ...inp, flex: 1, textAlign: 'center', letterSpacing: 4, fontWeight: 600 }} />
-            <button onClick={handleVerify} disabled={busy} style={btn(true)}>Подтвердить</button>
+            <button type="submit" disabled={busy} style={btn(true)}>Подтвердить</button>
           </div>
-          <button onClick={handleResend} disabled={busy} style={{ ...btn(false), fontSize: 12 }}>Отправить снова</button>
-        </div>
+          <button type="button" onClick={handleResend} disabled={busy}
+            style={{ ...btn(false), fontSize: 12 }}>Отправить снова</button>
+        </form>
       )}
 
       {/* Password change */}
-      <div style={{ fontSize: 13, fontWeight: 600, color: '#1a1a2e', marginBottom: 8 }}>
-        {me.hasPassword ? 'Смена пароля' : 'Установить пароль'}
-      </div>
-      <div style={{ fontSize: 12, color: '#888', marginBottom: 12 }}>
-        {me.hasPassword ? 'Минимум 8 символов, буквы и цифры.' : 'Позволит входить по email + пароль (в дополнение к Google).'}
-      </div>
-      {me.hasPassword && (
-        <input type="password" placeholder="Текущий пароль" value={oldPw} disabled={busy}
-          onChange={e => setOldPw(e.target.value)} style={{ ...inp, marginBottom: 8 }} />
-      )}
-      <input type="password" placeholder="Новый пароль" value={newPw} disabled={busy}
-        onChange={e => setNewPw(e.target.value)} style={{ ...inp, marginBottom: 8 }} />
-      <input type="password" placeholder="Повторите новый пароль" value={newPw2} disabled={busy}
-        onChange={e => setNewPw2(e.target.value)}
-        onKeyDown={e => e.key === 'Enter' && handleChangePw()}
-        style={{ ...inp, marginBottom: 12 }} />
-      <button onClick={handleChangePw} disabled={busy} style={btn(true)}>
-        {me.hasPassword ? 'Обновить пароль' : 'Установить пароль'}
-      </button>
+      <form onSubmit={(e) => { e.preventDefault(); handleChangePw(); }}
+        method="POST" action="/api/auth/change-password" noValidate>
+        <div style={{ fontSize: 13, fontWeight: 600, color: '#1a1a2e', marginBottom: 8 }}>
+          {me.hasPassword ? 'Смена пароля' : 'Установить пароль'}
+        </div>
+        <div style={{ fontSize: 12, color: '#888', marginBottom: 12 }}>
+          {me.hasPassword ? 'Минимум 8 символов, буквы и цифры.' : 'Позволит входить по email + пароль (в дополнение к Google).'}
+        </div>
+        {/* Hidden email — для autocomplete=new-password менеджерам нужен
+            «username» рядом, иначе они не могут привязать пароль к аккаунту. */}
+        <input type="email" name="email" autoComplete="username" defaultValue={me.email}
+          readOnly hidden />
+        {me.hasPassword && (
+          <input type="password" name="current-password" id="profile-old-pw"
+            placeholder="Текущий пароль" autoComplete="current-password" required
+            value={oldPw} disabled={busy}
+            onChange={e => setOldPw(e.target.value)} style={{ ...inp, marginBottom: 8 }} />
+        )}
+        <input type="password" name="new-password" id="profile-new-pw"
+          placeholder="Новый пароль" autoComplete="new-password" required minLength={8}
+          value={newPw} disabled={busy}
+          onChange={e => setNewPw(e.target.value)} style={{ ...inp, marginBottom: 8 }} />
+        <input type="password" name="new-password-confirm" id="profile-new-pw-2"
+          placeholder="Повторите новый пароль" autoComplete="new-password" required minLength={8}
+          value={newPw2} disabled={busy}
+          onChange={e => setNewPw2(e.target.value)}
+          style={{ ...inp, marginBottom: 12 }} />
+        <button type="submit" disabled={busy} style={btn(true)}>
+          {me.hasPassword ? 'Обновить пароль' : 'Установить пароль'}
+        </button>
+      </form>
     </div>
   );
 }

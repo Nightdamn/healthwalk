@@ -199,60 +199,83 @@ export default function LoginPage({ onLogin }) {
           {message && <Alert type="success">{message}</Alert>}
 
           {/* ─── LOGIN ─── */}
+          {/* Все формы обёрнуты в <form onSubmit> с name/id/autocomplete,
+              потому что антифишинг Safari/Chrome ищет именно этот паттерн
+              (иначе новый домен подозрителен). Enter теперь через нативный
+              submit, а не onKeyDown. Действие — /api/auth/login — точно тот
+              же origin, что и страница. */}
           {mode === MODES.LOGIN && (
-            <>
-              <input type="email" placeholder="Email" value={email} disabled={loading}
-                onChange={e => setEmail(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleLogin()}
+            <form onSubmit={(e) => { e.preventDefault(); handleLogin(); }}
+              method="POST" action="/api/auth/login" noValidate>
+              <input type="email" name="email" id="login-email" placeholder="Email"
+                autoComplete="username" required
+                value={email} disabled={loading}
+                onChange={e => setEmail(e.target.value)}
                 style={{ ...inputStyle, marginBottom: 10 }} />
-              <input type="password" placeholder="Пароль" value={password} disabled={loading}
-                onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleLogin()}
+              <input type="password" name="password" id="login-password" placeholder="Пароль"
+                autoComplete="current-password" required
+                value={password} disabled={loading}
+                onChange={e => setPassword(e.target.value)}
                 style={{ ...inputStyle, marginBottom: 6 }} />
               <div style={{ textAlign: 'right', marginBottom: 16 }}>
                 <button type="button" onClick={() => switchMode(MODES.RESET_REQUEST)}
                   style={linkStyle}>Забыли пароль?</button>
               </div>
-              <PrimaryButton onClick={handleLogin} loading={loading}>Войти</PrimaryButton>
+              <PrimaryButton type="submit" loading={loading}>Войти</PrimaryButton>
               {!hideGoogle && <><Divider /><GoogleButton onClick={handleGoogle} loading={loading} /></>}
-            </>
+            </form>
           )}
 
           {/* ─── REGISTER ─── */}
           {mode === MODES.REGISTER && (
-            <>
-              <input type="text" placeholder="Имя" value={name} disabled={loading}
+            <form onSubmit={(e) => { e.preventDefault(); handleRegister(); }}
+              method="POST" action="/api/auth/register" noValidate>
+              <input type="text" name="name" id="register-name" placeholder="Имя"
+                autoComplete="name" required
+                value={name} disabled={loading}
                 onChange={e => setName(e.target.value)}
                 style={{ ...inputStyle, marginBottom: 10 }} />
-              <input type="email" placeholder="Email" value={email} disabled={loading}
+              <input type="email" name="email" id="register-email" placeholder="Email"
+                autoComplete="username" required
+                value={email} disabled={loading}
                 onChange={e => setEmail(e.target.value)}
                 style={{ ...inputStyle, marginBottom: 10 }} />
-              <input type="password" placeholder="Пароль (мин 8 символов, буквы + цифры)" value={password} disabled={loading}
+              <input type="password" name="new-password" id="register-password"
+                placeholder="Пароль (мин 8 символов, буквы + цифры)"
+                autoComplete="new-password" required minLength={8}
+                value={password} disabled={loading}
                 onChange={e => setPassword(e.target.value)}
                 style={{ ...inputStyle, marginBottom: 10 }} />
-              <input type="password" placeholder="Повторите пароль" value={password2} disabled={loading}
-                onChange={e => setPassword2(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleRegister()}
+              <input type="password" name="new-password-confirm" id="register-password-2"
+                placeholder="Повторите пароль"
+                autoComplete="new-password" required minLength={8}
+                value={password2} disabled={loading}
+                onChange={e => setPassword2(e.target.value)}
                 style={{ ...inputStyle, marginBottom: 14 }} />
               <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 18, cursor: 'pointer', fontSize: 12, color: '#666', lineHeight: 1.4 }}>
-                <input type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)}
+                <input type="checkbox" name="consent" checked={consent} onChange={e => setConsent(e.target.checked)}
                   disabled={loading} style={{ marginTop: 2 }} />
                 <span>
                   Согласен с обработкой персональных данных согласно{' '}
                   <a href="/policy" target="_blank" rel="noopener" style={{ color: '#27ae60', textDecoration: 'underline' }}>Политике конфиденциальности</a>
                 </span>
               </label>
-              <PrimaryButton onClick={handleRegister} loading={loading}>Зарегистрироваться</PrimaryButton>
+              <PrimaryButton type="submit" loading={loading}>Зарегистрироваться</PrimaryButton>
               {!hideGoogle && <><Divider /><GoogleButton onClick={handleGoogle} loading={loading} /></>}
-            </>
+            </form>
           )}
 
           {/* ─── VERIFY EMAIL ─── */}
           {mode === MODES.VERIFY && (
-            <>
-              <input type="text" inputMode="numeric" placeholder="Код из письма (6 цифр)" value={code}
-                disabled={loading} maxLength={6}
+            <form onSubmit={(e) => { e.preventDefault(); handleVerify(); }}
+              method="POST" action="/api/auth/verify-email" noValidate>
+              <input type="text" name="code" id="verify-code" inputMode="numeric"
+                placeholder="Код из письма (6 цифр)"
+                autoComplete="one-time-code" required
+                value={code} disabled={loading} maxLength={6}
                 onChange={e => setCode(e.target.value.replace(/\D/g, ''))}
-                onKeyDown={e => e.key === 'Enter' && handleVerify()}
                 style={{ ...inputStyle, marginBottom: 14, textAlign: 'center', fontSize: 20, letterSpacing: 6, fontWeight: 600 }} />
-              <PrimaryButton onClick={handleVerify} loading={loading}>Подтвердить</PrimaryButton>
+              <PrimaryButton type="submit" loading={loading}>Подтвердить</PrimaryButton>
               <div style={{ textAlign: 'center', marginTop: 12 }}>
                 <button type="button" onClick={handleResend} disabled={loading} style={linkStyle}>
                   Отправить код снова
@@ -261,42 +284,55 @@ export default function LoginPage({ onLogin }) {
               <div style={{ textAlign: 'center', marginTop: 8 }}>
                 <button type="button" onClick={() => switchMode(MODES.LOGIN)} style={linkStyle}>← Ко входу</button>
               </div>
-            </>
+            </form>
           )}
 
           {/* ─── RESET REQUEST ─── */}
           {mode === MODES.RESET_REQUEST && (
-            <>
-              <input type="email" placeholder="Email" value={email} disabled={loading}
-                onChange={e => setEmail(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleResetRequest()}
+            <form onSubmit={(e) => { e.preventDefault(); handleResetRequest(); }}
+              method="POST" action="/api/auth/reset-request" noValidate>
+              <input type="email" name="email" id="reset-email" placeholder="Email"
+                autoComplete="username" required
+                value={email} disabled={loading}
+                onChange={e => setEmail(e.target.value)}
                 style={{ ...inputStyle, marginBottom: 16 }} />
-              <PrimaryButton onClick={handleResetRequest} loading={loading}>Отправить код</PrimaryButton>
+              <PrimaryButton type="submit" loading={loading}>Отправить код</PrimaryButton>
               <div style={{ textAlign: 'center', marginTop: 12 }}>
                 <button type="button" onClick={() => switchMode(MODES.LOGIN)} style={linkStyle}>← Ко входу</button>
               </div>
-            </>
+            </form>
           )}
 
           {/* ─── RESET CONFIRM ─── */}
           {mode === MODES.RESET_CONFIRM && (
-            <>
-              <input type="email" placeholder="Email" value={email} disabled={loading}
+            <form onSubmit={(e) => { e.preventDefault(); handleResetConfirm(); }}
+              method="POST" action="/api/auth/reset-confirm" noValidate>
+              <input type="email" name="email" id="reset-confirm-email" placeholder="Email"
+                autoComplete="username" required
+                value={email} disabled={loading}
                 onChange={e => setEmail(e.target.value)}
                 style={{ ...inputStyle, marginBottom: 10 }} />
-              <input type="text" inputMode="numeric" placeholder="Код из письма" value={code} disabled={loading} maxLength={6}
+              <input type="text" name="code" id="reset-confirm-code" inputMode="numeric"
+                placeholder="Код из письма"
+                autoComplete="one-time-code" required
+                value={code} disabled={loading} maxLength={6}
                 onChange={e => setCode(e.target.value.replace(/\D/g, ''))}
                 style={{ ...inputStyle, marginBottom: 10, textAlign: 'center', fontSize: 18, letterSpacing: 4, fontWeight: 600 }} />
-              <input type="password" placeholder="Новый пароль" value={password} disabled={loading}
+              <input type="password" name="new-password" id="reset-confirm-password" placeholder="Новый пароль"
+                autoComplete="new-password" required minLength={8}
+                value={password} disabled={loading}
                 onChange={e => setPassword(e.target.value)}
                 style={{ ...inputStyle, marginBottom: 10 }} />
-              <input type="password" placeholder="Повторите пароль" value={password2} disabled={loading}
-                onChange={e => setPassword2(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleResetConfirm()}
+              <input type="password" name="new-password-confirm" id="reset-confirm-password-2" placeholder="Повторите пароль"
+                autoComplete="new-password" required minLength={8}
+                value={password2} disabled={loading}
+                onChange={e => setPassword2(e.target.value)}
                 style={{ ...inputStyle, marginBottom: 14 }} />
-              <PrimaryButton onClick={handleResetConfirm} loading={loading}>Установить пароль</PrimaryButton>
+              <PrimaryButton type="submit" loading={loading}>Установить пароль</PrimaryButton>
               <div style={{ textAlign: 'center', marginTop: 12 }}>
                 <button type="button" onClick={() => switchMode(MODES.LOGIN)} style={linkStyle}>← Ко входу</button>
               </div>
-            </>
+            </form>
           )}
         </div>
       </div>
@@ -316,9 +352,9 @@ function Alert({ type, children }) {
   );
 }
 
-function PrimaryButton({ onClick, loading, children }) {
+function PrimaryButton({ onClick, loading, children, type = 'button' }) {
   return (
-    <button onClick={onClick} disabled={loading}
+    <button type={type} onClick={onClick} disabled={loading}
       style={{
         width: '100%', padding: '15px', background: '#1a1a2e', color: '#fff',
         border: 'none', borderRadius: 14, fontSize: 15, fontWeight: 600,
@@ -340,8 +376,10 @@ function Divider() {
 }
 
 function GoogleButton({ onClick, loading }) {
+  // type="button" явно — иначе внутри <form> кнопка случайно submit'ит
+  // форму вместо запуска OAuth-редиректа.
   return (
-    <button onClick={onClick} disabled={loading}
+    <button type="button" onClick={onClick} disabled={loading}
       style={{
         width: '100%', padding: '14px', background: 'rgba(255,255,255,0.8)', color: '#333',
         border: '1.5px solid rgba(0,0,0,0.08)', borderRadius: 14,
