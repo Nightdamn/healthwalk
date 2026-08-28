@@ -17,6 +17,7 @@ import EditTrackerPage from './pages/EditTracker';
 import TrainerCabinetPage from './pages/TrainerCabinet';
 import LibraryPage from './pages/Library';
 import AdminPanel from './pages/AdminPanel';
+import CourseStorePage from './pages/CourseStore';
 import Layout from './components/Layout';
 import { MenuProvider } from './components/MenuContext';
 import MenuDrawer from './components/MenuDrawer';
@@ -740,6 +741,8 @@ export default function App() {
     case 'edit_course': return <EditCoursePage key={`edit-${editCourseId}-${editCourseKey}`} courseId={editCourseId} onBack={handleEditCourseBack} onSaved={handleCourseSaved} onDeleted={handleCourseDeleted} tzOffsetMin={tzOffsetMin} onOpenLibrary={() => handleOpenLibraryForCourse(editCourseId)} />;
     case 'library': return <LibraryPage onBack={handleLibraryBack} pickerCourseId={libraryPickerCourseId} onPickerDone={handleLibraryPickerDone} />;
     case 'admin': return <AdminPanel onBack={goMain} />;
+    case 'store': return <CourseStorePage onBack={goMain}
+      onCourseEnrolled={async () => { await refreshItems(); }} />;
     case 'trainer_cabinet': return <TrainerCabinetPage courseId={trainerCourseId} user={user} onBack={() => setScreen('my_courses')} onRefreshRole={refreshRole} onEditCourse={handleEditCourse} />;
     case 'invite': return <InvitePage user={user} onBack={() => setScreen('my_courses')} />;
     case 'my_trackers': return <MyTrackersPage user={user} onBack={goMain} onNavigate={setScreen} onEditTracker={handleEditTracker} />;

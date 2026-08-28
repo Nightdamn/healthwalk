@@ -94,6 +94,19 @@ export async function getGeo() {
   catch { return { country: null }; }
 }
 
+// v28: Course Store — тренер (submit/withdraw) и публичная витрина для учеников.
+export async function storeSubmitCourse(courseId, price) {
+  return await apiPost(`/api/courses/${courseId}/store/submit`, { price });
+}
+export async function storeWithdrawCourse(courseId) {
+  return await apiPost(`/api/courses/${courseId}/store/withdraw`, {});
+}
+export async function getStore() { return await apiGet('/api/store'); }
+export async function getStoreCourse(courseId) { return await apiGet(`/api/store/${courseId}`); }
+export async function enrollFromStore(courseId) {
+  return await apiPost(`/api/store/${courseId}/enroll`, {});
+}
+
 // v28: Admin panel — модерация витрины, блокировки, аудит.
 export async function adminGetTrainers() { return await apiGet('/api/admin/trainers'); }
 export async function adminGetTrainerCourses(trainerId) { return await apiGet(`/api/admin/trainers/${trainerId}/courses`); }

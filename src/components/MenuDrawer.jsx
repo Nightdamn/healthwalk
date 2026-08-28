@@ -19,6 +19,7 @@ export default function MenuDrawer({
   const items = [{ label: 'Профиль', icon: '👤', target: 'profile' }];
   items.push(
     { label: 'Мои курсы', icon: '📚', target: 'my_courses' },
+    { label: 'Магазин курсов', icon: '🛍', target: 'store' },
     { label: 'Лист практик', icon: '🗂', target: 'library' },
     { label: 'Мои трекеры', icon: '🎯', target: 'my_trackers' },
     { label: 'Рекомендации', icon: '💡', target: 'recommendations' },

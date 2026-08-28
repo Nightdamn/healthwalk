@@ -19,7 +19,8 @@ import { createAutoSaver } from '../lib/autoSave';
 import MediaSection, { extractYoutubeId } from '../components/MediaSection';
 import RichTextEditor from '../components/RichTextEditor';
 import Dropdown from '../components/Dropdown';
-import { saveActivityToLibrary, refreshLibraryFromActivity } from '../lib/supabase';
+import { saveActivityToLibrary, refreshLibraryFromActivity,
+  storeSubmitCourse, storeWithdrawCourse } from '../lib/supabase';
 import { apiPatch } from '../lib/supabase';
 
 // Detect a video's duration without showing it. Used at trainer-edit time so
@@ -157,6 +158,14 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
   // v25: режим зачёта дня (глобальный, для всех учеников по default).
   const [progressionMode, setProgressionMode] = useState('daily');
   const [enrollCount, setEnrollCount] = useState(0);
+  // v28: витрина курсов — статус модерации, цена, блокировка.
+  const [storeStatus, setStoreStatus] = useState('draft');
+  const [storeRejectReason, setStoreRejectReason] = useState('');
+  const [priceAmount, setPriceAmount] = useState('0');
+  const [priceCurrency, setPriceCurrency] = useState('RUB');
+  const [courseBlocked, setCourseBlocked] = useState(null); // { at, reason } | null
+  const [storePrompt, setStorePrompt] = useState(null); // 'submit' | null
+  const [storeBusy, setStoreBusy] = useState(false);
   const [avatarIcon, setAvatarIcon] = useState('health/1');
   const [avatarCustom, setAvatarCustom] = useState(null);
   const [activities, setActivities] = useState([]);
@@ -243,6 +252,12 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
     setStartDate((course.start_date || '').slice(0, 10));
     setAccessDaysAfter(course.access_days_after == null ? '' : String(course.access_days_after));
     setProgressionMode(course.progression_mode || 'daily');
+    // v28: store поля.
+    setStoreStatus(course.store_status || 'draft');
+    setStoreRejectReason(course.store_reject_reason || '');
+    setPriceAmount(String(course.price_amount ?? 0));
+    setPriceCurrency(course.price_currency || 'RUB');
+    setCourseBlocked(course.blocked_at ? { at: course.blocked_at, reason: course.blocked_reason || '' } : null);
     // Считаем сколько студентов (для блокировки смены категории режима).
     try {
       const students = await getCourseStudentsInfo(courseId);
@@ -596,6 +611,32 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
     }
   };
 
+  // ── v28: Course Store ─────────────────────────────────────────────
+  const handleStoreSubmit = async () => {
+    const price = Math.max(0, parseFloat(priceAmount) || 0);
+    setStoreBusy(true);
+    try {
+      // flush pending мета-патчи прежде чем менять статус.
+      saverRef.current.flushAll();
+      const r = await storeSubmitCourse(courseId, price);
+      if (r?.error) { setError(r.error); return; }
+      setStoreStatus('pending');
+      setStorePrompt(null);
+    } catch (e) { setError(e.message || 'Ошибка'); }
+    finally { setStoreBusy(false); }
+  };
+
+  const handleStoreWithdraw = async () => {
+    setStoreBusy(true);
+    try {
+      const r = await storeWithdrawCourse(courseId);
+      if (r?.error) { setError(r.error); return; }
+      setStoreStatus('draft');
+      setStoreRejectReason('');
+    } catch (e) { setError(e.message || 'Ошибка'); }
+    finally { setStoreBusy(false); }
+  };
+
   const handleUnlinkLibrary = async (act) => {
     if (!act?.dbId || !act.libraryPracticeId) return;
     markLibBusy(act.dbId, true);
@@ -923,6 +964,21 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
           </div>
           )}
         </div>
+
+        {/* v28: Магазин курсов — статус + кнопка submit/withdraw + цена */}
+        <StoreBlock
+          status={courseBlocked ? 'blocked' : storeStatus}
+          rejectReason={storeRejectReason}
+          blockedReason={courseBlocked?.reason}
+          price={priceAmount}
+          currency={priceCurrency}
+          setPrice={setPriceAmount}
+          prompt={storePrompt}
+          setPrompt={setStorePrompt}
+          busy={storeBusy}
+          onSubmit={handleStoreSubmit}
+          onWithdraw={handleStoreWithdraw}
+        />
 
         {/* Activities */}
         <div style={{ fontSize: 14, fontWeight: 600, color: '#888', marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 }}>
@@ -1524,6 +1580,126 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onToggleDay, onRemove
         />
       )}
       </>)}
+    </div>
+  );
+}
+
+// ── v28: блок «Магазин курсов» ─────────────────────────────────────
+// Небольшая карточка над списком активностей. Показывает статус
+// (черновик / на модерации / в магазине / отклонён / заблокирован),
+// причину отклонения/блокировки и предлагает действие:
+//   draft/rejected → «Отправить в магазин» (спрашивает цену),
+//   pending/approved → «Убрать из магазина».
+// Заблокированный курс — read-only, только сообщение.
+function StoreBlock({ status, rejectReason, blockedReason, price, currency, setPrice, prompt, setPrompt, busy, onSubmit, onWithdraw }) {
+  const STATUS_META = {
+    draft:     { label: 'Черновик',      color: '#888', bg: 'rgba(0,0,0,0.03)',       border: 'rgba(0,0,0,0.08)' },
+    pending:   { label: 'На модерации',  color: '#e67e22', bg: 'rgba(230,126,34,0.06)', border: 'rgba(230,126,34,0.25)' },
+    approved:  { label: 'В магазине',    color: GREEN, bg: 'rgba(39,174,96,0.06)',   border: 'rgba(39,174,96,0.25)' },
+    rejected:  { label: 'Отклонён',      color: '#e74c3c', bg: 'rgba(231,76,60,0.06)',  border: 'rgba(231,76,60,0.25)' },
+    blocked:   { label: 'Заблокирован',  color: '#e74c3c', bg: 'rgba(231,76,60,0.08)',  border: 'rgba(231,76,60,0.35)' },
+  };
+  const meta = STATUS_META[status] || STATUS_META.draft;
+  const canSubmit = status === 'draft' || status === 'rejected';
+  const canWithdraw = status === 'pending' || status === 'approved';
+
+  return (
+    <div style={{
+      ...glass, borderRadius: 16, padding: '14px 14px', marginBottom: 16,
+      border: `1.5px solid ${meta.border}`, background: meta.bg,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: '#666' }}>Магазин курсов</div>
+        <span style={{
+          fontSize: 11, fontWeight: 700, color: '#fff',
+          padding: '3px 10px', borderRadius: 8,
+          background: meta.color, textTransform: 'uppercase', letterSpacing: 0.3,
+        }}>{meta.label}</span>
+        {status === 'approved' && parseFloat(price) > 0 && (
+          <span style={{ marginLeft: 'auto', fontSize: 13, fontWeight: 700, color: GREEN }}>
+            {parseFloat(price)} {currency}
+          </span>
+        )}
+      </div>
+
+      {status === 'approved' && (
+        <div style={{ fontSize: 12, color: '#666', marginBottom: 8 }}>
+          Курс виден ученикам в магазине и открыт для записи.
+        </div>
+      )}
+      {status === 'pending' && (
+        <div style={{ fontSize: 12, color: '#666', marginBottom: 8 }}>
+          Ожидает решения администратора. Как только курс одобрят — он появится
+          в магазине.
+        </div>
+      )}
+      {status === 'rejected' && rejectReason && (
+        <div style={{ fontSize: 12, color: '#e74c3c', marginBottom: 8, padding: 8, borderRadius: 8, background: 'rgba(231,76,60,0.06)' }}>
+          <b>Причина отклонения:</b> {rejectReason}
+        </div>
+      )}
+      {status === 'blocked' && (
+        <div style={{ fontSize: 12, color: '#e74c3c', marginBottom: 4 }}>
+          Курс заблокирован администратором.
+          {blockedReason && <div style={{ marginTop: 4, fontStyle: 'italic' }}>{blockedReason}</div>}
+        </div>
+      )}
+
+      {status !== 'blocked' && !prompt && (
+        canSubmit ? (
+          <button onClick={() => setPrompt('submit')} disabled={busy}
+            style={{
+              width: '100%', padding: 12, borderRadius: 10, border: 'none',
+              background: GREEN, color: '#fff', fontSize: 14, fontWeight: 600,
+              cursor: busy ? 'wait' : 'pointer', marginTop: 4,
+            }}>
+            {status === 'rejected' ? 'Отправить снова' : 'Отправить в магазин'}
+          </button>
+        ) : canWithdraw ? (
+          <button onClick={onWithdraw} disabled={busy}
+            style={{
+              width: '100%', padding: 12, borderRadius: 10,
+              border: '1px solid rgba(0,0,0,0.1)', background: '#fff',
+              color: '#666', fontSize: 14, fontWeight: 600,
+              cursor: busy ? 'wait' : 'pointer', marginTop: 4,
+            }}>
+            Убрать из магазина
+          </button>
+        ) : null
+      )}
+
+      {prompt === 'submit' && (
+        <div style={{ marginTop: 6, padding: 12, borderRadius: 10, background: '#fff', border: '1px solid rgba(0,0,0,0.08)' }}>
+          <div style={{ fontSize: 12, color: '#666', marginBottom: 8 }}>
+            Укажите цену курса в рублях. 0 — бесплатно. Оплата эквайрингом
+            будет подключена позже, сейчас ученики записываются напрямую.
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+            <input type="number" min={0} step={100}
+              value={price} onChange={e => setPrice(e.target.value)}
+              style={{
+                flex: 1, padding: 10, borderRadius: 10, fontSize: 15,
+                border: '1px solid rgba(0,0,0,0.1)', background: '#fff',
+              }} />
+            <div style={{ fontSize: 14, color: '#666', fontWeight: 600 }}>RUB</div>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={onSubmit} disabled={busy}
+              style={{
+                flex: 1, padding: '10px 0', borderRadius: 10, border: 'none',
+                background: GREEN, color: '#fff', fontSize: 14, fontWeight: 600,
+                cursor: busy ? 'wait' : 'pointer',
+              }}>{busy ? '…' : 'Отправить'}</button>
+            <button onClick={() => setPrompt(null)} disabled={busy}
+              style={{
+                flex: 1, padding: '10px 0', borderRadius: 10,
+                border: '1px solid rgba(0,0,0,0.1)', background: '#fff',
+                color: '#666', fontSize: 14, fontWeight: 600,
+                cursor: busy ? 'wait' : 'pointer',
+              }}>Отмена</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -834,6 +834,147 @@ router.delete('/courses/:id', async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════
+// COURSE STORE (v28) — тренер отправляет курс в магазин,
+// публичная витрина approved-курсов, самозапись
+// ═══════════════════════════════════════════════════════════
+
+// POST /courses/:id/store/submit { price } — тренер отправляет курс
+// в магазин. Цена >= 0 (0 = бесплатный). Курс уходит в статус 'pending'
+// на модерацию администраторов. Заблокированный курс отправить нельзя.
+router.post('/courses/:id/store/submit', async (req, res) => {
+  try {
+    const course = await queryOne('SELECT owner_id, blocked_at, store_status FROM courses WHERE id = $1', [req.params.id]);
+    if (!course) return res.status(404).json({ error: 'Курс не найден' });
+    if (course.owner_id !== req.userId) return res.status(403).json({ error: 'Нет прав' });
+    if (course.blocked_at) return res.status(400).json({ error: 'Курс заблокирован администратором' });
+    if (course.store_status === 'pending') return res.status(400).json({ error: 'Курс уже на модерации' });
+    if (course.store_status === 'approved') return res.status(400).json({ error: 'Курс уже в магазине' });
+
+    const priceRaw = req.body?.price;
+    const price = Number.isFinite(+priceRaw) ? Math.max(0, +priceRaw) : 0;
+    // Пока валюта одна — RUB. Задел на будущее в схеме есть.
+    await query(
+      `UPDATE courses SET
+         store_status = 'pending',
+         store_submitted_at = NOW(),
+         store_reviewed_at = NULL,
+         store_reviewed_by = NULL,
+         store_reject_reason = NULL,
+         price_amount = $1
+       WHERE id = $2`,
+      [price, req.params.id]
+    );
+    res.json({ ok: true });
+  } catch (err) { console.error('[Store submit]', err); res.status(500).json({ error: err.message }); }
+});
+
+// POST /courses/:id/store/withdraw — вернуть курс из магазина в draft
+// (можно и pending, и approved — тренер решает).
+router.post('/courses/:id/store/withdraw', async (req, res) => {
+  try {
+    const course = await queryOne('SELECT owner_id, blocked_at, store_status FROM courses WHERE id = $1', [req.params.id]);
+    if (!course) return res.status(404).json({ error: 'Курс не найден' });
+    if (course.owner_id !== req.userId) return res.status(403).json({ error: 'Нет прав' });
+    if (course.blocked_at) return res.status(400).json({ error: 'Курс заблокирован — обратитесь в поддержку' });
+    if (course.store_status === 'draft') return res.status(400).json({ error: 'Курс не в магазине' });
+    await query(
+      `UPDATE courses SET store_status = 'draft', store_reject_reason = NULL WHERE id = $1`,
+      [req.params.id]
+    );
+    res.json({ ok: true });
+  } catch (err) { console.error('[Store withdraw]', err); res.status(500).json({ error: err.message }); }
+});
+
+// GET /store — публичная витрина одобренных курсов. Исключает
+// заблокированные курсы и курсы заблокированных авторов.
+// Возвращает превью: название, описание, аватар, автор, цена, длительность.
+router.get('/store', async (req, res) => {
+  try {
+    const rows = await query(`
+      SELECT c.id, c.title, c.description, c.days_count,
+             c.avatar_icon, c.avatar_custom,
+             c.price_amount, c.price_currency,
+             c.store_reviewed_at,
+             u.id AS owner_id, u.display_name AS owner_name,
+             u.avatar_url AS owner_avatar,
+             (SELECT COUNT(*) FROM course_enrollments WHERE course_id = c.id)::int AS enroll_count,
+             EXISTS(
+               SELECT 1 FROM course_enrollments
+                WHERE course_id = c.id AND user_id = $1
+             ) AS already_enrolled
+        FROM courses c
+        JOIN users u ON u.id = c.owner_id
+       WHERE c.store_status = 'approved'
+         AND c.blocked_at IS NULL
+         AND u.blocked_at IS NULL
+       ORDER BY c.store_reviewed_at DESC NULLS LAST
+    `, [req.userId]);
+    res.json(rows);
+  } catch (err) { console.error('[Store list]', err); res.status(500).json({ error: err.message }); }
+});
+
+// GET /store/:id — карточка курса из магазина (для страницы «Подробнее»).
+router.get('/store/:id', async (req, res) => {
+  try {
+    const course = await queryOne(`
+      SELECT c.id, c.title, c.description, c.days_count,
+             c.avatar_icon, c.avatar_custom,
+             c.price_amount, c.price_currency,
+             c.store_reviewed_at,
+             u.id AS owner_id, u.display_name AS owner_name,
+             u.avatar_url AS owner_avatar,
+             (SELECT COUNT(*) FROM course_enrollments WHERE course_id = c.id)::int AS enroll_count,
+             EXISTS(
+               SELECT 1 FROM course_enrollments
+                WHERE course_id = c.id AND user_id = $1
+             ) AS already_enrolled
+        FROM courses c
+        JOIN users u ON u.id = c.owner_id
+       WHERE c.id = $2
+         AND c.store_status = 'approved'
+         AND c.blocked_at IS NULL
+         AND u.blocked_at IS NULL
+    `, [req.userId, req.params.id]);
+    if (!course) return res.status(404).json({ error: 'Курс не найден в магазине' });
+    // Практики — только превью (заголовки, иконки, длительность),
+    // без содержимого медиа. Полный доступ — только после enroll.
+    const activities = await query(`
+      SELECT id, label, icon_num, practice_type, duration_min
+        FROM course_activities WHERE course_id = $1 ORDER BY sort_order
+    `, [req.params.id]);
+    res.json({ course, activities });
+  } catch (err) { console.error('[Store view]', err); res.status(500).json({ error: err.message }); }
+});
+
+// POST /store/:id/enroll — самозапись на курс из магазина.
+// Сейчас без эквайринга — enroll создаётся сразу. Когда подключим
+// оплату, здесь будет разветвление: price=0 → сразу, price>0 → payment intent.
+router.post('/store/:id/enroll', async (req, res) => {
+  try {
+    const course = await queryOne(`
+      SELECT c.id, c.store_status, c.blocked_at, c.owner_id,
+             u.blocked_at AS owner_blocked_at
+        FROM courses c JOIN users u ON u.id = c.owner_id
+        WHERE c.id = $1`, [req.params.id]);
+    if (!course) return res.status(404).json({ error: 'Курс не найден' });
+    if (course.store_status !== 'approved' || course.blocked_at || course.owner_blocked_at) {
+      return res.status(400).json({ error: 'Курс сейчас недоступен для записи' });
+    }
+    if (course.owner_id === req.userId) {
+      return res.status(400).json({ error: 'Это ваш собственный курс' });
+    }
+    // TODO(v29): для price > 0 создать payment intent, enroll — по webhook.
+    await query(
+      `INSERT INTO course_enrollments (course_id, user_id, role, invited_by)
+       VALUES ($1, $2, 'student', $3)
+       ON CONFLICT (course_id, user_id) DO NOTHING`,
+      [req.params.id, req.userId, course.owner_id]
+    );
+    res.json({ ok: true });
+  } catch (err) { console.error('[Store enroll]', err); res.status(500).json({ error: err.message }); }
+});
+
+// ═══════════════════════════════════════════════════════════
 // INVITATIONS
 // ═══════════════════════════════════════════════════════════
 
@@ -1147,10 +1288,18 @@ router.get('/library', async (req, res) => {
     const ids = rows.map(r => r.id);
     let mediaByPractice = {};
     if (ids.length) {
+      // ВАЖНО: приведение ::uuid[] обязательно — node-pg не выводит тип для
+      // JS-массива строк, и без каста запрос молча возвращает 0 строк
+      // (баг «Ни описания ни медиа» в раскрывалке).
+      // Возвращаем все поля, нужные раскрывалке: описание, длительность,
+      // расписание каждой единицы медиа.
       const media = await query(
-        `SELECT id, practice_id, media_type, source_type, media_url, duration_sec
+        `SELECT id, practice_id, media_type, source_type, media_url,
+                text_content, description_html, file_size, duration_sec,
+                first_day, last_day, interval_days,
+                excluded_days, extra_days, sort_order
            FROM practice_library_media
-          WHERE practice_id = ANY($1) ORDER BY sort_order`,
+          WHERE practice_id = ANY($1::uuid[]) ORDER BY sort_order`,
         [ids]
       );
       for (const m of media) {
