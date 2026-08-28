@@ -233,24 +233,29 @@ router.post('/change-password', requireAuth, async (req, res) => {
 // ── GET /api/auth/geo ── определение страны по IP через ipapi.co (бесплатно 1000/день)
 // Кэшируем результат по IP на 24 часа чтобы не превышать лимит.
 const geoCache = new Map(); // ip -> {country, expires}
+
+// Общий helper — используется и в /geo (UI-скрытие Google-кнопки),
+// и в /google (серверный gating). Возвращает { country, ip }.
+async function detectCountry(req) {
+  const ip = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
+  if (!ip || ip.startsWith('127.') || ip.startsWith('192.168.') || ip === '::1') {
+    return { country: null, ip };
+  }
+  const cached = geoCache.get(ip);
+  if (cached && cached.expires > Date.now()) return { country: cached.country, ip, cached: true };
+  const r = await fetch(`https://ipapi.co/${encodeURIComponent(ip)}/json/`, {
+    signal: AbortSignal.timeout(3000),
+  }).catch(() => null);
+  if (!r || !r.ok) return { country: null, ip };
+  const data = await r.json().catch(() => null);
+  const country = data?.country_code || null;
+  geoCache.set(ip, { country, expires: Date.now() + 24 * 60 * 60 * 1000 });
+  return { country, ip };
+}
+
 router.get('/geo', async (req, res) => {
-  try {
-    const ip = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
-    if (!ip || ip.startsWith('127.') || ip.startsWith('192.168.') || ip === '::1') {
-      return res.json({ country: null, ip });
-    }
-    const cached = geoCache.get(ip);
-    if (cached && cached.expires > Date.now()) return res.json({ country: cached.country, ip, cached: true });
-    // Без API key бесплатно 1000/day. Если лимит исчерпан — просто вернём null.
-    const r = await fetch(`https://ipapi.co/${encodeURIComponent(ip)}/json/`, {
-      signal: AbortSignal.timeout(3000),
-    }).catch(() => null);
-    if (!r || !r.ok) return res.json({ country: null, ip });
-    const data = await r.json().catch(() => null);
-    const country = data?.country_code || null;
-    geoCache.set(ip, { country, expires: Date.now() + 24 * 60 * 60 * 1000 });
-    res.json({ country, ip });
-  } catch (err) { res.json({ country: null }); }
+  try { res.json(await detectCountry(req)); }
+  catch (err) { res.json({ country: null }); }
 });
 
 // ── /api/auth/me ── (расширен: emailVerified, hasPassword) ──
@@ -292,7 +297,32 @@ function consumeOauthState(s) {
   return Date.now() - t <= OAUTH_STATE_TTL_MS;
 }
 
-router.get('/google', (req, res) => {
+// Middleware: блокирует Google-OAuth для RU-адресов. UI-скрытие кнопки —
+// это первая линия защиты; серверный gating закрывает дыру с прямым URL
+// (иначе прописанное в политике «трансграничная передача не осуществляется»
+// не соответствовало бы реальности).
+async function blockGoogleForRU(req, res, next) {
+  try {
+    const { country } = await detectCountry(req);
+    if (country === 'RU') {
+      // Сообщение показывается на странице после редиректа — короткое и
+      // понятное, не раскрывает деталей политики.
+      return res.status(451).send(
+        '<!doctype html><meta charset="utf-8"><title>Вход через Google недоступен</title>' +
+        '<div style="max-width:480px;margin:80px auto;padding:24px;font-family:system-ui,sans-serif;color:#1a1a2e;text-align:center">' +
+        '<h1 style="font-size:20px;margin:0 0 12px">Вход через Google недоступен</h1>' +
+        '<p style="color:#666;line-height:1.5">Используйте вход по email и паролю. Регистрация — на той же странице.</p>' +
+        '<p style="margin-top:24px"><a href="/" style="color:#27ae60">← На главную</a></p></div>'
+      );
+    }
+    next();
+  } catch (err) {
+    // Если geo-lookup упал — не блокируем (fail-open по внешнему сервису).
+    next();
+  }
+}
+
+router.get('/google', blockGoogleForRU, (req, res) => {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   if (!clientId) return res.status(500).json({ error: 'Google OAuth не настроен' });
   let redirectUri;
