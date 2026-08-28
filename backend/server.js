@@ -107,6 +107,10 @@ const distPath = path.join(__dirname, '..', 'dist');
 app.use(express.static(distPath, {
   maxAge: '1y',
   etag: true,
+  // extensions: '/policy' → 'policy.html'. Нужно чтобы юридические
+  // статические страницы (policy, terms) отдавались до SPA-fallback
+  // и были видны краулерам/антифишинг-ботам без JS.
+  extensions: ['html'],
   setHeaders: (res, filePath) => {
     if (filePath.endsWith('.html')) {
       res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
