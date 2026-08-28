@@ -2,6 +2,7 @@ import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
+import geoip from 'geoip-lite';
 import { query, queryOne } from '../db.js';
 import { signToken, requireAuth } from '../middleware.js';
 import { sendVerificationCode, sendPasswordResetCode } from '../mailer.js';
@@ -230,31 +231,25 @@ router.post('/change-password', requireAuth, async (req, res) => {
   } catch (err) { console.error(err); res.status(500).json({ error: 'Ошибка' }); }
 });
 
-// ── GET /api/auth/geo ── определение страны по IP через ipapi.co (бесплатно 1000/день)
-// Кэшируем результат по IP на 24 часа чтобы не превышать лимит.
-const geoCache = new Map(); // ip -> {country, expires}
-
-// Общий helper — используется и в /geo (UI-скрытие Google-кнопки),
-// и в /google (серверный gating). Возвращает { country, ip }.
-async function detectCountry(req) {
-  const ip = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
-  if (!ip || ip.startsWith('127.') || ip.startsWith('192.168.') || ip === '::1') {
+// ── GET /api/auth/geo ── определение страны по IP.
+//
+// Работает offline через geoip-lite (MaxMind GeoLite2, ~45 MB данных в
+// пакете). Мгновенный lookup, без сетевых лимитов и внешних зависимостей —
+// раньше использовали ipapi.co, но бесплатный лимит 1000/day регулярно
+// исчерпывался, и блокировка Google-OAuth для RU переставала работать.
+function detectCountry(req) {
+  const raw = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
+  // ::ffff:1.2.3.4 → 1.2.3.4 (IPv4-mapped IPv6).
+  const ip = raw.replace(/^::ffff:/, '');
+  if (!ip || ip.startsWith('127.') || ip.startsWith('192.168.') || ip === '::1' || ip.startsWith('10.')) {
     return { country: null, ip };
   }
-  const cached = geoCache.get(ip);
-  if (cached && cached.expires > Date.now()) return { country: cached.country, ip, cached: true };
-  const r = await fetch(`https://ipapi.co/${encodeURIComponent(ip)}/json/`, {
-    signal: AbortSignal.timeout(3000),
-  }).catch(() => null);
-  if (!r || !r.ok) return { country: null, ip };
-  const data = await r.json().catch(() => null);
-  const country = data?.country_code || null;
-  geoCache.set(ip, { country, expires: Date.now() + 24 * 60 * 60 * 1000 });
-  return { country, ip };
+  const geo = geoip.lookup(ip);
+  return { country: geo?.country || null, ip };
 }
 
-router.get('/geo', async (req, res) => {
-  try { res.json(await detectCountry(req)); }
+router.get('/geo', (req, res) => {
+  try { res.json(detectCountry(req)); }
   catch (err) { res.json({ country: null }); }
 });
 
@@ -301,9 +296,9 @@ function consumeOauthState(s) {
 // это первая линия защиты; серверный gating закрывает дыру с прямым URL
 // (иначе прописанное в политике «трансграничная передача не осуществляется»
 // не соответствовало бы реальности).
-async function blockGoogleForRU(req, res, next) {
+function blockGoogleForRU(req, res, next) {
   try {
-    const { country } = await detectCountry(req);
+    const { country } = detectCountry(req);
     if (country === 'RU') {
       // Сообщение показывается на странице после редиректа — короткое и
       // понятное, не раскрывает деталей политики.
