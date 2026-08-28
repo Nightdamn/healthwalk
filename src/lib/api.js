@@ -1,4 +1,5 @@
-// API client — replaces Supabase SDK
+// Клиент собственного Express-бэкенда. Файл раньше назывался supabase.js
+// от исторического стека — Supabase давно нет, всё через наш API.
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
 function getToken() {

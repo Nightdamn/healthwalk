@@ -20,8 +20,8 @@ import MediaSection, { extractYoutubeId } from '../components/MediaSection';
 import RichTextEditor from '../components/RichTextEditor';
 import Dropdown from '../components/Dropdown';
 import { saveActivityToLibrary, refreshLibraryFromActivity,
-  storeSubmitCourse, storeWithdrawCourse } from '../lib/supabase';
-import { apiPatch } from '../lib/supabase';
+  storeSubmitCourse, storeWithdrawCourse } from '../lib/api';
+import { apiPatch } from '../lib/api';
 
 // Detect a video's duration without showing it. Used at trainer-edit time so
 // the practice length auto-syncs with the actual runtime.

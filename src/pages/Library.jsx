@@ -3,7 +3,7 @@ import Layout from '../components/Layout';
 import TopBar from '../components/TopBar';
 import { glass } from '../styles/shared';
 import { getIconPath } from '../data/iconCatalog';
-import { getLibrary, deleteLibraryEntry, copyLibraryToCourse } from '../lib/supabase';
+import { getLibrary, deleteLibraryEntry, copyLibraryToCourse } from '../lib/api';
 
 const GREEN = '#27ae60';
 

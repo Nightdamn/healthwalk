@@ -8,7 +8,7 @@ import {
   adminApproveCourse, adminRejectCourse,
   adminBlockCourse, adminUnblockCourse,
   adminBlockTrainer, adminUnblockTrainer,
-} from '../lib/supabase';
+} from '../lib/api';
 
 const GREEN = '#27ae60';
 const RED = '#e74c3c';

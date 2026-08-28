@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import Layout from '../components/Layout';
 import { glass } from '../styles/shared';
 import { isNativeApp, checkForUpdate, startUpdate, APP_VERSION } from '../lib/updater';
-import { changePassword, resendVerification, verifyEmail, getMe } from '../lib/supabase';
+import { changePassword, resendVerification, verifyEmail, getMe } from '../lib/api';
 
 const TIMEZONES = [
   { label: "UTC−12 Бейкер", offset: -720 },

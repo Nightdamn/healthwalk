@@ -4,7 +4,7 @@ import { LogoFull } from '../components/Icons';
 import {
   signInWithPassword, signUp, signInWithGoogle, verifyEmail, resendVerification,
   requestPasswordReset, confirmPasswordReset, getGeo,
-} from '../lib/supabase';
+} from '../lib/api';
 
 // v26: единая страница входа/регистрации/верификации/восстановления пароля.
 // Google-кнопка автоматически скрывается для RU-IP (гугл заблокирован из России).
@@ -95,7 +95,7 @@ export default function LoginPage({ onLogin }) {
       if (r.error) { setError(r.error); return; }
       // После успешной верификации подхватим текущего залогиненного юзера.
       // Он уже логин'ed после register → onLogin из /me.
-      const { getMe } = await import('../lib/supabase');
+      const { getMe } = await import('../lib/api');
       const u = await getMe();
       if (u) onLogin(u);
       else setMessage('Email подтверждён. Войдите в аккаунт.');

@@ -1,4 +1,4 @@
-import { apiGet, apiPost, apiPut, apiPatch, apiDelete } from './supabase';
+import { apiGet, apiPost, apiPut, apiPatch, apiDelete } from './api';
 
 // ═══════════════════════════════════════════════════════════
 // USER SETTINGS

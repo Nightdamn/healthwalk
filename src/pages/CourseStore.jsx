@@ -3,7 +3,7 @@ import Layout from '../components/Layout';
 import TopBar from '../components/TopBar';
 import { glass } from '../styles/shared';
 import { getIconPath } from '../data/iconCatalog';
-import { getStore, getStoreCourse, enrollFromStore } from '../lib/supabase';
+import { getStore, getStoreCourse, enrollFromStore } from '../lib/api';
 
 const GREEN = '#27ae60';
 const NAVY = '#1a1a2e';

@@ -22,7 +22,7 @@ import Layout from './components/Layout';
 import { MenuProvider } from './components/MenuContext';
 import MenuDrawer from './components/MenuDrawer';
 import { DAY_START_HOUR, getCourseDay, getCourseDayInfo, isCourseFinished } from './data/constants';
-import { isAuthenticated, getMe, signOut as authSignOut, checkOAuthCallback, setToken } from './lib/supabase';
+import { isAuthenticated, getMe, signOut as authSignOut, checkOAuthCallback, setToken } from './lib/api';
 import {
   loadUserSettings, saveUserSettings,
   checkAndApplyPendingRole, getUserRole, assignRole as dbAssignRole,
