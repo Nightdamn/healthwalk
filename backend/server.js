@@ -36,7 +36,18 @@ app.use(compression());
 app.use(cors({
   origin: process.env.CORS_ORIGIN || '*',
 }));
+// HSTS с preload — только там, где явно включено env-переменной. Preload —
+// невозвратный commitment: домен попадает в жёстко-зашитый список HTTPS-only
+// в Chromium/Safari/Firefox и там остаётся. Включаем только на новом домене
+// (.expert), не трогая .life, у которого репутация уже подмочена.
+const HSTS_PRELOAD = process.env.HSTS_PRELOAD === '1';
+
 app.use(helmet({
+  hsts: {
+    maxAge: HSTS_PRELOAD ? 63072000 : 31536000, // 2 года для preload, иначе 1 год
+    includeSubDomains: true,
+    preload: HSTS_PRELOAD,
+  },
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
@@ -82,6 +93,30 @@ app.use((req, res, next) => {
   next();
 });
 app.use(express.json({ limit: '10mb' }));
+
+// ── robots.txt + sitemap.xml (динамические — под текущий host) ──
+// Оба нужны для нормального восприятия сайта краулерами и антифишинг-ботами.
+// Ссылку на sitemap кладём с полным URL — robots требует абсолютный путь.
+app.get('/robots.txt', (req, res) => {
+  const origin = `${req.protocol}://${req.get('host')}`;
+  res.type('text/plain').send(
+    `User-agent: *\n` +
+    `Allow: /\n` +
+    `Disallow: /api/\n\n` +
+    `Sitemap: ${origin}/sitemap.xml\n`
+  );
+});
+
+app.get('/sitemap.xml', (req, res) => {
+  const origin = `${req.protocol}://${req.get('host')}`;
+  const now = new Date().toISOString().slice(0, 10);
+  const urls = ['/', '/policy', '/store'];
+  const body = `<?xml version="1.0" encoding="UTF-8"?>\n` +
+    `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n` +
+    urls.map(u => `  <url><loc>${origin}${u}</loc><lastmod>${now}</lastmod></url>`).join('\n') +
+    `\n</urlset>\n`;
+  res.type('application/xml').send(body);
+});
 
 // ── Health check ──
 app.get('/api/health', (req, res) => {
