@@ -1,22 +1,22 @@
-// Mailer через SMTP (Yandex Cloud или любой другой). Пока credentials не заданы —
-// работает в log-only режиме: письма пишутся в консоль. Как только в .env
-// появятся SMTP_HOST/SMTP_USER/SMTP_PASS — включится реальная отправка.
+// Mailer через SMTP (Yandex Cloud Postbox или любой другой). Пока credentials
+// не заданы — работает в log-only режиме: письма пишутся в консоль. Как только
+// в .env появятся SMTP_HOST/SMTP_USER/SMTP_PASS — включится реальная отправка.
 //
-// Yandex Cloud SMTP:
-//   SMTP_HOST=smtp.cloud.yandex.net
-//   SMTP_PORT=465
-//   SMTP_SECURE=true
-//   SMTP_USER=<service_account_id>
-//   SMTP_PASS=<key_secret>
-//   MAIL_FROM="InStep <noreply@instep.life>"
+// Yandex Cloud Postbox (SES-совместимый):
+//   SMTP_HOST=postbox.cloud.yandex.net
+//   SMTP_PORT=587
+//   SMTP_SECURE=false                 (STARTTLS — не implicit TLS)
+//   SMTP_USER=<Access Key ID из IAM>
+//   SMTP_PASS=<Secret Access Key>
+//   MAIL_FROM="InStep <noreply@instep.expert>"
 import nodemailer from 'nodemailer';
 
 const SMTP_HOST = process.env.SMTP_HOST;
-const SMTP_PORT = parseInt(process.env.SMTP_PORT || '465');
-const SMTP_SECURE = process.env.SMTP_SECURE !== 'false';
+const SMTP_PORT = parseInt(process.env.SMTP_PORT || '587');
+const SMTP_SECURE = process.env.SMTP_SECURE === 'true'; // по умолчанию false = STARTTLS для 587
 const SMTP_USER = process.env.SMTP_USER;
 const SMTP_PASS = process.env.SMTP_PASS;
-const MAIL_FROM = process.env.MAIL_FROM || 'InStep <noreply@instep.life>';
+const MAIL_FROM = process.env.MAIL_FROM || 'InStep <noreply@instep.expert>';
 
 let transporter = null;
 if (SMTP_HOST && SMTP_USER && SMTP_PASS) {
