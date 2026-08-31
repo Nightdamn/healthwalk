@@ -42,6 +42,15 @@ app.use(cors({
 // (.expert), не трогая .life, у которого репутация уже подмочена.
 const HSTS_PRELOAD = process.env.HSTS_PRELOAD === '1';
 
+// Jitsi-хост берём из ENV — иначе .expert-backend будет пытаться поднять
+// звонки через .life (адрес хардкодом в helmet-политиках и Permissions-Policy).
+// Приемлемо явно перечислить оба, чтобы во время переходного периода .life
+// тоже работал; лишний источник в CSP не опасен, только шире whitelist.
+const JITSI_HOST = process.env.JITSI_HOST || 'https://meet.instep.life';
+const JITSI_HOSTS = [JITSI_HOST, 'https://meet.instep.life', 'https://meet.instep.expert']
+  .filter((v, i, a) => a.indexOf(v) === i);          // uniq
+const JITSI_WS = JITSI_HOSTS.map(u => u.replace(/^https/, 'wss'));
+
 app.use(helmet({
   hsts: {
     maxAge: HSTS_PRELOAD ? 63072000 : 31536000, // 2 года для preload, иначе 1 год
@@ -54,24 +63,24 @@ app.use(helmet({
       scriptSrc: [
         "'self'", "'unsafe-inline'", "'unsafe-eval'",
         "https://www.youtube.com", "https://s.ytimg.com",
-        "https://meet.instep.life",
+        ...JITSI_HOSTS,
       ],
       frameSrc: [
         "'self'",
         "https://www.youtube.com", "https://drive.google.com",
-        "https://meet.instep.life",
+        ...JITSI_HOSTS,
       ],
       imgSrc: ["'self'", "data:", "blob:", "https:"],
       connectSrc: [
         "'self'",
-        "https://meet.instep.life", "wss://meet.instep.life",
+        ...JITSI_HOSTS, ...JITSI_WS,
         "https://rec.instep.life",
       ],
-      styleSrc: ["'self'", "'unsafe-inline'", "https://meet.instep.life"],
-      fontSrc: ["'self'", "data:", "https://meet.instep.life"],
+      styleSrc: ["'self'", "'unsafe-inline'", ...JITSI_HOSTS],
+      fontSrc: ["'self'", "data:", ...JITSI_HOSTS],
       mediaSrc: ["'self'", "blob:", "https://rec.instep.life"],
       workerSrc: ["'self'", "blob:"],
-      childSrc: ["'self'", "blob:", "https://meet.instep.life"],
+      childSrc: ["'self'", "blob:", ...JITSI_HOSTS],
     },
   },
   crossOriginOpenerPolicy: { policy: 'unsafe-none' },
@@ -85,11 +94,12 @@ app.use(helmet({
 // Самой странице (self) тоже разрешаем — нам camera/mic не нужны, но
 // без self iframe-делегация не работает в Chromium.
 app.use((req, res, next) => {
+  const jitsiSrcs = JITSI_HOSTS.map(u => `"${u}"`).join(' ');
   res.setHeader('Permissions-Policy',
-    'camera=(self "https://meet.instep.life"), ' +
-    'microphone=(self "https://meet.instep.life"), ' +
-    'display-capture=(self "https://meet.instep.life"), ' +
-    'autoplay=*');
+    `camera=(self ${jitsiSrcs}), ` +
+    `microphone=(self ${jitsiSrcs}), ` +
+    `display-capture=(self ${jitsiSrcs}), ` +
+    `autoplay=*`);
   next();
 });
 app.use(express.json({ limit: '10mb' }));
