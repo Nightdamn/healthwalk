@@ -40,7 +40,7 @@ router.get('/settings', async (req, res) => {
       s = await queryOne(
         `INSERT INTO user_settings (user_id, course_start_date, tz_offset_min, current_day, day_start_hour)
          VALUES ($1, $2, $3, 1, 5) RETURNING *`,
-        [req.userId, d.toISOString()]
+        [req.userId, d.toISOString(), 180] // 180 = MSK по умолчанию; юзер сменит в профиле
       );
     }
     res.json(s);
