@@ -97,8 +97,15 @@ app.use(express.json({ limit: '10mb' }));
 // ── robots.txt + sitemap.xml (динамические — под текущий host) ──
 // Оба нужны для нормального восприятия сайта краулерами и антифишинг-ботами.
 // Ссылку на sitemap кладём с полным URL — robots требует абсолютный путь.
+// Для .life (staging после переезда на .expert) — Disallow всё, чтобы старый
+// домен не конкурировал за индекс с продовым.
 app.get('/robots.txt', (req, res) => {
-  const origin = `${req.protocol}://${req.get('host')}`;
+  const host = (req.get('host') || '').toLowerCase();
+  const origin = `${req.protocol}://${host}`;
+  if (host.endsWith('instep.life')) {
+    res.type('text/plain').send(`User-agent: *\nDisallow: /\n`);
+    return;
+  }
   res.type('text/plain').send(
     `User-agent: *\n` +
     `Allow: /\n` +
@@ -116,6 +123,21 @@ app.get('/sitemap.xml', (req, res) => {
     urls.map(u => `  <url><loc>${origin}${u}</loc><lastmod>${now}</lastmod></url>`).join('\n') +
     `\n</urlset>\n`;
   res.type('application/xml').send(body);
+});
+
+// RFC 9116 — security.txt. Формально нужен для bug bounty / responsible disclosure,
+// на практике — небольшой сигнал доверия для антифишинг-краулеров: сайт, где
+// есть /.well-known/security.txt, воспринимается как «серьёзный».
+app.get('/.well-known/security.txt', (req, res) => {
+  const host = req.get('host') || 'instep.expert';
+  const expires = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
+  res.type('text/plain').send(
+    `Contact: mailto:spacetransferteam@gmail.com\n` +
+    `Expires: ${expires}\n` +
+    `Preferred-Languages: ru, en\n` +
+    `Canonical: https://${host}/.well-known/security.txt\n` +
+    `Policy: https://${host}/policy\n`
+  );
 });
 
 // ── Health check ──
