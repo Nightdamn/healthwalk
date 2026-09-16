@@ -80,6 +80,19 @@ export default function MyCoursesPage({ user, userRole, onBack, onNavigate, onEd
       <div style={{ minHeight: "100vh", padding: "calc(env(safe-area-inset-top, 0px) + 82px) 20px 40px", position: "relative", zIndex: 1 }}>
         <TopBar onBack={onBack} title="Мои курсы" />
 
+        {/* v29: кнопка «Создать курс» — на самом верху, чтобы не листать
+            вниз через приглашения/секции. Только для тренеров/админов. */}
+        {isTrainerOrAdmin && (
+          <button onClick={() => onNavigate('create_course')}
+            style={{
+              width: '100%', padding: '14px', marginBottom: 16,
+              background: '#1a1a2e', color: '#fff', border: 'none', borderRadius: 14,
+              fontSize: 15, fontWeight: 600, cursor: 'pointer',
+            }}>
+            + Создать курс
+          </button>
+        )}
+
         {loading && !availableItems?.length ? (
           <div style={{ textAlign: "center", padding: 40, color: "#aaa" }}>Загрузка...</div>
         ) : (

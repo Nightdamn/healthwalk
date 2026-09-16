@@ -23,8 +23,6 @@ import {
   getConversation, sendMessage, markMessagesRead, getUnreadByConversation,
 } from '../lib/db';
 import { getGroups, moveEnrollmentToGroup, setEnrollmentAccessOverride } from '../lib/api';
-import Dropdown from '../components/Dropdown';
-import { getIconPath } from '../data/iconCatalog';
 
 const GREEN = '#27ae60';
 const BLUE = '#3498db';
