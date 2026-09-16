@@ -1764,18 +1764,27 @@ function GroupCard({ group, onSave, onApplyDefaults, onDelete, collapsed = false
       borderRadius: 12, border: '1px solid rgba(0,0,0,0.08)',
       background: 'rgba(255,255,255,0.6)', padding: 12,
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-        <button type="button" onClick={onToggleCollapsed}
-          aria-label="Свернуть"
-          style={{
-            width: 26, height: 26, borderRadius: 8, border: 'none',
-            background: 'transparent', cursor: 'pointer', color: '#888',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, flexShrink: 0,
-          }}>
-          <svg width={16} height={16} viewBox="0 0 24 24" fill="none">
-            <path d={chevronPath} stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </button>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+          <button type="button" onClick={onToggleCollapsed}
+            aria-label="Свернуть"
+            style={{
+              width: 26, height: 26, borderRadius: 8, border: 'none',
+              background: 'transparent', cursor: 'pointer', color: '#888',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, flexShrink: 0,
+            }}>
+            <svg width={16} height={16} viewBox="0 0 24 24" fill="none">
+              <path d={chevronPath} stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+          <span style={{ fontSize: 13, fontWeight: 700, color: '#aaa' }}>Группа</span>
+        </div>
+        <div style={{ fontSize: 11, color: '#888', flexShrink: 0 }}>
+          {membersCount} {plural(membersCount, 'ученик', 'ученика', 'учеников')}
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10 }}>
         <button onClick={onPickIcon} style={{
           width: 44, height: 44, borderRadius: 11, flexShrink: 0,
           border: '2px solid rgba(0,0,0,0.08)', background: '#fafafa',
@@ -1787,12 +1796,9 @@ function GroupCard({ group, onSave, onApplyDefaults, onDelete, collapsed = false
           onBlur={() => name !== group.name && saveField({ name })}
           placeholder="Название группы"
           style={{
-            flex: 1, padding: '8px 10px', borderRadius: 10, fontSize: 14,
+            flex: 1, minWidth: 0, padding: '8px 10px', borderRadius: 10, fontSize: 14,
             border: '1px solid rgba(0,0,0,0.1)', background: '#fff',
           }} />
-        <div style={{
-          fontSize: 11, color: '#888', alignSelf: 'center', flexShrink: 0,
-        }}>{membersCount} {plural(membersCount, 'учен.', 'учен.', 'учен.')}</div>
       </div>
 
       <div style={{ marginBottom: 10 }}>
