@@ -901,16 +901,21 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
             }}
             style={{ ...inputStyle, width: 100 }} />
 
-          {/* v25 Зачёт дня */}
+          {/* v25 Зачёт дня — 3 базовых режима + v29 «По группам». */}
           <div style={{ marginTop: 14, padding: 12, borderRadius: 12, background: 'rgba(0,0,0,0.02)' }}>
             <div style={{ fontSize: 14, fontWeight: 600, color: '#1a1a2e', marginBottom: 8 }}>Зачёт дня</div>
             {[
               { v: 'daily', title: 'По дням', desc: 'День завершается по реальным суткам, независимо от результата.' },
               { v: 'free', title: 'По прохождению', desc: 'День завершается когда ученик выполнил все практики.' },
               { v: 'self_paced', title: 'Свободно', desc: 'Как «По прохождению» + кнопки «Завершить день» и «Пройти день заново» у прошедших.' },
+              { v: 'groups', title: 'По группам', desc: 'Ученики делятся на потоки. У каждой группы свой режим, дата старта и тренер. Курс-уровневые настройки выше — фоллбэк для учеников без группы.' },
             ].map(opt => {
-              const isCurrent = progressionMode === opt.v;
-              const wouldSwitchCategory = (progressionMode === 'daily') !== (opt.v === 'daily');
+              const isGroups = opt.v === 'groups';
+              const isCurrent = isGroups ? groupsEnabled : (!groupsEnabled && progressionMode === opt.v);
+              // Блокировка смены категории (daily ↔ progressive) — только когда
+              // switch между базовыми режимами. Переключение в/из «По группам»
+              // ничего в старых enrollments не ломает (mode курса остаётся).
+              const wouldSwitchCategory = !isGroups && !groupsEnabled && (progressionMode === 'daily') !== (opt.v === 'daily');
               const blocked = wouldSwitchCategory && enrollCount > 0;
               return (
                 <label key={opt.v} style={{
@@ -924,8 +929,14 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
                         alert(`В курсе ${enrollCount} учеников. Сначала переведите их индивидуально или удалите — только потом можно сменить глобально между «По дням» и остальными.`);
                         return;
                       }
-                      setProgressionMode(opt.v);
-                      scheduleMetaSave({ progressionMode: opt.v });
+                      if (isGroups) {
+                        setGroupsEnabled(true);
+                        scheduleMetaSave({ groupsEnabled: true });
+                      } else {
+                        setGroupsEnabled(false);
+                        setProgressionMode(opt.v);
+                        scheduleMetaSave({ progressionMode: opt.v, groupsEnabled: false });
+                      }
                     }}
                     style={{ marginTop: 3 }} />
                   <div>
@@ -935,28 +946,11 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
                 </label>
               );
             })}
-            {progressionMode !== 'daily' && (
+            {!groupsEnabled && progressionMode !== 'daily' && (
               <div style={{ fontSize: 11, color: '#e67e22', marginTop: 6, fontStyle: 'italic' }}>
-                Календарные настройки (даты старта и окно доступа) для этого режима не применяются.
+                Календарная привязка (дата старта) для этого режима не применяется. Окно доступа к материалам — работает.
               </div>
             )}
-
-            {/* v29: Разделение на группы. Групповые настройки перекрывают
-                курсовые для тех учеников, кто в группе. Ученики без группы
-                продолжают использовать курс-уровневые настройки выше. */}
-            <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(0,0,0,0.06)' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#1a1a2e' }}>
-                <input type="checkbox" checked={groupsEnabled}
-                  onChange={e => {
-                    setGroupsEnabled(e.target.checked);
-                    scheduleMetaSave({ groupsEnabled: e.target.checked });
-                  }} />
-                Разделить учеников по группам
-              </label>
-              <div style={{ fontSize: 12, color: '#888', marginTop: 4, marginLeft: 24 }}>
-                Один курс — несколько потоков, каждый со своим режимом зачёта, датой старта и тренером. Ученик без группы продолжает работать по курс-уровневым настройкам выше.
-              </div>
-            </div>
           </div>
 
           {groupsEnabled && (
@@ -1009,8 +1003,9 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
           </div>
           )}
 
-          {/* v22 access window after course end — только для daily */}
-          {progressionMode === 'daily' && (
+          {/* Окно доступа после окончания — работает во всех режимах.
+              daily: считается от start_date + days_count.
+              free/self_paced: от момента когда курс завершён (все дни закрыты). */}
           <div style={{ marginTop: 12, padding: 12, borderRadius: 12, background: 'rgba(0,0,0,0.02)' }}>
             <label style={{ ...labelStyle, fontSize: 13 }}>
               Материалы доступны после окончания (дней)
@@ -1024,7 +1019,6 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
               onChange={e => onAccessDaysAfterChange(e.target.value)}
               style={{ ...inputStyle, width: 140 }} />
           </div>
-          )}
         </div>
 
         {/* v28: Магазин курсов — статус + кнопка submit/withdraw + цена */}
@@ -1706,6 +1700,7 @@ function GroupCard({ group, onSave, onApplyDefaults, onDelete }) {
           options={MODE_OPTS} fullWidth />
       </div>
 
+      {/* Календарная привязка — только для daily (в free/self_paced дни считаются от closures) */}
       {mode === 'daily' && (
         <>
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, cursor: 'pointer', fontSize: 12, color: '#1a1a2e' }}>
@@ -1714,27 +1709,27 @@ function GroupCard({ group, onSave, onApplyDefaults, onDelete }) {
             Привязать к дате
           </label>
           {boundCal && (
-            <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
-              <div style={{ flex: 1, minWidth: 160 }}>
-                <label style={{ fontSize: 11, color: '#666', display: 'block' }}>Дата старта</label>
-                <input type="date" value={startDate}
-                  onChange={e => setStartDate(e.target.value)}
-                  onBlur={() => saveField({ startDate: startDate || null })}
-                  style={{ width: '100%', padding: '6px 8px', borderRadius: 8, fontSize: 13,
-                    border: '1px solid rgba(0,0,0,0.1)', background: '#fff' }} />
-              </div>
-              <div style={{ width: 140 }}>
-                <label style={{ fontSize: 11, color: '#666', display: 'block' }}>Доступ, дней после</label>
-                <input type="number" min={0} placeholder="бессрочно" value={accessDays}
-                  onChange={e => setAccessDays(e.target.value)}
-                  onBlur={() => saveField({ accessDaysAfter: accessDays === '' ? null : parseInt(accessDays) || 0 })}
-                  style={{ width: '100%', padding: '6px 8px', borderRadius: 8, fontSize: 13,
-                    border: '1px solid rgba(0,0,0,0.1)', background: '#fff' }} />
-              </div>
+            <div style={{ marginBottom: 8 }}>
+              <label style={{ fontSize: 11, color: '#666', display: 'block' }}>Дата старта</label>
+              <input type="date" value={startDate}
+                onChange={e => setStartDate(e.target.value)}
+                onBlur={() => saveField({ startDate: startDate || null })}
+                style={{ width: 200, padding: '6px 8px', borderRadius: 8, fontSize: 13,
+                  border: '1px solid rgba(0,0,0,0.1)', background: '#fff' }} />
             </div>
           )}
         </>
       )}
+
+      {/* Доступ к материалам после окончания — во всех режимах */}
+      <div style={{ marginBottom: 8 }}>
+        <label style={{ fontSize: 11, color: '#666', display: 'block' }}>Доступ к материалам после окончания, дней (пусто = бессрочно)</label>
+        <input type="number" min={0} placeholder="бессрочно" value={accessDays}
+          onChange={e => setAccessDays(e.target.value)}
+          onBlur={() => saveField({ accessDaysAfter: accessDays === '' ? null : parseInt(accessDays) || 0 })}
+          style={{ width: 160, padding: '6px 8px', borderRadius: 8, fontSize: 13,
+            border: '1px solid rgba(0,0,0,0.1)', background: '#fff' }} />
+      </div>
 
       <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
         <button onClick={async () => { setBusy(true); try { await onApplyDefaults(); } finally { setBusy(false); } }}

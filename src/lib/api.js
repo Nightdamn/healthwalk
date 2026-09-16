@@ -104,6 +104,9 @@ export async function deleteGroup(groupId) { return await apiDelete(`/api/groups
 export async function moveEnrollmentToGroup(enrollmentId, groupId) {
   return await apiPatch(`/api/trainer/enrollments/${enrollmentId}/group`, { groupId: groupId || null });
 }
+export async function setEnrollmentAccessOverride(enrollmentId, accessDaysAfter) {
+  return await apiPatch(`/api/trainer/enrollments/${enrollmentId}/access`, { accessDaysAfter });
+}
 
 // v28: Course Store — тренер (submit/withdraw) и публичная витрина для учеников.
 export async function storeSubmitCourse(courseId, price) {

@@ -22,7 +22,7 @@ import {
   getCourseExclusions, getCourseCustomActivities,
   getConversation, sendMessage, markMessagesRead, getUnreadByConversation,
 } from '../lib/db';
-import { getGroups, moveEnrollmentToGroup } from '../lib/api';
+import { getGroups, moveEnrollmentToGroup, setEnrollmentAccessOverride } from '../lib/api';
 import Dropdown from '../components/Dropdown';
 import { getIconPath } from '../data/iconCatalog';
 
@@ -108,6 +108,17 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
     const r = await moveEnrollmentToGroup(enrollmentId, groupId || null);
     if (r?.error) { alert(r.error); setActionId(null); return; }
     await loadData();
+    setActionId(null);
+  };
+  // v29: индивидуальный override окна доступа к материалам после окончания.
+  // Пусто/null = наследует от группы/курса.
+  const handleAccessOverride = async (enrollmentId, val) => {
+    setActionId(enrollmentId);
+    const r = await setEnrollmentAccessOverride(enrollmentId, val === '' ? null : val);
+    if (r?.error) alert(r.error);
+    else setStudents(prev => prev.map(s => s.enrollment_id === enrollmentId
+      ? { ...s, access_days_after_override: val === '' ? null : (parseInt(val) || 0) }
+      : s));
     setActionId(null);
   };
 
@@ -598,6 +609,21 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
                             Закрытых дней: {st.closed_days}
                           </div>
                         ) : null}
+                        {/* v29: индивидуальный access_days_after_override.
+                            Пусто = наследовать от группы/курса. Показываем
+                            текущий effective как placeholder. */}
+                        <div style={{ marginTop: 10 }}>
+                          <div style={{ fontSize: 11, color: '#888', fontWeight: 600, marginBottom: 6, textTransform: 'uppercase' }}>
+                            Доступ к материалам после окончания (дней)
+                          </div>
+                          <AccessOverrideInput
+                            override={st.access_days_after_override}
+                            groupDefault={st.group_access_days_after}
+                            courseDefault={st.course_access_days_after}
+                            disabled={isBusy}
+                            onApply={(v) => handleAccessOverride(st.enrollment_id, v)}
+                          />
+                        </div>
                       </div>
                     )}
 
@@ -1245,6 +1271,59 @@ function StudentDayInput({ currentDay, maxDay, disabled, onApply }) {
             fontSize: 12, fontWeight: 600, cursor: disabled ? 'wait' : 'pointer',
           }}
         >Применить</button>
+      )}
+    </div>
+  );
+}
+
+// v29: индивидуальный override окна доступа к материалам после окончания.
+// Пусто в input = вернуть override в null → наследовать группу/курс.
+// Placeholder показывает effective default (что применится если override пуст).
+function AccessOverrideInput({ override, groupDefault, courseDefault, disabled, onApply }) {
+  const effectiveDefault = groupDefault ?? courseDefault;
+  const [draft, setDraft] = useState(override === null || override === undefined ? '' : String(override));
+  useEffect(() => {
+    setDraft(override === null || override === undefined ? '' : String(override));
+  }, [override]);
+  const placeholder = effectiveDefault === null || effectiveDefault === undefined
+    ? 'бессрочно (по умолчанию)'
+    : `${effectiveDefault} дн. (по умолчанию)`;
+  const commit = () => {
+    const t = String(draft).trim();
+    if (t === '') {
+      if (override !== null && override !== undefined) onApply('');
+      return;
+    }
+    const n = parseInt(t);
+    if (!Number.isFinite(n) || n < 0) { setDraft(override === null || override === undefined ? '' : String(override)); return; }
+    if (n === override) return;
+    onApply(String(n));
+  };
+  const changed = (() => {
+    const t = String(draft).trim();
+    if (t === '') return override !== null && override !== undefined;
+    const n = parseInt(t);
+    return Number.isFinite(n) && n >= 0 && n !== override;
+  })();
+  return (
+    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+      <input type="number" min={0} placeholder={placeholder}
+        value={draft} disabled={disabled}
+        onChange={e => setDraft(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter') commit(); }}
+        onBlur={commit}
+        style={{
+          flex: 1, padding: '8px 10px', borderRadius: 8,
+          border: '1.5px solid rgba(0,0,0,0.08)', background: '#fff',
+          fontSize: 13, color: '#1a1a2e',
+        }} />
+      {changed && (
+        <button type="button" disabled={disabled} onClick={commit}
+          style={{
+            padding: '6px 12px', borderRadius: 8, border: 'none',
+            background: '#1a1a2e', color: '#fff', fontSize: 12, fontWeight: 600,
+            cursor: disabled ? 'wait' : 'pointer',
+          }}>Применить</button>
       )}
     </div>
   );

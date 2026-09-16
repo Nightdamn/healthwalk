@@ -1473,6 +1473,24 @@ router.delete('/groups/:id', async (req, res) => {
   } catch (err) { console.error('[Groups delete]', err); res.status(500).json({ error: err.message }); }
 });
 
+// v29: PATCH /trainer/enrollments/:id/access — тренер задаёт индивидуальный
+// access_days_after_override (сколько дней после окончания курса ученик
+// видит материалы). null = убрать override (наследуем от группы/курса).
+router.patch('/trainer/enrollments/:id/access', async (req, res) => {
+  try {
+    const enrollment = await queryOne('SELECT course_id FROM course_enrollments WHERE id = $1', [req.params.id]);
+    if (!enrollment) return res.status(404).json({ error: 'Enrollment не найден' });
+    if (!await isTrainer(req.userId, enrollment.course_id)) return res.status(403).json({ error: 'Нет прав' });
+    const { accessDaysAfter } = req.body || {};
+    let val = null;
+    if (accessDaysAfter !== null && accessDaysAfter !== undefined && accessDaysAfter !== '') {
+      val = Math.max(0, parseInt(accessDaysAfter) || 0);
+    }
+    await query('UPDATE course_enrollments SET access_days_after_override = $1 WHERE id = $2', [val, req.params.id]);
+    res.json({ ok: true });
+  } catch (err) { console.error('[Access override]', err); res.status(500).json({ error: err.message }); }
+});
+
 // PATCH /trainer/enrollments/:id/group — перевести ученика в другую группу
 // (или в null = «без группы»).
 router.patch('/trainer/enrollments/:id/group', async (req, res) => {
@@ -1718,10 +1736,13 @@ router.get('/trainer/students/:courseId', async (req, res) => {
     const rows = await query(
       `SELECT ce.id AS enrollment_id, u.id AS user_id, u.email, u.display_name, ce.role, ce.paused, ce.joined_at,
               ce.progression_mode_override,
+              ce.access_days_after_override,
               ce.group_id,
               g.name AS group_name, g.avatar_icon AS group_avatar_icon, g.avatar_custom AS group_avatar_custom,
               g.progression_mode AS group_progression_mode,
+              g.access_days_after AS group_access_days_after,
               c.progression_mode AS course_progression_mode,
+              c.access_days_after AS course_access_days_after,
               c.groups_enabled,
               (c.owner_id = u.id) AS is_owner,
               (SELECT COUNT(*) FROM course_day_closures WHERE user_id=u.id AND course_id=c.id) AS closed_days
