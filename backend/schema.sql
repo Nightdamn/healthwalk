@@ -99,6 +99,9 @@ CREATE TABLE IF NOT EXISTS courses (
   -- self_paced = free + возможность «Завершить день» / «Пройти день заново».
   progression_mode TEXT NOT NULL DEFAULT 'daily'
     CHECK (progression_mode IN ('daily', 'free', 'self_paced')),
+  -- v29: переключатель «зачёт по группам». Если TRUE — эффективные
+  -- настройки ученика берутся из course_groups (через enrollment.group_id).
+  groups_enabled BOOLEAN NOT NULL DEFAULT FALSE,
   -- v28: витрина курсов + модерация + цена + блокировка.
   store_status TEXT NOT NULL DEFAULT 'draft'
     CHECK (store_status IN ('draft', 'pending', 'approved', 'rejected', 'blocked')),
@@ -157,6 +160,33 @@ CREATE TABLE IF NOT EXISTS course_activities (
   UNIQUE(course_id, activity_id)
 );
 
+-- v29: группы внутри курса (потоки). Каждая группа — свой шаблон
+-- настроек (mode/tz/hour/start_date) + свой тренер и куратор.
+-- Настройки применяются к enrollments отдельным действием (bulk UPDATE).
+CREATE TABLE IF NOT EXISTS course_groups (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  course_id UUID NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  avatar_icon TEXT DEFAULT 'health/1',
+  avatar_custom TEXT,
+  progression_mode TEXT NOT NULL DEFAULT 'daily'
+    CHECK (progression_mode IN ('daily', 'free', 'self_paced')),
+  bound_to_calendar BOOLEAN NOT NULL DEFAULT FALSE,
+  start_date DATE,
+  access_days_after INTEGER CHECK (access_days_after IS NULL OR access_days_after >= 0),
+  day_start_hour INTEGER CHECK (day_start_hour IS NULL OR (day_start_hour BETWEEN 0 AND 23)),
+  tz_offset_min INTEGER,
+  trainer_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  curator_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE (course_id, name)
+);
+CREATE INDEX IF NOT EXISTS idx_course_groups_course ON course_groups(course_id);
+CREATE INDEX IF NOT EXISTS idx_course_groups_trainer ON course_groups(trainer_id) WHERE trainer_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_course_groups_curator ON course_groups(curator_id) WHERE curator_id IS NOT NULL;
+
 CREATE TABLE IF NOT EXISTS course_enrollments (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   course_id UUID NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
@@ -169,11 +199,20 @@ CREATE TABLE IF NOT EXISTS course_enrollments (
   -- NULL = используется courses.progression_mode.
   progression_mode_override TEXT NULL
     CHECK (progression_mode_override IS NULL OR progression_mode_override IN ('daily', 'free', 'self_paced')),
+  -- v29: групповые связи + индивидуальные override'ы временных настроек.
+  -- Приоритет источников: enrollment.*_override → group.* → course.* / user_settings.
+  group_id UUID REFERENCES course_groups(id) ON DELETE SET NULL,
+  bound_to_calendar_override BOOLEAN NULL,
+  start_date_override DATE NULL,
+  access_days_after_override INTEGER NULL CHECK (access_days_after_override IS NULL OR access_days_after_override >= 0),
+  day_start_hour_override INTEGER NULL CHECK (day_start_hour_override IS NULL OR (day_start_hour_override BETWEEN 0 AND 23)),
+  tz_offset_min_override INTEGER NULL,
   UNIQUE(course_id, user_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_enrollments_user ON course_enrollments(user_id);
 CREATE INDEX IF NOT EXISTS idx_enrollments_course ON course_enrollments(course_id);
+CREATE INDEX IF NOT EXISTS idx_enrollments_group ON course_enrollments(group_id) WHERE group_id IS NOT NULL;
 
 -- v25: закрытые дни (для free/self_paced режимов).
 -- currentDay = min day не в этой таблице для (user, course).
@@ -196,6 +235,8 @@ CREATE TABLE IF NOT EXISTS pending_invitations (
   email TEXT NOT NULL,
   role TEXT NOT NULL DEFAULT 'student' CHECK (role IN ('student', 'curator', 'trainer')),
   invited_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  -- v29: в какую группу сразу зачислить при принятии приглашения.
+  group_id UUID REFERENCES course_groups(id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(course_id, email)
 );

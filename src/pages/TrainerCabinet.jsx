@@ -22,6 +22,9 @@ import {
   getCourseExclusions, getCourseCustomActivities,
   getConversation, sendMessage, markMessagesRead, getUnreadByConversation,
 } from '../lib/db';
+import { getGroups, moveEnrollmentToGroup } from '../lib/api';
+import Dropdown from '../components/Dropdown';
+import { getIconPath } from '../data/iconCatalog';
 
 const GREEN = '#27ae60';
 const BLUE = '#3498db';
@@ -43,6 +46,9 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
   const [chatUserId, setChatUserId] = useState(null); // open chat with this student
   const [unreadMap, setUnreadMap] = useState({}); // { `courseId_senderId`: count }
   const [roleDropdownId, setRoleDropdownId] = useState(null); // enrollment_id with open role dropdown
+  // v29: группы курса + активная секция для перевода
+  const [groups, setGroups] = useState([]);
+  const [moveOpenId, setMoveOpenId] = useState(null); // enrollment_id где открыт групповой Dropdown
 
   // Invite state
   const [showInvite, setShowInvite] = useState(false);
@@ -66,6 +72,13 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
     setAllProgress(p);
     setAllExclusions(excl);
     setAllCustomActivities(custom);
+    // v29: групповая инфа
+    if (c?.groups_enabled) {
+      try { const gs = await getGroups(courseId); setGroups(Array.isArray(gs) ? gs : []); }
+      catch { setGroups([]); }
+    } else {
+      setGroups([]);
+    }
     setLoading(false);
     // Load unread messages
     const unreadData = await getUnreadByConversation();
@@ -87,6 +100,15 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
     } else {
       setInvStatus({ ok: false, msg: result.error || 'Ошибка' });
     }
+  };
+
+  // v29: перевод ученика в другую группу (или снятие из группы)
+  const handleMoveGroup = async (enrollmentId, groupId) => {
+    setActionId(enrollmentId);
+    const r = await moveEnrollmentToGroup(enrollmentId, groupId || null);
+    if (r?.error) { alert(r.error); setActionId(null); return; }
+    await loadData();
+    setActionId(null);
   };
 
   const handleTogglePause = async (enrollmentId) => {
@@ -313,7 +335,10 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
             <div style={{ fontSize: 14, color: '#aaa' }}>Пока нет учеников. Пригласите кого-нибудь!</div>
           </div>
         ) : (
-          students.map(st => {
+          (() => {
+            // v29: если groups_enabled — рендерим секциями (заголовок группы
+            // + её ученики). Иначе — плоский список как раньше.
+            const renderStudent = (st) => {
             const stats = getStudentStats(st);
             const pct = stats.totalDays > 0 ? Math.round((stats.elapsedDays / stats.totalDays) * 100) : 0;
             const isExpanded = expandedId === st.enrollment_id;
@@ -511,6 +536,29 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
                       }}
                     />
 
+                    {/* v29: селектор группы (только когда groups_enabled) */}
+                    {course?.groups_enabled && !isOwner && st.role === 'student' && (
+                      <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 10, background: 'rgba(39,174,96,0.05)', border: '1px solid rgba(39,174,96,0.15)' }}>
+                        <div style={{ fontSize: 11, color: '#888', fontWeight: 600, marginBottom: 6, textTransform: 'uppercase' }}>
+                          Группа
+                        </div>
+                        <Dropdown
+                          value={st.group_id || ''}
+                          disabled={isBusy}
+                          fullWidth
+                          onChange={(newGroupId) => {
+                            if ((newGroupId || null) !== (st.group_id || null)) {
+                              handleMoveGroup(st.enrollment_id, newGroupId || null);
+                            }
+                          }}
+                          options={[
+                            { value: '', label: 'Без группы (по курс-настройкам)' },
+                            ...groups.map(g => ({ value: g.id, label: g.name })),
+                          ]}
+                        />
+                      </div>
+                    )}
+
                     {/* v25: селектор per-student Режима зачёта дня. NULL = «Как у курса». */}
                     {!isOwner && st.role === 'student' && (
                       <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 10, background: 'rgba(0,0,0,0.02)' }}>
@@ -602,7 +650,41 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
                 )}
               </div>
             );
-          })
+            };
+            // v29 — либо плоский список (если group disabled), либо секции по группам.
+            if (!course?.groups_enabled) return students.map(st => renderStudent(st));
+            const chunks = [];
+            let lastKey = '__NONE__';
+            for (const st of students) {
+              const key = st.group_id || '__NONE__';
+              if (key !== lastKey) {
+                const meta = groups.find(g => g.id === st.group_id);
+                chunks.push({ __header: true, key, meta, name: meta?.name || 'Без группы' });
+                lastKey = key;
+              }
+              chunks.push(st);
+            }
+            return chunks.map((c, i) => {
+              if (c.__header) {
+                const iconSrc = c.meta?.avatar_custom || (c.meta?.avatar_icon ? getIconPath(c.meta.avatar_icon) : null);
+                return (
+                  <div key={`h-${c.key}-${i}`} style={{
+                    display: 'flex', alignItems: 'center', gap: 8,
+                    marginTop: i === 0 ? 0 : 14, marginBottom: 8,
+                    padding: '6px 10px', borderRadius: 10,
+                    background: c.meta ? 'rgba(39,174,96,0.06)' : 'rgba(0,0,0,0.04)',
+                    border: c.meta ? '1px solid rgba(39,174,96,0.2)' : '1px solid rgba(0,0,0,0.06)',
+                  }}>
+                    {iconSrc && (
+                      <img src={iconSrc} alt="" style={{ width: 22, height: 22, borderRadius: 6, objectFit: 'contain', background: '#fafafa', padding: 2 }} />
+                    )}
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e' }}>{c.name}</div>
+                  </div>
+                );
+              }
+              return renderStudent(c);
+            });
+          })()
         )}
 
         {/* Chat modal */}

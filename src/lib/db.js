@@ -199,9 +199,9 @@ export async function getOwnCourses(ownerId) {
   }
 }
 
-export async function inviteToCourse(courseId, email, role, invitedBy) {
+export async function inviteToCourse(courseId, email, role, invitedBy, groupId) {
   try {
-    return await apiPost(`/api/courses/${courseId}/invite`, { email, role });
+    return await apiPost(`/api/courses/${courseId}/invite`, { email, role, groupId: groupId || null });
   } catch (err) {
     return { success: false, error: err.message };
   }

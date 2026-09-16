@@ -65,29 +65,54 @@ router.patch('/settings', async (req, res) => {
 
 router.get('/items', async (req, res) => {
   try {
-    // Enrolled courses
+    // Enrolled courses. v29: подтягиваем поля группы (LEFT JOIN),
+    // потом effective значения берутся с приоритетом enrollment→group→course.
     const enrolled = await query(`
-      SELECT ce.id AS enrollment_id, ce.role, ce.joined_at, ce.progression_mode_override,
+      SELECT ce.id AS enrollment_id, ce.role, ce.joined_at,
+             ce.progression_mode_override,
+             ce.bound_to_calendar_override, ce.start_date_override,
+             ce.access_days_after_override,
+             ce.day_start_hour_override, ce.tz_offset_min_override,
+             ce.group_id,
+             g.name AS group_name, g.avatar_icon AS group_avatar_icon, g.avatar_custom AS group_avatar_custom,
+             g.progression_mode AS group_progression_mode,
+             g.bound_to_calendar AS group_bound_to_calendar,
+             g.start_date AS group_start_date,
+             g.access_days_after AS group_access_days_after,
+             g.day_start_hour AS group_day_start_hour,
+             g.tz_offset_min AS group_tz_offset_min,
+             g.trainer_id AS group_trainer_id, g.curator_id AS group_curator_id,
              c.id, c.title, c.description, c.days_count, c.avatar_icon, c.avatar_custom, c.owner_id, c.created_at,
              c.bound_to_calendar, c.start_date, c.access_days_after, c.progression_mode,
+             c.groups_enabled,
              (SELECT count(*) FROM course_enrollments WHERE course_id = c.id) AS enroll_count
       FROM course_enrollments ce
       JOIN courses c ON c.id = ce.course_id
+      LEFT JOIN course_groups g ON g.id = ce.group_id
       WHERE ce.user_id = $1
     `, [req.userId]);
 
     const courseIds = new Set(enrolled.map(e => e.id));
     const items = [];
 
+    // v29: helper — effective значение с приоритетом enrollment→group→course
+    const pick = (...vals) => {
+      for (const v of vals) if (v !== null && v !== undefined) return v;
+      return null;
+    };
+
     for (const e of enrolled) {
       const acts = await query('SELECT * FROM course_activities WHERE course_id = $1 ORDER BY sort_order', [e.id]);
-      // Если курс привязан к календарю — все студенты считают день от
-      // course.start_date, а не от своего joined_at. Иначе — от joined_at.
-      const startDate = (e.bound_to_calendar && e.start_date)
-        ? toISODate(e.start_date)
+      // v29 источники (только если groups_enabled=true у курса и есть группа):
+      const useGroup = e.groups_enabled && e.group_id;
+      const effBound = pick(e.bound_to_calendar_override, useGroup ? e.group_bound_to_calendar : null, e.bound_to_calendar);
+      const effStart = pick(e.start_date_override, useGroup ? e.group_start_date : null, e.start_date);
+      const effAccess = pick(e.access_days_after_override, useGroup ? e.group_access_days_after : null, e.access_days_after);
+      const effMode = pick(e.progression_mode_override, useGroup ? e.group_progression_mode : null, e.progression_mode) || 'daily';
+      // startDate для клиента (как раньше)
+      const startDate = (effBound && effStart)
+        ? toISODate(effStart)
         : toISODate(e.joined_at || e.created_at);
-      // v25: effective progression_mode = enrollment.override ?? course.progression_mode.
-      const effectiveMode = e.progression_mode_override || e.progression_mode || 'daily';
       const closures = await query(
         'SELECT day, closure_type, closed_at FROM course_day_closures WHERE user_id = $1 AND course_id = $2 ORDER BY day',
         [req.userId, e.id]
@@ -97,12 +122,24 @@ router.get('/items', async (req, res) => {
         daysCount: e.days_count, avatarIcon: e.avatar_icon, avatarCustom: e.avatar_custom,
         ownerId: e.owner_id, enrollRole: e.role, enrollmentId: e.enrollment_id,
         startDate,
-        boundToCalendar: !!e.bound_to_calendar,
-        accessDaysAfter: e.access_days_after,
+        boundToCalendar: !!effBound,
+        accessDaysAfter: effAccess,
         enrollCount: parseInt(e.enroll_count),
-        progressionMode: effectiveMode,
+        progressionMode: effMode,
         courseProgressionMode: e.progression_mode || 'daily',
         enrollmentModeOverride: e.progression_mode_override || null,
+        // v29: групповые поля
+        groupsEnabled: !!e.groups_enabled,
+        groupId: e.group_id || null,
+        group: e.group_id ? {
+          id: e.group_id, name: e.group_name,
+          avatarIcon: e.group_avatar_icon, avatarCustom: e.group_avatar_custom,
+          progressionMode: e.group_progression_mode,
+          boundToCalendar: !!e.group_bound_to_calendar,
+          startDate: e.group_start_date ? toISODate(e.group_start_date) : null,
+          accessDaysAfter: e.group_access_days_after,
+          trainerId: e.group_trainer_id, curatorId: e.group_curator_id,
+        } : null,
         closures: closures.map(c => ({ day: c.day, type: c.closure_type, closedAt: c.closed_at })),
         activities: acts.map(a => ({
           id: a.id, activityId: a.activity_id, label: a.label, durationMin: a.duration_min,
@@ -135,6 +172,9 @@ router.get('/items', async (req, res) => {
         progressionMode: c.progression_mode || 'daily',
         courseProgressionMode: c.progression_mode || 'daily',
         enrollmentModeOverride: null,
+        // v29
+        groupsEnabled: !!c.groups_enabled,
+        groupId: null, group: null,
         closures: [],
         activities: acts.map(a => ({
           id: a.id, activityId: a.activity_id, label: a.label, durationMin: a.duration_min,
@@ -633,7 +673,7 @@ router.patch('/courses/:id/meta', async (req, res) => {
     const {
       title, description, daysCount, avatarIcon, avatarCustom,
       boundToCalendar, startDate, accessDaysAfter,
-      progressionMode,
+      progressionMode, groupsEnabled,
     } = req.body || {};
     // v25: смена «категории» (daily ↔ progressive) блокируется если есть
     // enrollments >0 не-owner ролей (тренер не считается). Между free ↔
@@ -686,6 +726,9 @@ router.patch('/courses/:id/meta', async (req, res) => {
     }
     if (progressionMode !== undefined && ['daily', 'free', 'self_paced'].includes(progressionMode)) {
       sets.push(`progression_mode=$${i++}`); params.push(progressionMode);
+    }
+    if (typeof groupsEnabled === 'boolean') {
+      sets.push(`groups_enabled=$${i++}`); params.push(groupsEnabled);
     }
     if (sets.length === 0) return res.json({ ok: true });
     sets.push(`updated_at=NOW()`);
@@ -980,9 +1023,19 @@ router.post('/store/:id/enroll', async (req, res) => {
 
 router.post('/courses/:id/invite', async (req, res) => {
   try {
-    const { email, role } = req.body;
+    const { email, role, groupId } = req.body;
     const courseId = req.params.id;
     const e = email.toLowerCase().trim();
+
+    // v29: если передан groupId — валидируем что группа этого же курса.
+    let gid = null;
+    if (groupId) {
+      const g = await queryOne('SELECT course_id FROM course_groups WHERE id = $1', [groupId]);
+      if (!g || g.course_id !== courseId) {
+        return res.json({ success: false, error: 'Группа не из этого курса' });
+      }
+      gid = groupId;
+    }
 
     // Check if already enrolled
     const existing = await queryOne(
@@ -999,16 +1052,16 @@ router.post('/courses/:id/invite', async (req, res) => {
     const user = await queryOne('SELECT id FROM users WHERE email = $1', [e]);
     if (user) {
       await query(
-        'INSERT INTO course_enrollments (course_id, user_id, role, invited_by) VALUES ($1,$2,$3,$4)',
-        [courseId, user.id, role, req.userId]
+        'INSERT INTO course_enrollments (course_id, user_id, role, invited_by, group_id) VALUES ($1,$2,$3,$4,$5)',
+        [courseId, user.id, role, req.userId, gid]
       );
       return res.json({ success: true });
     }
 
     // Create pending invitation
     await query(
-      'INSERT INTO pending_invitations (course_id, email, role, invited_by) VALUES ($1,$2,$3,$4)',
-      [courseId, e, role, req.userId]
+      'INSERT INTO pending_invitations (course_id, email, role, invited_by, group_id) VALUES ($1,$2,$3,$4,$5)',
+      [courseId, e, role, req.userId, gid]
     );
     res.json({ success: true });
   } catch (err) { console.error(err); res.json({ success: false, error: err.message }); }
@@ -1038,8 +1091,8 @@ router.post('/invitations/:id/accept', async (req, res) => {
     if (!user || inv.email !== user.email) return res.json({ success: false, error: 'Нет прав' });
 
     await query(
-      'INSERT INTO course_enrollments (course_id, user_id, role, invited_by) VALUES ($1,$2,$3,$4) ON CONFLICT (course_id, user_id) DO NOTHING',
-      [inv.course_id, req.userId, inv.role, inv.invited_by]
+      'INSERT INTO course_enrollments (course_id, user_id, role, invited_by, group_id) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (course_id, user_id) DO NOTHING',
+      [inv.course_id, req.userId, inv.role, inv.invited_by, inv.group_id || null]
     );
     await query('DELETE FROM pending_invitations WHERE id = $1', [req.params.id]);
     res.json({ success: true, course_id: inv.course_id });
@@ -1274,6 +1327,170 @@ async function isTrainer(userId, courseId) {
   return !!enroll;
 }
 
+// v29: staff of a specific group. Owner + course-level staff — управляют
+// любой группой курса; групповой trainer_id / curator_id — только своей.
+async function isGroupStaff(userId, groupId) {
+  const g = await queryOne('SELECT course_id, trainer_id, curator_id FROM course_groups WHERE id = $1', [groupId]);
+  if (!g) return null;
+  if (g.trainer_id === userId || g.curator_id === userId) return g;
+  if (await isTrainer(userId, g.course_id)) return g;
+  return null;
+}
+
+// ═══════════════════════════════════════════════════════════
+// COURSE GROUPS (v29) — потоки внутри курса
+// ═══════════════════════════════════════════════════════════
+
+// GET /courses/:id/groups — список групп курса + число участников каждой.
+router.get('/courses/:id/groups', async (req, res) => {
+  try {
+    if (!await isTrainer(req.userId, req.params.id)) return res.status(403).json({ error: 'Нет прав' });
+    const rows = await query(`
+      SELECT g.*, tr.email AS trainer_email, tr.display_name AS trainer_name,
+             cu.email AS curator_email, cu.display_name AS curator_name,
+             (SELECT COUNT(*) FROM course_enrollments WHERE group_id = g.id)::int AS members_count
+        FROM course_groups g
+        LEFT JOIN users tr ON tr.id = g.trainer_id
+        LEFT JOIN users cu ON cu.id = g.curator_id
+        WHERE g.course_id = $1
+        ORDER BY g.sort_order, g.created_at
+    `, [req.params.id]);
+    res.json(rows);
+  } catch (err) { console.error('[Groups list]', err); res.status(500).json({ error: err.message }); }
+});
+
+// POST /courses/:id/groups — создать группу. Пока только owner курса
+// (групповой staff не должен плодить чужие группы).
+router.post('/courses/:id/groups', async (req, res) => {
+  try {
+    const course = await queryOne('SELECT owner_id, progression_mode, bound_to_calendar, start_date, access_days_after FROM courses WHERE id = $1', [req.params.id]);
+    if (!course) return res.status(404).json({ error: 'Курс не найден' });
+    if (course.owner_id !== req.userId) return res.status(403).json({ error: 'Только владелец курса создаёт группы' });
+
+    const { name, avatarIcon, avatarCustom, progressionMode, boundToCalendar, startDate, accessDaysAfter, dayStartHour, tzOffsetMin, trainerId, curatorId } = req.body || {};
+    if (!name || !String(name).trim()) return res.status(400).json({ error: 'Название группы обязательно' });
+
+    // sort_order = max + 1
+    const last = await queryOne('SELECT COALESCE(MAX(sort_order), -1) AS m FROM course_groups WHERE course_id = $1', [req.params.id]);
+    const sortOrder = parseInt(last?.m ?? -1) + 1;
+    const mode = ['daily','free','self_paced'].includes(progressionMode) ? progressionMode : (course.progression_mode || 'daily');
+    // trainer_id default = владелец курса
+    const trainer = trainerId || course.owner_id;
+
+    const row = await queryOne(`
+      INSERT INTO course_groups (
+        course_id, name, avatar_icon, avatar_custom,
+        progression_mode, bound_to_calendar, start_date, access_days_after,
+        day_start_hour, tz_offset_min, trainer_id, curator_id, sort_order
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *
+    `, [
+      req.params.id, String(name).trim(), avatarIcon || 'health/1', avatarCustom || null,
+      mode,
+      typeof boundToCalendar === 'boolean' ? boundToCalendar : (course.bound_to_calendar || false),
+      startDate || course.start_date || null,
+      accessDaysAfter === undefined ? course.access_days_after : accessDaysAfter,
+      dayStartHour ?? null,
+      tzOffsetMin ?? null,
+      trainer, curatorId || null, sortOrder,
+    ]);
+    res.json({ data: row });
+  } catch (err) {
+    if (err.code === '23505') return res.status(409).json({ error: 'Группа с таким названием уже есть' });
+    console.error('[Groups create]', err); res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH /groups/:id — обновить настройки группы. Owner курса или тренер группы.
+// Изменение самих значений группы НЕ обновляет уже привязанные enrollments —
+// для этого отдельный action apply-defaults.
+router.patch('/groups/:id', async (req, res) => {
+  try {
+    const g = await isGroupStaff(req.userId, req.params.id);
+    if (!g) return res.status(403).json({ error: 'Нет прав' });
+
+    const { name, avatarIcon, avatarCustom, progressionMode, boundToCalendar, startDate, accessDaysAfter, dayStartHour, tzOffsetMin, trainerId, curatorId, sortOrder } = req.body || {};
+    const sets = []; const params = []; let i = 1;
+    if (typeof name === 'string' && name.trim()) { sets.push(`name=$${i++}`); params.push(name.trim()); }
+    if (avatarIcon !== undefined) { sets.push(`avatar_icon=$${i++}`); params.push(avatarIcon || 'health/1'); }
+    if (avatarCustom !== undefined) { sets.push(`avatar_custom=$${i++}`); params.push(avatarCustom || null); }
+    if (progressionMode !== undefined && ['daily','free','self_paced'].includes(progressionMode)) {
+      sets.push(`progression_mode=$${i++}`); params.push(progressionMode);
+    }
+    if (typeof boundToCalendar === 'boolean') { sets.push(`bound_to_calendar=$${i++}`); params.push(boundToCalendar); }
+    if (startDate !== undefined) { sets.push(`start_date=$${i++}`); params.push(startDate || null); }
+    if (accessDaysAfter !== undefined) { sets.push(`access_days_after=$${i++}`); params.push(accessDaysAfter); }
+    if (dayStartHour !== undefined) { sets.push(`day_start_hour=$${i++}`); params.push(dayStartHour); }
+    if (tzOffsetMin !== undefined) { sets.push(`tz_offset_min=$${i++}`); params.push(tzOffsetMin); }
+    if (trainerId !== undefined) { sets.push(`trainer_id=$${i++}`); params.push(trainerId || null); }
+    if (curatorId !== undefined) { sets.push(`curator_id=$${i++}`); params.push(curatorId || null); }
+    if (sortOrder !== undefined) { sets.push(`sort_order=$${i++}`); params.push(parseInt(sortOrder) || 0); }
+    if (sets.length === 0) return res.json({ ok: true });
+    sets.push(`updated_at=NOW()`);
+    params.push(req.params.id);
+    await query(`UPDATE course_groups SET ${sets.join(', ')} WHERE id=$${i}`, params);
+    res.json({ ok: true });
+  } catch (err) {
+    if (err.code === '23505') return res.status(409).json({ error: 'Группа с таким названием уже есть' });
+    console.error('[Groups patch]', err); res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /groups/:id/apply-defaults — сбросить все *_override у enrollments
+// группы (эффективно = все ученики берут значения группы).
+router.post('/groups/:id/apply-defaults', async (req, res) => {
+  try {
+    const g = await isGroupStaff(req.userId, req.params.id);
+    if (!g) return res.status(403).json({ error: 'Нет прав' });
+    // Какие поля сбрасывать — можно передать в body.fields = ['mode','tz','hour','start_date','access_days','bound']
+    // По умолчанию — все.
+    const fields = Array.isArray(req.body?.fields) && req.body.fields.length
+      ? req.body.fields
+      : ['mode','tz','hour','start_date','access_days','bound'];
+    const map = {
+      mode: 'progression_mode_override',
+      tz: 'tz_offset_min_override',
+      hour: 'day_start_hour_override',
+      start_date: 'start_date_override',
+      access_days: 'access_days_after_override',
+      bound: 'bound_to_calendar_override',
+    };
+    const cols = fields.map(f => map[f]).filter(Boolean).map(c => `${c} = NULL`).join(', ');
+    if (!cols) return res.json({ ok: true, updated: 0 });
+    const r = await query(`UPDATE course_enrollments SET ${cols} WHERE group_id = $1`, [req.params.id]);
+    res.json({ ok: true, updated: r.length || 0 });
+  } catch (err) { console.error('[Groups apply-defaults]', err); res.status(500).json({ error: err.message }); }
+});
+
+// DELETE /groups/:id — только owner. Enrollments теряют group_id (SET NULL).
+router.delete('/groups/:id', async (req, res) => {
+  try {
+    const g = await queryOne('SELECT course_id FROM course_groups WHERE id = $1', [req.params.id]);
+    if (!g) return res.json({ deleted: true });
+    const course = await queryOne('SELECT owner_id FROM courses WHERE id = $1', [g.course_id]);
+    if (course?.owner_id !== req.userId) return res.status(403).json({ error: 'Только владелец курса удаляет группы' });
+    await query('DELETE FROM course_groups WHERE id = $1', [req.params.id]);
+    res.json({ deleted: true });
+  } catch (err) { console.error('[Groups delete]', err); res.status(500).json({ error: err.message }); }
+});
+
+// PATCH /trainer/enrollments/:id/group — перевести ученика в другую группу
+// (или в null = «без группы»).
+router.patch('/trainer/enrollments/:id/group', async (req, res) => {
+  try {
+    const enrollment = await queryOne('SELECT id, course_id, group_id FROM course_enrollments WHERE id = $1', [req.params.id]);
+    if (!enrollment) return res.status(404).json({ error: 'Enrollment не найден' });
+    if (!await isTrainer(req.userId, enrollment.course_id)) return res.status(403).json({ error: 'Нет прав' });
+
+    const { groupId } = req.body || {};
+    if (groupId) {
+      const g = await queryOne('SELECT course_id FROM course_groups WHERE id = $1', [groupId]);
+      if (!g || g.course_id !== enrollment.course_id) return res.status(400).json({ error: 'Группа не из этого курса' });
+    }
+    await query('UPDATE course_enrollments SET group_id = $1 WHERE id = $2', [groupId || null, req.params.id]);
+    res.json({ ok: true });
+  } catch (err) { console.error('[Enrollments move]', err); res.status(500).json({ error: err.message }); }
+});
+
 // ═══════════════════════════════════════════════════════════
 // PRACTICE LIBRARY (v27) — переиспользуемые шаблоны активностей
 // ═══════════════════════════════════════════════════════════
@@ -1479,15 +1696,42 @@ router.post('/courses/:courseId/activities/from-library', async (req, res) => {
 router.get('/trainer/students/:courseId', async (req, res) => {
   try {
     if (!await isTrainer(req.userId, req.params.courseId)) return res.status(403).json([]);
+    // v29: возвращаем group_id + инфу о группе. Групповой тренер (не owner
+    // и не course-level trainer) видит только своих. isTrainer уже пустил
+    // сюда любого course-level staff; owner-фильтр отдельно.
+    const course = await queryOne('SELECT owner_id FROM courses WHERE id = $1', [req.params.courseId]);
+    const isOwner = course?.owner_id === req.userId;
+    let filter = '';
+    const params = [req.params.courseId];
+    if (!isOwner) {
+      // Оставляем: те где я course-level staff (уже пущены isTrainer)
+      // или те у кого group.trainer_id/curator_id = я.
+      const iAmCourseStaff = await queryOne(
+        "SELECT 1 FROM course_enrollments WHERE course_id=$1 AND user_id=$2 AND role IN ('trainer','curator')",
+        [req.params.courseId, req.userId]
+      );
+      if (!iAmCourseStaff) {
+        filter = " AND EXISTS (SELECT 1 FROM course_groups g WHERE g.id = ce.group_id AND (g.trainer_id = $2 OR g.curator_id = $2))";
+        params.push(req.userId);
+      }
+    }
     const rows = await query(
       `SELECT ce.id AS enrollment_id, u.id AS user_id, u.email, u.display_name, ce.role, ce.paused, ce.joined_at,
               ce.progression_mode_override,
+              ce.group_id,
+              g.name AS group_name, g.avatar_icon AS group_avatar_icon, g.avatar_custom AS group_avatar_custom,
+              g.progression_mode AS group_progression_mode,
               c.progression_mode AS course_progression_mode,
+              c.groups_enabled,
               (c.owner_id = u.id) AS is_owner,
               (SELECT COUNT(*) FROM course_day_closures WHERE user_id=u.id AND course_id=c.id) AS closed_days
-       FROM course_enrollments ce JOIN users u ON u.id = ce.user_id JOIN courses c ON c.id = ce.course_id
-       WHERE ce.course_id = $1 ORDER BY (c.owner_id = u.id) DESC, ce.role, ce.joined_at`,
-      [req.params.courseId]
+       FROM course_enrollments ce
+       JOIN users u ON u.id = ce.user_id
+       JOIN courses c ON c.id = ce.course_id
+       LEFT JOIN course_groups g ON g.id = ce.group_id
+       WHERE ce.course_id = $1${filter}
+       ORDER BY (c.owner_id = u.id) DESC, g.sort_order NULLS LAST, g.name NULLS LAST, ce.role, ce.joined_at`,
+      params
     );
     res.json(rows);
   } catch (err) { console.error(err); res.json([]); }

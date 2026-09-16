@@ -20,7 +20,8 @@ import MediaSection, { extractYoutubeId } from '../components/MediaSection';
 import RichTextEditor from '../components/RichTextEditor';
 import Dropdown from '../components/Dropdown';
 import { saveActivityToLibrary, refreshLibraryFromActivity,
-  storeSubmitCourse, storeWithdrawCourse } from '../lib/api';
+  storeSubmitCourse, storeWithdrawCourse,
+  getGroups, createGroup, updateGroup, deleteGroup, applyGroupDefaults } from '../lib/api';
 import { apiPatch } from '../lib/api';
 
 // Detect a video's duration without showing it. Used at trainer-edit time so
@@ -158,6 +159,10 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
   // v25: режим зачёта дня (глобальный, для всех учеников по default).
   const [progressionMode, setProgressionMode] = useState('daily');
   const [enrollCount, setEnrollCount] = useState(0);
+  // v29: группы (потоки внутри курса)
+  const [groupsEnabled, setGroupsEnabled] = useState(false);
+  const [groups, setGroups] = useState([]);
+  const [groupsLoading, setGroupsLoading] = useState(false);
   // v28: витрина курсов — статус модерации, цена, блокировка.
   const [storeStatus, setStoreStatus] = useState('draft');
   const [storeRejectReason, setStoreRejectReason] = useState('');
@@ -252,6 +257,7 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
     setStartDate((course.start_date || '').slice(0, 10));
     setAccessDaysAfter(course.access_days_after == null ? '' : String(course.access_days_after));
     setProgressionMode(course.progression_mode || 'daily');
+    setGroupsEnabled(!!course.groups_enabled);
     // v28: store поля.
     setStoreStatus(course.store_status || 'draft');
     setStoreRejectReason(course.store_reject_reason || '');
@@ -321,6 +327,17 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
   }, [courseId]);
 
   useEffect(() => { loadCourse(); }, [loadCourse]);
+
+  // v29: подгружаем группы курса, чтобы отрисовать список в блоке «Зачёт дня».
+  const loadGroups = useCallback(async () => {
+    if (!courseId) return;
+    setGroupsLoading(true);
+    try {
+      const rows = await getGroups(courseId);
+      setGroups(Array.isArray(rows) ? rows : []);
+    } finally { setGroupsLoading(false); }
+  }, [courseId]);
+  useEffect(() => { loadGroups(); }, [loadGroups]);
 
   // After a video is added, sync the activity's practice duration to match
   // the video runtime (rounded to whole minutes, min 1).
@@ -923,7 +940,52 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
                 Календарные настройки (даты старта и окно доступа) для этого режима не применяются.
               </div>
             )}
+
+            {/* v29: Разделение на группы. Групповые настройки перекрывают
+                курсовые для тех учеников, кто в группе. Ученики без группы
+                продолжают использовать курс-уровневые настройки выше. */}
+            <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(0,0,0,0.06)' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#1a1a2e' }}>
+                <input type="checkbox" checked={groupsEnabled}
+                  onChange={e => {
+                    setGroupsEnabled(e.target.checked);
+                    scheduleMetaSave({ groupsEnabled: e.target.checked });
+                  }} />
+                Разделить учеников по группам
+              </label>
+              <div style={{ fontSize: 12, color: '#888', marginTop: 4, marginLeft: 24 }}>
+                Один курс — несколько потоков, каждый со своим режимом зачёта, датой старта и тренером. Ученик без группы продолжает работать по курс-уровневым настройкам выше.
+              </div>
+            </div>
           </div>
+
+          {groupsEnabled && (
+            <div style={{ ...glass, borderRadius: 16, padding: 14, marginBottom: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: '#1a1a2e' }}>Группы курса</div>
+                <button onClick={async () => {
+                  const res = await createGroup(courseId, { name: `Группа ${groups.length + 1}`, progressionMode });
+                  if (res?.error) { setError(res.error); return; }
+                  await loadGroups();
+                }} style={{
+                  padding: '6px 12px', borderRadius: 10, border: `1px solid ${GREEN}`,
+                  background: '#fff', color: GREEN, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                }}>+ Создать группу</button>
+              </div>
+              {groupsLoading && <div style={{ fontSize: 12, color: '#888' }}>Загрузка…</div>}
+              {!groupsLoading && groups.length === 0 && (
+                <div style={{ fontSize: 12, color: '#888', fontStyle: 'italic' }}>Пока нет групп. Нажмите «Создать группу».</div>
+              )}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {groups.map(g => (
+                  <GroupCard key={g.id} group={g}
+                    onSave={async (fields) => { await updateGroup(g.id, fields); await loadGroups(); }}
+                    onApplyDefaults={async () => { await applyGroupDefaults(g.id); }}
+                    onDelete={async () => { await deleteGroup(g.id); await loadGroups(); }} />
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* v22 calendar binding — только для daily */}
           {progressionMode === 'daily' && (
@@ -1591,6 +1653,128 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onToggleDay, onRemove
 //   draft/rejected → «Отправить в магазин» (спрашивает цену),
 //   pending/approved → «Убрать из магазина».
 // Заблокированный курс — read-only, только сообщение.
+// v29: редактор одной группы.
+// Все поля с debounce-save (аналогично carе editor). apply-defaults сбрасывает
+// enrollment-override'ы, чтобы новое значение действительно применилось.
+function GroupCard({ group, onSave, onApplyDefaults, onDelete }) {
+  const [name, setName] = useState(group.name || '');
+  const [mode, setMode] = useState(group.progression_mode || 'daily');
+  const [boundCal, setBoundCal] = useState(!!group.bound_to_calendar);
+  const [startDate, setStartDate] = useState(group.start_date ? String(group.start_date).slice(0, 10) : '');
+  const [accessDays, setAccessDays] = useState(group.access_days_after ?? '');
+  const [busy, setBusy] = useState(false);
+  const [confirmDel, setConfirmDel] = useState(false);
+  const [savedMark, setSavedMark] = useState(false);
+
+  const saveField = async (fields) => {
+    setBusy(true);
+    try {
+      await onSave(fields);
+      setSavedMark(true);
+      setTimeout(() => setSavedMark(false), 1500);
+    } finally { setBusy(false); }
+  };
+
+  const MODE_OPTS = [
+    { value: 'daily',      label: 'По дням' },
+    { value: 'free',       label: 'По прохождению' },
+    { value: 'self_paced', label: 'Свободно' },
+  ];
+
+  return (
+    <div style={{
+      borderRadius: 12, border: '1px solid rgba(0,0,0,0.08)',
+      background: 'rgba(255,255,255,0.6)', padding: 12,
+    }}>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+        <input value={name} onChange={e => setName(e.target.value)}
+          onBlur={() => name !== group.name && saveField({ name })}
+          placeholder="Название группы"
+          style={{
+            flex: 1, padding: '8px 10px', borderRadius: 10, fontSize: 14,
+            border: '1px solid rgba(0,0,0,0.1)', background: '#fff',
+          }} />
+        <div style={{
+          fontSize: 11, color: '#888', alignSelf: 'center', minWidth: 90, textAlign: 'right',
+        }}>{group.members_count || 0} учен.</div>
+      </div>
+
+      <div style={{ marginBottom: 10 }}>
+        <label style={{ fontSize: 11, color: '#666', marginBottom: 4, display: 'block' }}>Режим зачёта</label>
+        <Dropdown value={mode}
+          onChange={v => { setMode(v); saveField({ progressionMode: v }); }}
+          options={MODE_OPTS} fullWidth />
+      </div>
+
+      {mode === 'daily' && (
+        <>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, cursor: 'pointer', fontSize: 12, color: '#1a1a2e' }}>
+            <input type="checkbox" checked={boundCal}
+              onChange={e => { setBoundCal(e.target.checked); saveField({ boundToCalendar: e.target.checked }); }} />
+            Привязать к дате
+          </label>
+          {boundCal && (
+            <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+              <div style={{ flex: 1, minWidth: 160 }}>
+                <label style={{ fontSize: 11, color: '#666', display: 'block' }}>Дата старта</label>
+                <input type="date" value={startDate}
+                  onChange={e => setStartDate(e.target.value)}
+                  onBlur={() => saveField({ startDate: startDate || null })}
+                  style={{ width: '100%', padding: '6px 8px', borderRadius: 8, fontSize: 13,
+                    border: '1px solid rgba(0,0,0,0.1)', background: '#fff' }} />
+              </div>
+              <div style={{ width: 140 }}>
+                <label style={{ fontSize: 11, color: '#666', display: 'block' }}>Доступ, дней после</label>
+                <input type="number" min={0} placeholder="бессрочно" value={accessDays}
+                  onChange={e => setAccessDays(e.target.value)}
+                  onBlur={() => saveField({ accessDaysAfter: accessDays === '' ? null : parseInt(accessDays) || 0 })}
+                  style={{ width: '100%', padding: '6px 8px', borderRadius: 8, fontSize: 13,
+                    border: '1px solid rgba(0,0,0,0.1)', background: '#fff' }} />
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+        <button onClick={async () => { setBusy(true); try { await onApplyDefaults(); } finally { setBusy(false); } }}
+          disabled={busy}
+          title="Обнулить индивидуальные настройки всех участников — они возьмут значения группы"
+          style={{
+            padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.1)',
+            background: '#fff', color: '#1a1a2e', fontSize: 12, fontWeight: 600,
+            cursor: busy ? 'wait' : 'pointer',
+          }}>Применить к участникам</button>
+        {!confirmDel ? (
+          <button onClick={() => setConfirmDel(true)} disabled={busy}
+            style={{
+              padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(231,76,60,0.25)',
+              background: 'rgba(231,76,60,0.05)', color: '#e74c3c', fontSize: 12, fontWeight: 600,
+              cursor: busy ? 'wait' : 'pointer',
+            }}>Удалить</button>
+        ) : (
+          <>
+            <button onClick={async () => { setBusy(true); try { await onDelete(); } finally { setBusy(false); setConfirmDel(false); } }}
+              disabled={busy}
+              style={{
+                padding: '6px 10px', borderRadius: 8, border: 'none',
+                background: '#e74c3c', color: '#fff', fontSize: 12, fontWeight: 600,
+                cursor: busy ? 'wait' : 'pointer',
+              }}>Точно удалить</button>
+            <button onClick={() => setConfirmDel(false)} disabled={busy}
+              style={{
+                padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.1)',
+                background: '#fff', color: '#666', fontSize: 12, fontWeight: 600,
+                cursor: busy ? 'wait' : 'pointer',
+              }}>Отмена</button>
+          </>
+        )}
+        {savedMark && <span style={{ fontSize: 11, color: GREEN, alignSelf: 'center' }}>сохранено</span>}
+      </div>
+    </div>
+  );
+}
+
 function StoreBlock({ status, rejectReason, blockedReason, price, currency, setPrice, prompt, setPrompt, busy, onSubmit, onWithdraw }) {
   const STATUS_META = {
     draft:     { label: 'Черновик',      color: '#888', bg: 'rgba(0,0,0,0.03)',       border: 'rgba(0,0,0,0.08)' },

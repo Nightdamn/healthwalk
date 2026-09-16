@@ -2,13 +2,17 @@ import TopBar from '../components/TopBar';
 import React, { useState, useEffect } from 'react';
 import Layout from '../components/Layout';
 import { glass } from '../styles/shared';
+import Dropdown from '../components/Dropdown';
 import { getOwnCourses, inviteToCourse } from '../lib/db';
+import { getGroups } from '../lib/api';
 
 export default function InvitePage({ user, onBack }) {
   const [courses, setCourses] = useState([]);
   const [selectedCourse, setSelectedCourse] = useState('');
   const [email, setEmail] = useState('');
   const [role, setRole] = useState('student');
+  const [groupId, setGroupId] = useState('');
+  const [groups, setGroups] = useState([]);
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState(null);
   const [loadingCourses, setLoadingCourses] = useState(true);
@@ -22,11 +26,22 @@ export default function InvitePage({ user, onBack }) {
     });
   }, [user?.id]);
 
+  // v29: при смене курса — подгрузить его группы (если groups_enabled).
+  useEffect(() => {
+    if (!selectedCourse) { setGroups([]); setGroupId(''); return; }
+    const c = courses.find(x => x.id === selectedCourse);
+    if (!c?.groups_enabled) { setGroups([]); setGroupId(''); return; }
+    getGroups(selectedCourse).then(rows => {
+      setGroups(Array.isArray(rows) ? rows : []);
+      setGroupId('');
+    }).catch(() => setGroups([]));
+  }, [selectedCourse, courses]);
+
   const handleInvite = async () => {
     if (!email.trim()) { setStatus({ type: 'err', msg: 'Введите email' }); return; }
     if (!selectedCourse) { setStatus({ type: 'err', msg: 'Выберите курс' }); return; }
     setLoading(true); setStatus(null);
-    const result = await inviteToCourse(selectedCourse, email.trim(), role, user.id);
+    const result = await inviteToCourse(selectedCourse, email.trim(), role, user.id, groupId || null);
     setLoading(false);
     if (result.success) {
       setStatus({ type: 'ok', msg: `Приглашение отправлено на ${email}` });
@@ -43,6 +58,15 @@ export default function InvitePage({ user, onBack }) {
     boxSizing: "border-box",
   };
 
+  const courseOptions = courses.map(c => ({ value: c.id, label: c.title }));
+  const roleOptions = [
+    { value: 'student', label: 'Ученик' },
+    { value: 'curator', label: 'Куратор' },
+    { value: 'trainer', label: 'Тренер' },
+  ];
+  const groupOptions = [{ value: '', label: '— без группы (по курс-настройкам) —' },
+    ...groups.map(g => ({ value: g.id, label: g.name + (g.members_count ? ` · ${g.members_count} чел.` : '') }))];
+
   return (
     <Layout>
       <div style={{ minHeight: "100vh", padding: "calc(env(safe-area-inset-top, 0px) + 82px) 20px", position: "relative", zIndex: 1 }}>
@@ -57,34 +81,29 @@ export default function InvitePage({ user, onBack }) {
             </div>
           ) : (
             <>
-              {/* Course selector */}
-              <label style={{ fontSize: 13, fontWeight: 600, color: "#888", marginBottom: 6, display: "block" }}>
-                Курс
-              </label>
-              <select value={selectedCourse} onChange={(e) => setSelectedCourse(e.target.value)}
-                style={{ ...inputStyle, appearance: "auto" }}>
-                {courses.map((c) => (
-                  <option key={c.id} value={c.id}>{c.title}</option>
-                ))}
-              </select>
+              <label style={{ fontSize: 13, fontWeight: 600, color: "#888", marginBottom: 6, display: "block" }}>Курс</label>
+              <div style={{ marginBottom: 16 }}>
+                <Dropdown value={selectedCourse} onChange={setSelectedCourse} options={courseOptions} fullWidth />
+              </div>
 
-              {/* Email */}
-              <label style={{ fontSize: 13, fontWeight: 600, color: "#888", marginBottom: 6, display: "block" }}>
-                Email участника
-              </label>
+              <label style={{ fontSize: 13, fontWeight: 600, color: "#888", marginBottom: 6, display: "block" }}>Email участника</label>
               <input type="email" value={email} onChange={(e) => setEmail(e.target.value)}
                 placeholder="user@example.com" style={inputStyle} />
 
-              {/* Role in course */}
-              <label style={{ fontSize: 13, fontWeight: 600, color: "#888", marginBottom: 6, display: "block" }}>
-                Роль в курсе
-              </label>
-              <select value={role} onChange={(e) => setRole(e.target.value)}
-                style={{ ...inputStyle, appearance: "auto" }}>
-                <option value="student">Ученик</option>
-                <option value="curator">Куратор</option>
-                <option value="trainer">Тренер</option>
-              </select>
+              <label style={{ fontSize: 13, fontWeight: 600, color: "#888", marginBottom: 6, display: "block" }}>Роль в курсе</label>
+              <div style={{ marginBottom: 16 }}>
+                <Dropdown value={role} onChange={setRole} options={roleOptions} fullWidth />
+              </div>
+
+              {/* v29: селектор группы — только если у курса groups_enabled */}
+              {groups.length > 0 && role === 'student' && (
+                <>
+                  <label style={{ fontSize: 13, fontWeight: 600, color: "#888", marginBottom: 6, display: "block" }}>Группа</label>
+                  <div style={{ marginBottom: 20 }}>
+                    <Dropdown value={groupId} onChange={setGroupId} options={groupOptions} fullWidth />
+                  </div>
+                </>
+              )}
 
               <button onClick={handleInvite} disabled={loading}
                 style={{

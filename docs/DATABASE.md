@@ -184,6 +184,56 @@ UNIQUE(course_id, user_id, activity_id, day)
 
 ---
 
+## Группы курса (v29)
+
+Один курс = несколько параллельных потоков со своими режимами зачёта дня,
+датами старта и тренером/куратором. Ученик — ровно в одной группе (или
+без группы: тогда работают курс-уровневые настройки).
+
+**Приоритет источников effective-настроек:**
+`enrollment.*_override ?? course_groups.* ?? courses.*`
+
+Изменение настроек группы **не** трогает enrollments сразу. Отдельное
+действие «Применить настройки группы участникам» обнуляет `*_override`
+у всех enrollments группы.
+
+### course_groups
+| Колонка | Тип | Описание |
+|---|---|---|
+| id | UUID PK | |
+| course_id | UUID | FK → courses, CASCADE |
+| name | TEXT | UNIQUE (course_id, name) |
+| avatar_icon / avatar_custom | TEXT | |
+| progression_mode | TEXT | daily / free / self_paced |
+| bound_to_calendar / start_date / access_days_after | | Календарные настройки |
+| day_start_hour / tz_offset_min | INT | Время (NULL = user_settings) |
+| trainer_id | UUID | FK → users, default = owner курса |
+| curator_id | UUID | FK → users, nullable (задел на функционал) |
+| sort_order | INT | |
+
+### courses += `groups_enabled` BOOLEAN
+
+Переключатель «зачёт по группам». UI/бекенд смотрят на него, чтобы
+знать нужно ли применять групповую модель.
+
+### course_enrollments += group_id + *_override
+| Колонка | Тип | Описание |
+|---|---|---|
+| group_id | UUID | FK → course_groups, ON DELETE SET NULL |
+| bound_to_calendar_override | BOOLEAN | NULL = наследуем |
+| start_date_override | DATE | NULL = наследуем |
+| access_days_after_override | INT | NULL = наследуем |
+| day_start_hour_override | INT | NULL = наследуем |
+| tz_offset_min_override | INT | NULL = наследуем |
+
+(`progression_mode_override` уже был в v25.)
+
+### pending_invitations += `group_id`
+При приглашении сразу указываем группу, при accept enrollment создаётся
+с этим group_id.
+
+---
+
 ## Банк практик (Practice Library, v27)
 
 Личный банк переиспользуемых практик тренера. Активность в курсе можно
