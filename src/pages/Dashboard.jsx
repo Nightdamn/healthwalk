@@ -250,11 +250,11 @@ export default function Dashboard({
                       {showLine && <div style={{ width: 12, minWidth: 12, height: 2.5, background: lineGreen ? GREEN : 'rgba(0,0,0,0.06)', marginLeft: -3, marginRight: -3, zIndex: 0, flexShrink: 0 }} />}
                       <div data-day={day} onClick={() => {
                           // В progressive режимах future — заблокирован.
-                          if (isFuture && isProgressive) return;
+                          if (isFuture && isSelfPaced) return;
                           setViewingDay(day);
                           setDashView('day');
                         }}
-                        style={{ cursor: (isFuture && isProgressive) ? 'default' : 'pointer', flexShrink: 0, zIndex: 1, position: 'relative', opacity: (isFuture && isProgressive) ? 0.5 : 1 }}>
+                        style={{ cursor: (isFuture && isSelfPaced) ? 'default' : 'pointer', flexShrink: 0, zIndex: 1, position: 'relative', opacity: (isFuture && isSelfPaced) ? 0.5 : 1 }}>
                         <DayCircle day={day} uid={uidRef.current} timePct={isCurrent ? timePct : (isPast ? 100 : 0)}
                           allDone={allDone} practicePct={practiceFrac} isPast={isPast} isCurrent={isCurrent} isFuture={isFuture}
                           progressive={isProgressive} />
