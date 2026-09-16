@@ -163,6 +163,13 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
   const [groupsEnabled, setGroupsEnabled] = useState(false);
   const [groups, setGroups] = useState([]);
   const [groupsLoading, setGroupsLoading] = useState(false);
+  // Свёрнутые группы (по id). null = ещё не инициализировано (первая загрузка
+  // свернёт всё сущеcтвующее). Новые группы, созданные из UI, в set не попадают —
+  // остаются развёрнутыми для редактирования.
+  const [groupCollapsedIds, setGroupCollapsedIds] = useState(null);
+  // Открытый IconPicker для аватара группы (id группы) — отдельный от pickerTarget
+  // (который для активностей курса).
+  const [groupPickerId, setGroupPickerId] = useState(null);
   // v28: витрина курсов — статус модерации, цена, блокировка.
   const [storeStatus, setStoreStatus] = useState('draft');
   const [storeRejectReason, setStoreRejectReason] = useState('');
@@ -334,7 +341,13 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
     setGroupsLoading(true);
     try {
       const rows = await getGroups(courseId);
-      setGroups(Array.isArray(rows) ? rows : []);
+      const list = Array.isArray(rows) ? rows : [];
+      setGroups(list);
+      // Первая загрузка — сворачиваем все существующие группы, чтобы
+      // счётчик учеников не расползался по UI. Пользователь разворачивает,
+      // если хочет редактировать. Новые группы (созданные из UI) в set
+      // не попадают → остаются развёрнутыми.
+      setGroupCollapsedIds(prev => prev === null ? new Set(list.map(g => g.id)) : prev);
     } finally { setGroupsLoading(false); }
   }, [courseId]);
   useEffect(() => { loadGroups(); }, [loadGroups]);
@@ -973,9 +986,25 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {groups.map(g => (
                   <GroupCard key={g.id} group={g}
+                    collapsed={groupCollapsedIds ? groupCollapsedIds.has(g.id) : false}
+                    onToggleCollapsed={() => setGroupCollapsedIds(prev => {
+                      const next = new Set(prev || []);
+                      if (next.has(g.id)) next.delete(g.id); else next.add(g.id);
+                      return next;
+                    })}
+                    onPickIcon={() => setGroupPickerId(g.id)}
                     onSave={async (fields) => { await updateGroup(g.id, fields); await loadGroups(); }}
                     onApplyDefaults={async () => { await applyGroupDefaults(g.id); }}
-                    onDelete={async () => { await deleteGroup(g.id); await loadGroups(); }} />
+                    onDelete={async () => {
+                      await deleteGroup(g.id);
+                      setGroupCollapsedIds(prev => {
+                        if (!prev) return prev;
+                        const next = new Set(prev);
+                        next.delete(g.id);
+                        return next;
+                      });
+                      await loadGroups();
+                    }} />
                 ))}
               </div>
             </div>
@@ -1127,6 +1156,16 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
             else updateActivity(pickerTarget, 'iconNum', num);
           }}
           onClose={() => setPickerTarget(null)} />
+      )}
+
+      {groupPickerId !== null && (
+        <IconPicker
+          value={groups.find(g => g.id === groupPickerId)?.avatar_icon || 'health/1'}
+          onChange={async (iconId) => {
+            await updateGroup(groupPickerId, { avatarIcon: iconId });
+            await loadGroups();
+          }}
+          onClose={() => setGroupPickerId(null)} />
       )}
     </Layout>
   );
@@ -1650,7 +1689,7 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onToggleDay, onRemove
 // v29: редактор одной группы.
 // Все поля с debounce-save (аналогично carе editor). apply-defaults сбрасывает
 // enrollment-override'ы, чтобы новое значение действительно применилось.
-function GroupCard({ group, onSave, onApplyDefaults, onDelete }) {
+function GroupCard({ group, onSave, onApplyDefaults, onDelete, collapsed = false, onToggleCollapsed, onPickIcon }) {
   const [name, setName] = useState(group.name || '');
   const [mode, setMode] = useState(group.progression_mode || 'daily');
   const [boundCal, setBoundCal] = useState(!!group.bound_to_calendar);
@@ -1675,12 +1714,75 @@ function GroupCard({ group, onSave, onApplyDefaults, onDelete }) {
     { value: 'self_paced', label: 'Свободно' },
   ];
 
+  const chevronPath = collapsed ? 'M9 6L15 12L9 18' : 'M6 9L12 15L18 9';
+  const membersCount = group.members_count || 0;
+  const avatarId = group.avatar_icon || 'health/1';
+  const plural = (n, one, few, many) => {
+    const n10 = n % 10, n100 = n % 100;
+    if (n10 === 1 && n100 !== 11) return one;
+    if (n10 >= 2 && n10 <= 4 && (n100 < 12 || n100 > 14)) return few;
+    return many;
+  };
+
+  if (collapsed) {
+    return (
+      <div style={{
+        borderRadius: 12, border: '1px solid rgba(0,0,0,0.08)',
+        background: 'rgba(255,255,255,0.6)', padding: '10px 12px',
+        display: 'flex', alignItems: 'center', gap: 10,
+      }}>
+        <button type="button" onClick={onToggleCollapsed}
+          aria-label="Развернуть"
+          style={{
+            width: 26, height: 26, borderRadius: 8, border: 'none',
+            background: 'transparent', cursor: 'pointer', color: '#888',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, flexShrink: 0,
+          }}>
+          <svg width={16} height={16} viewBox="0 0 24 24" fill="none">
+            <path d={chevronPath} stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+        <div style={{
+          width: 36, height: 36, borderRadius: 9, flexShrink: 0,
+          background: '#fafafa', border: '1px solid rgba(0,0,0,0.06)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 4,
+        }}>
+          <img src={getIconPath(avatarId)} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+        </div>
+        <div style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 600, color: '#1a1a2e', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {group.name || <span style={{ color: '#ccc', fontWeight: 400 }}>Без названия</span>}
+        </div>
+        <div style={{ fontSize: 12, color: '#888', flexShrink: 0 }}>
+          {membersCount} {plural(membersCount, 'ученик', 'ученика', 'учеников')}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{
       borderRadius: 12, border: '1px solid rgba(0,0,0,0.08)',
       background: 'rgba(255,255,255,0.6)', padding: 12,
     }}>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+        <button type="button" onClick={onToggleCollapsed}
+          aria-label="Свернуть"
+          style={{
+            width: 26, height: 26, borderRadius: 8, border: 'none',
+            background: 'transparent', cursor: 'pointer', color: '#888',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, flexShrink: 0,
+          }}>
+          <svg width={16} height={16} viewBox="0 0 24 24" fill="none">
+            <path d={chevronPath} stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+        <button onClick={onPickIcon} style={{
+          width: 44, height: 44, borderRadius: 11, flexShrink: 0,
+          border: '2px solid rgba(0,0,0,0.08)', background: '#fafafa',
+          cursor: 'pointer', padding: 4, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <img src={getIconPath(avatarId)} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+        </button>
         <input value={name} onChange={e => setName(e.target.value)}
           onBlur={() => name !== group.name && saveField({ name })}
           placeholder="Название группы"
@@ -1689,8 +1791,8 @@ function GroupCard({ group, onSave, onApplyDefaults, onDelete }) {
             border: '1px solid rgba(0,0,0,0.1)', background: '#fff',
           }} />
         <div style={{
-          fontSize: 11, color: '#888', alignSelf: 'center', minWidth: 90, textAlign: 'right',
-        }}>{group.members_count || 0} учен.</div>
+          fontSize: 11, color: '#888', alignSelf: 'center', flexShrink: 0,
+        }}>{membersCount} {plural(membersCount, 'учен.', 'учен.', 'учен.')}</div>
       </div>
 
       <div style={{ marginBottom: 10 }}>
