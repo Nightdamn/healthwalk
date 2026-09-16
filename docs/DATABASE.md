@@ -184,7 +184,7 @@ UNIQUE(course_id, user_id, activity_id, day)
 
 ---
 
-## Лист практик (Practice Library, v27)
+## Банк практик (Practice Library, v27)
 
 Личный банк переиспользуемых практик тренера. Активность в курсе можно
 «сохранить в лист» — получается снимок в `practice_library` + все media

@@ -584,14 +584,14 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
       const res = await saveActivityToLibrary(act.dbId);
       const created = res?.data || res;
       if (created?.error || !created?.id) {
-        setError(`Ошибка сохранения в лист: ${created?.error || 'unknown'}`);
+        setError(`Ошибка сохранения в банк: ${created?.error || 'unknown'}`);
         return;
       }
       setActivities(prev => prev.map(a => a.dbId === act.dbId
         ? { ...a, libraryPracticeId: created.id }
         : a));
     } catch (e) {
-      setError(`Ошибка сохранения в лист: ${e.message}`);
+      setError(`Ошибка сохранения в банк: ${e.message}`);
     } finally {
       markLibBusy(act.dbId, false);
     }
@@ -1033,7 +1033,7 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
               flex: 1, padding: 14, borderRadius: 14,
               border: '2px dashed rgba(39,174,96,0.3)', background: 'rgba(39,174,96,0.04)',
               color: GREEN, fontSize: 15, fontWeight: 600, cursor: 'pointer',
-            }}>+ Лист практик</button>
+            }}>+ Банк практик</button>
           )}
         </div>
 
@@ -1433,7 +1433,7 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onToggleDay, onRemove
                   </svg>
                 </div>
                 <span style={{ fontSize: 13, color: '#1a1a2e', fontWeight: 500 }}>
-                  Сохранено в Лист практик
+                  Сохранено в Банк практик
                 </span>
               </div>
               <button onClick={() => onRefreshLibrary?.()} disabled={libraryBusy}
@@ -1441,7 +1441,7 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onToggleDay, onRemove
                   padding: '6px 10px', borderRadius: 8, border: `1px solid ${GREEN}`,
                   background: 'transparent', color: GREEN, fontSize: 12, fontWeight: 600,
                   cursor: libraryBusy ? 'wait' : 'pointer',
-                }}>Обновить в Листе</button>
+                }}>Обновить в Банке</button>
             </>
           ) : (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: libraryBusy ? 'wait' : 'pointer', flex: 1 }}
@@ -1451,7 +1451,7 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onToggleDay, onRemove
                 border: '2px solid rgba(0,0,0,0.15)', background: '#fff',
               }} />
               <span style={{ fontSize: 13, color: '#1a1a2e', fontWeight: 500 }}>
-                Сохранить в Лист практик
+                Сохранить в Банк практик
               </span>
             </div>
           )}

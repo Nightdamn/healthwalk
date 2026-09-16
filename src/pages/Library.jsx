@@ -213,7 +213,7 @@ export default function LibraryPage({ onBack, pickerCourseId, onPickerDone }) {
   return (
     <Layout>
       <div style={{ minHeight: '100vh', padding: 'calc(env(safe-area-inset-top, 0px) + 82px) 20px 120px', position: 'relative', zIndex: 1 }}>
-        <TopBar onBack={onBack} title={pickerMode ? 'Добавить из листа' : 'Лист практик'} />
+        <TopBar onBack={onBack} title={pickerMode ? 'Добавить из банка' : 'Банк практик'} />
 
         {pickerMode && (
           <div style={{
@@ -228,7 +228,7 @@ export default function LibraryPage({ onBack, pickerCourseId, onPickerDone }) {
           <div style={{ textAlign: 'center', padding: 40, color: '#aaa' }}>Загрузка...</div>
         ) : items.length === 0 ? (
           <div style={{ ...glass, borderRadius: 16, padding: '24px 20px', textAlign: 'center', color: '#888', fontSize: 14 }}>
-            Лист пуст. Отметьте галочку «Сохранить в лист практик» при создании активности в курсе.
+            Банк пуст. Отметьте галочку «Сохранить в Банк практик» при создании активности в курсе.
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -299,7 +299,7 @@ export default function LibraryPage({ onBack, pickerCourseId, onPickerDone }) {
                     </button>
                     {!pickerMode && confirmDeleteId !== p.id && (
                       <button onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(p.id); }} disabled={busy}
-                        title="Удалить из листа"
+                        title="Удалить из банка"
                         style={{
                           padding: '8px 10px', borderRadius: 10,
                           border: '1px solid rgba(231,76,60,0.2)',
@@ -361,7 +361,7 @@ export default function LibraryPage({ onBack, pickerCourseId, onPickerDone }) {
                     <div style={{ marginTop: 12, padding: 10, borderRadius: 10, background: 'rgba(231,76,60,0.06)', border: '1px solid rgba(231,76,60,0.15)' }}
                       onClick={(e) => e.stopPropagation()}>
                       <div style={{ fontSize: 13, color: '#1a1a2e', marginBottom: 10 }}>
-                        Удалить практику из листа? Уже добавленные в курсы копии не пострадают.
+                        Удалить практику из банка? Уже добавленные в курсы копии не пострадают.
                       </div>
                       <div style={{ display: 'flex', gap: 8 }}>
                         <button onClick={() => handleDelete(p.id)} disabled={busy}

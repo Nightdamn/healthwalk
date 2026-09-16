@@ -66,7 +66,7 @@ export default function App() {
   const [editCourseId, setEditCourseId] = useState(null);
   const [editTrackerId, setEditTrackerId] = useState(null);
   const [trainerCourseId, setTrainerCourseId] = useState(null);
-  // v27: Practice Library — режим «выбрать из листа для добавления в курс».
+  // v27: Practice Library — режим «выбрать из банка для добавления в курс».
   // Когда установлено — Library открывается в pickerMode, при возврате
   // делаем re-mount EditCoursePage (через editCourseKey), чтобы подтянуть
   // новые активности с сервера.
@@ -592,7 +592,7 @@ export default function App() {
     setScreen('trainer_cabinet');
   };
 
-  // v27: открыть Лист практик в режиме выбора для добавления в курс.
+  // v27: открыть Банк практик в режиме выбора для добавления в курс.
   const handleOpenLibraryForCourse = (courseId) => {
     setLibraryPickerCourseId(courseId);
     setScreen('library');

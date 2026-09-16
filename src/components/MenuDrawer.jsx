@@ -20,7 +20,7 @@ export default function MenuDrawer({
   items.push(
     { label: 'Мои курсы', icon: '📚', target: 'my_courses' },
     { label: 'Магазин курсов', icon: '🛍', target: 'store' },
-    { label: 'Лист практик', icon: '🗂', target: 'library' },
+    { label: 'Банк практик', icon: '🗂', target: 'library' },
     { label: 'Мои трекеры', icon: '🎯', target: 'my_trackers' },
     { label: 'Рекомендации', icon: '💡', target: 'recommendations' },
     { label: 'Вопрос тренеру', icon: '💬', target: 'ask' },
