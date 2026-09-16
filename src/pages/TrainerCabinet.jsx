@@ -22,7 +22,7 @@ import {
   getCourseExclusions, getCourseCustomActivities,
   getConversation, sendMessage, markMessagesRead, getUnreadByConversation,
 } from '../lib/db';
-import { getGroups, moveEnrollmentToGroup, setEnrollmentAccessOverride } from '../lib/api';
+import { getGroups, moveEnrollmentToGroup, setEnrollmentAccessOverride, updateGroup } from '../lib/api';
 
 const GREEN = '#27ae60';
 const BLUE = '#3498db';
@@ -47,6 +47,13 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
   // v29: группы курса + активная секция для перевода
   const [groups, setGroups] = useState([]);
   const [moveOpenId, setMoveOpenId] = useState(null); // enrollment_id где открыт групповой Dropdown
+  // Свёрнутые группы (по id). null = ещё не инициализировано — первая загрузка
+  // свернёт все существующие. Внутри развёрнутой группы — список её учеников.
+  const [groupCollapsedIds, setGroupCollapsedIds] = useState(null);
+  // Открытый IconPicker для аватара группы (id группы) — правится как значок курса
+  const [groupPickerId, setGroupPickerId] = useState(null);
+  // Режим редактирования настроек группы (id группы) — inline mini-editor
+  const [groupEditId, setGroupEditId] = useState(null);
 
   // Invite state
   const [showInvite, setShowInvite] = useState(false);
@@ -72,7 +79,14 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
     setAllCustomActivities(custom);
     // v29: групповая инфа
     if (c?.groups_enabled) {
-      try { const gs = await getGroups(courseId); setGroups(Array.isArray(gs) ? gs : []); }
+      try {
+        const gs = await getGroups(courseId);
+        const list = Array.isArray(gs) ? gs : [];
+        setGroups(list);
+        // Первая загрузка — сворачиваем все существующие группы. При
+        // редактировании группы (updateGroup → loadData) состояние сохраняется.
+        setGroupCollapsedIds(prev => prev === null ? new Set(list.map(g => g.id)) : prev);
+      }
       catch { setGroups([]); }
     } else {
       setGroups([]);
@@ -118,6 +132,29 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
       ? { ...s, access_days_after_override: val === '' ? null : (parseInt(val) || 0) }
       : s));
     setActionId(null);
+  };
+  // v29: правка настроек группы из кабинета (owner + staff группы). После
+  // сохранения обновляем локально groups, не дёргая loadData (иначе схлопнутся
+  // все раскрытые секции).
+  const handleUpdateGroup = async (groupId, fields) => {
+    const r = await updateGroup(groupId, fields);
+    if (r?.error) { alert(r.error); return false; }
+    // API отвечает { ok: true } без данных — конвертируем сами (camelCase → snake_case)
+    // и мержим оптимистично, чтобы UI обновился без reload.
+    const CAMEL_TO_SNAKE = {
+      name: 'name', avatarIcon: 'avatar_icon', avatarCustom: 'avatar_custom',
+      progressionMode: 'progression_mode', boundToCalendar: 'bound_to_calendar',
+      startDate: 'start_date', accessDaysAfter: 'access_days_after',
+      dayStartHour: 'day_start_hour', tzOffsetMin: 'tz_offset_min',
+      trainerId: 'trainer_id', curatorId: 'curator_id',
+    };
+    const patch = {};
+    for (const [k, v] of Object.entries(fields || {})) {
+      const snake = CAMEL_TO_SNAKE[k];
+      if (snake) patch[snake] = v;
+    }
+    setGroups(prev => prev.map(g => g.id === groupId ? { ...g, ...patch } : g));
+    return true;
   };
 
   const handleTogglePause = async (enrollmentId) => {
@@ -675,39 +712,56 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
               </div>
             );
             };
-            // v29 — либо плоский список (если group disabled), либо секции по группам.
+            // v29 — либо плоский список (если group disabled), либо сворачиваемые
+            // карточки групп (свёрнутая = аватар+имя+счётчик, развёрнутая = список
+            // учеников + кнопка «Изменить» для owner/staff группы).
             if (!course?.groups_enabled) return students.map(st => renderStudent(st));
-            const chunks = [];
-            let lastKey = '__NONE__';
+            const isCourseOwner = course?.owner_id === user.id;
+            const byGroup = new Map();
             for (const st of students) {
               const key = st.group_id || '__NONE__';
-              if (key !== lastKey) {
-                const meta = groups.find(g => g.id === st.group_id);
-                chunks.push({ __header: true, key, meta, name: meta?.name || 'Без группы' });
-                lastKey = key;
-              }
-              chunks.push(st);
+              if (!byGroup.has(key)) byGroup.set(key, []);
+              byGroup.get(key).push(st);
             }
-            return chunks.map((c, i) => {
-              if (c.__header) {
-                const iconSrc = c.meta?.avatar_custom || (c.meta?.avatar_icon ? getIconPath(c.meta.avatar_icon) : null);
-                return (
-                  <div key={`h-${c.key}-${i}`} style={{
-                    display: 'flex', alignItems: 'center', gap: 8,
-                    marginTop: i === 0 ? 0 : 14, marginBottom: 8,
-                    padding: '6px 10px', borderRadius: 10,
-                    background: c.meta ? 'rgba(39,174,96,0.06)' : 'rgba(0,0,0,0.04)',
-                    border: c.meta ? '1px solid rgba(39,174,96,0.2)' : '1px solid rgba(0,0,0,0.06)',
-                  }}>
-                    {iconSrc && (
-                      <img src={iconSrc} alt="" style={{ width: 22, height: 22, borderRadius: 6, objectFit: 'contain', background: '#fafafa', padding: 2 }} />
-                    )}
-                    <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e' }}>{c.name}</div>
+            const nodes = [];
+            for (const g of groups) {
+              const list = byGroup.get(g.id) || [];
+              const canEdit = isCourseOwner || g.trainer_id === user.id || g.curator_id === user.id;
+              nodes.push(
+                <GroupSection
+                  key={g.id}
+                  group={g}
+                  studentsInGroup={list}
+                  collapsed={groupCollapsedIds ? groupCollapsedIds.has(g.id) : false}
+                  onToggleCollapsed={() => setGroupCollapsedIds(prev => {
+                    const next = new Set(prev || []);
+                    if (next.has(g.id)) next.delete(g.id); else next.add(g.id);
+                    return next;
+                  })}
+                  canEdit={canEdit}
+                  isEditing={groupEditId === g.id}
+                  onStartEdit={() => setGroupEditId(g.id)}
+                  onCloseEdit={() => setGroupEditId(null)}
+                  onPickIcon={() => setGroupPickerId(g.id)}
+                  onSave={(fields) => handleUpdateGroup(g.id, fields)}
+                  renderStudent={renderStudent}
+                />
+              );
+            }
+            const orphans = byGroup.get('__NONE__') || [];
+            if (orphans.length > 0) {
+              nodes.push(
+                <div key="__none__" style={{
+                  ...glass, borderRadius: 16, padding: 12, marginBottom: 10,
+                }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: '#888', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                    Без группы ({orphans.length})
                   </div>
-                );
-              }
-              return renderStudent(c);
-            });
+                  {orphans.map(st => renderStudent(st))}
+                </div>
+              );
+            }
+            return nodes;
           })()
         )}
 
@@ -726,6 +780,17 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
                 return next;
               });
             }}
+          />
+        )}
+
+        {/* IconPicker для аватара группы (правится как значок курса) */}
+        {groupPickerId !== null && (
+          <IconPicker
+            value={groups.find(g => g.id === groupPickerId)?.avatar_icon || 'health/1'}
+            onChange={async (iconId) => {
+              await handleUpdateGroup(groupPickerId, { avatarIcon: iconId });
+            }}
+            onClose={() => setGroupPickerId(null)}
           />
         )}
       </div>
@@ -1470,3 +1535,191 @@ function TrainerChat({ courseId, trainerId, studentId, studentName, onClose, onR
     </div>
   );
 }
+
+/* ── v29: сворачиваемая карточка группы в кабинете тренера ──
+   Свёрнутая: аватар + название + счётчик учеников (+ chevron ▶).
+   Развёрнутая: тот же header (chevron вниз) + inline editor (если открыт)
+   + список учеников группы. Кнопка «Изменить» доступна только owner курса
+   и назначенному тренеру/куратору группы (бэк это дублирует через isGroupStaff). */
+function GroupSection({
+  group, studentsInGroup, collapsed, onToggleCollapsed,
+  canEdit, isEditing, onStartEdit, onCloseEdit, onPickIcon,
+  onSave, renderStudent,
+}) {
+  const chevronPath = collapsed ? 'M9 6L15 12L9 18' : 'M6 9L12 15L18 9';
+  const avatarId = group.avatar_icon || 'health/1';
+  const count = studentsInGroup.length;
+  const plural = (n, one, few, many) => {
+    const n10 = n % 10, n100 = n % 100;
+    if (n10 === 1 && n100 !== 11) return one;
+    if (n10 >= 2 && n10 <= 4 && (n100 < 12 || n100 > 14)) return few;
+    return many;
+  };
+
+  return (
+    <div style={{ ...glass, borderRadius: 16, padding: 12, marginBottom: 10 }}>
+      {/* Header — всегда виден. */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 10,
+        cursor: 'pointer', userSelect: 'none',
+      }} onClick={onToggleCollapsed}>
+        <button type="button" aria-label={collapsed ? 'Развернуть' : 'Свернуть'}
+          onClick={(e) => { e.stopPropagation(); onToggleCollapsed(); }}
+          style={{
+            width: 26, height: 26, borderRadius: 8, border: 'none',
+            background: 'transparent', cursor: 'pointer', color: '#888',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, flexShrink: 0,
+          }}>
+          <svg width={16} height={16} viewBox="0 0 24 24" fill="none">
+            <path d={chevronPath} stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+        <div style={{
+          width: 36, height: 36, borderRadius: 9, flexShrink: 0,
+          background: '#fafafa', border: '1px solid rgba(0,0,0,0.06)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 4,
+        }}>
+          <img src={getIconPath(avatarId)} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+        </div>
+        <div style={{ flex: 1, minWidth: 0, fontSize: 15, fontWeight: 600, color: '#1a1a2e', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {group.name || 'Без названия'}
+        </div>
+        <div style={{ fontSize: 12, color: '#888', flexShrink: 0 }}>
+          {count} {plural(count, 'ученик', 'ученика', 'учеников')}
+        </div>
+        {!collapsed && canEdit && !isEditing && (
+          <button type="button" onClick={(e) => { e.stopPropagation(); onStartEdit(); }}
+            title="Изменить настройки группы"
+            style={{
+              padding: '4px 10px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.1)',
+              background: '#fff', color: '#1a1a2e', fontSize: 12, fontWeight: 600,
+              cursor: 'pointer', flexShrink: 0,
+            }}>Изменить</button>
+        )}
+      </div>
+
+      {!collapsed && (
+        <>
+          {isEditing && (
+            <GroupInlineEditor
+              group={group}
+              onPickIcon={onPickIcon}
+              onSave={onSave}
+              onClose={onCloseEdit}
+            />
+          )}
+          <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {count === 0 && (
+              <div style={{ fontSize: 12, color: '#888', fontStyle: 'italic', textAlign: 'center', padding: 12 }}>
+                В группе пока нет учеников.
+              </div>
+            )}
+            {studentsInGroup.map(st => renderStudent(st))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ── Inline-редактор настроек группы (в кабинете тренера) ──
+   Только поля, которые логично менять из кабинета: название, режим прохождения,
+   привязка к дате (для daily), окно доступа к материалам. Создание/удаление
+   группы делает владелец в редакторе курса — здесь нет. Аватар кликабельный,
+   IconPicker поднимает родитель (groupPickerId в TrainerCabinet). */
+function GroupInlineEditor({ group, onPickIcon, onSave, onClose }) {
+  const [name, setName] = useState(group.name || '');
+  const [mode, setMode] = useState(group.progression_mode || 'daily');
+  const [boundCal, setBoundCal] = useState(!!group.bound_to_calendar);
+  const [startDate, setStartDate] = useState(group.start_date ? String(group.start_date).slice(0, 10) : '');
+  const [accessDays, setAccessDays] = useState(group.access_days_after ?? '');
+  const [busy, setBusy] = useState(false);
+  const [savedMark, setSavedMark] = useState(false);
+
+  const avatarId = group.avatar_icon || 'health/1';
+
+  const save = async (fields) => {
+    setBusy(true);
+    const ok = await onSave(fields);
+    setBusy(false);
+    if (ok) { setSavedMark(true); setTimeout(() => setSavedMark(false), 1500); }
+  };
+
+  const MODE_OPTS = [
+    { value: 'daily',      label: 'По дням' },
+    { value: 'free',       label: 'По прохождению' },
+    { value: 'self_paced', label: 'Свободно' },
+  ];
+
+  return (
+    <div style={{
+      marginTop: 10, padding: 12, borderRadius: 12,
+      background: 'rgba(0,0,0,0.02)', border: '1px solid rgba(0,0,0,0.06)',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+        <button onClick={onPickIcon} style={{
+          width: 44, height: 44, borderRadius: 11, flexShrink: 0,
+          border: '2px solid rgba(0,0,0,0.08)', background: '#fafafa',
+          cursor: 'pointer', padding: 4, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <img src={getIconPath(avatarId)} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+        </button>
+        <input value={name} onChange={e => setName(e.target.value)}
+          onBlur={() => name !== group.name && save({ name })}
+          placeholder="Название группы"
+          style={{
+            flex: 1, minWidth: 0, padding: '8px 10px', borderRadius: 10, fontSize: 14,
+            border: '1px solid rgba(0,0,0,0.1)', background: '#fff',
+          }} />
+      </div>
+
+      <div style={{ marginBottom: 10 }}>
+        <label style={{ fontSize: 11, color: '#666', marginBottom: 4, display: 'block' }}>Режим зачёта</label>
+        <Dropdown value={mode}
+          onChange={v => { setMode(v); save({ progressionMode: v }); }}
+          options={MODE_OPTS} fullWidth />
+      </div>
+
+      {mode === 'daily' && (
+        <>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, cursor: 'pointer', fontSize: 12, color: '#1a1a2e' }}>
+            <input type="checkbox" checked={boundCal}
+              onChange={e => { setBoundCal(e.target.checked); save({ boundToCalendar: e.target.checked }); }} />
+            Привязать к дате
+          </label>
+          {boundCal && (
+            <div style={{ marginBottom: 8 }}>
+              <label style={{ fontSize: 11, color: '#666', display: 'block' }}>Дата старта</label>
+              <input type="date" value={startDate}
+                onChange={e => setStartDate(e.target.value)}
+                onBlur={() => save({ startDate: startDate || null })}
+                style={{ width: 200, padding: '6px 8px', borderRadius: 8, fontSize: 13,
+                  border: '1px solid rgba(0,0,0,0.1)', background: '#fff' }} />
+            </div>
+          )}
+        </>
+      )}
+
+      <div style={{ marginBottom: 8 }}>
+        <label style={{ fontSize: 11, color: '#666', display: 'block' }}>Доступ к материалам после окончания, дней (пусто = бессрочно)</label>
+        <input type="number" min={0} placeholder="бессрочно" value={accessDays}
+          onChange={e => setAccessDays(e.target.value)}
+          onBlur={() => save({ accessDaysAfter: accessDays === '' ? null : parseInt(accessDays) || 0 })}
+          style={{ width: 160, padding: '6px 8px', borderRadius: 8, fontSize: 13,
+            border: '1px solid rgba(0,0,0,0.1)', background: '#fff' }} />
+      </div>
+
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}>
+        <button onClick={onClose} disabled={busy}
+          style={{
+            padding: '6px 12px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.1)',
+            background: '#fff', color: '#1a1a2e', fontSize: 12, fontWeight: 600,
+            cursor: 'pointer',
+          }}>Готово</button>
+        {savedMark && <span style={{ fontSize: 11, color: '#27ae60' }}>сохранено</span>}
+        {busy && <span style={{ fontSize: 11, color: '#888' }}>сохраняем…</span>}
+      </div>
+    </div>
+  );
+}
+
