@@ -101,8 +101,11 @@ export async function createGroup(courseId, fields) { return await apiPost(`/api
 export async function updateGroup(groupId, fields) { return await apiPatch(`/api/groups/${groupId}`, fields || {}); }
 export async function applyGroupDefaults(groupId, fields) { return await apiPost(`/api/groups/${groupId}/apply-defaults`, fields ? { fields } : {}); }
 export async function deleteGroup(groupId) { return await apiDelete(`/api/groups/${groupId}`); }
-export async function moveEnrollmentToGroup(enrollmentId, groupId) {
-  return await apiPatch(`/api/trainer/enrollments/${enrollmentId}/group`, { groupId: groupId || null });
+export async function moveEnrollmentToGroup(enrollmentId, groupId, preserveProgress) {
+  return await apiPatch(`/api/trainer/enrollments/${enrollmentId}/group`, {
+    groupId: groupId || null,
+    preserveProgress: !!preserveProgress,
+  });
 }
 export async function setEnrollmentAccessOverride(enrollmentId, accessDaysAfter) {
   return await apiPatch(`/api/trainer/enrollments/${enrollmentId}/access`, { accessDaysAfter });

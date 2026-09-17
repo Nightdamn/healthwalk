@@ -273,8 +273,8 @@ router.post('/progress/course', async (req, res) => {
     await query(
       `INSERT INTO course_progress (user_id, course_id, activity_id, day, elapsed_seconds, completed, group_id, updated_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
-       ON CONFLICT (user_id, course_id, activity_id, day)
-       DO UPDATE SET elapsed_seconds = $5, completed = $6, group_id = $7, updated_at = NOW()`,
+       ON CONFLICT (user_id, group_id, activity_id, day)
+       DO UPDATE SET elapsed_seconds = $5, completed = $6, updated_at = NOW()`,
       [req.userId, courseId, activityId, day, elapsed, completed, gid]
     );
     // v25: auto-closure для free/self_paced когда день зачтён на 100%.
@@ -1649,17 +1649,73 @@ router.patch('/trainer/enrollments/:id/access', async (req, res) => {
 // (или в null = «без группы»).
 router.patch('/trainer/enrollments/:id/group', async (req, res) => {
   try {
-    const enrollment = await queryOne('SELECT id, course_id, group_id FROM course_enrollments WHERE id = $1', [req.params.id]);
+    const enrollment = await queryOne('SELECT id, course_id, group_id, user_id FROM course_enrollments WHERE id = $1', [req.params.id]);
     if (!enrollment) return res.status(404).json({ error: 'Enrollment не найден' });
     if (!await isTrainer(req.userId, enrollment.course_id)) return res.status(403).json({ error: 'Нет прав' });
 
-    const { groupId } = req.body || {};
-    if (groupId) {
-      const g = await queryOne('SELECT course_id FROM course_groups WHERE id = $1', [groupId]);
-      if (!g || g.course_id !== enrollment.course_id) return res.status(400).json({ error: 'Группа не из этого курса' });
+    const { groupId, preserveProgress } = req.body || {};
+    if (!groupId) return res.status(400).json({ error: 'groupId обязателен (v30: enrollments всегда в группе)' });
+    const g = await queryOne('SELECT course_id FROM course_groups WHERE id = $1', [groupId]);
+    if (!g || g.course_id !== enrollment.course_id) return res.status(400).json({ error: 'Группа не из этого курса' });
+
+    const oldGid = enrollment.group_id;
+    const newGid = groupId;
+    if (oldGid === newGid) return res.json({ ok: true, unchanged: true });
+
+    // v30-3: перевод ученика между группами.
+    //   preserveProgress=true  — прогресс/closures/exclusions переезжают в
+    //     новую группу. Если в новой уже есть запись с тем же ключом
+    //     (user, activity, day), она перезаписывается прогрессом из старой.
+    //   preserveProgress=false — прогресс/closures/exclusions в СТАРОЙ группе
+    //     удаляются. Записи в новой (если ученик там раньше был) остаются.
+    if (preserveProgress) {
+      // Убираем возможные коллизии в новой группе — иначе UPDATE упадёт по
+      // UNIQUE (user_id, group_id, activity_id, day). Затем UPDATE переносит
+      // записи старой группы в новую.
+      await query(
+        `DELETE FROM course_progress
+          WHERE user_id = $1 AND group_id = $2
+            AND (activity_id, day) IN (
+              SELECT activity_id, day FROM course_progress
+               WHERE user_id = $1 AND group_id = $3
+            )`,
+        [enrollment.user_id, newGid, oldGid]
+      );
+      await query(
+        'UPDATE course_progress SET group_id = $1 WHERE user_id = $2 AND group_id = $3',
+        [newGid, enrollment.user_id, oldGid]
+      );
+      await query(
+        `DELETE FROM course_day_closures
+          WHERE user_id = $1 AND group_id = $2
+            AND day IN (SELECT day FROM course_day_closures WHERE user_id = $1 AND group_id = $3)`,
+        [enrollment.user_id, newGid, oldGid]
+      );
+      await query(
+        'UPDATE course_day_closures SET group_id = $1 WHERE user_id = $2 AND group_id = $3',
+        [newGid, enrollment.user_id, oldGid]
+      );
+      await query(
+        `DELETE FROM student_activity_exclusions
+          WHERE user_id = $1 AND group_id = $2
+            AND (activity_id, day) IN (
+              SELECT activity_id, day FROM student_activity_exclusions
+               WHERE user_id = $1 AND group_id = $3
+            )`,
+        [enrollment.user_id, newGid, oldGid]
+      );
+      await query(
+        'UPDATE student_activity_exclusions SET group_id = $1 WHERE user_id = $2 AND group_id = $3',
+        [newGid, enrollment.user_id, oldGid]
+      );
+    } else {
+      await query('DELETE FROM course_progress WHERE user_id = $1 AND group_id = $2', [enrollment.user_id, oldGid]);
+      await query('DELETE FROM course_day_closures WHERE user_id = $1 AND group_id = $2', [enrollment.user_id, oldGid]);
+      await query('DELETE FROM student_activity_exclusions WHERE user_id = $1 AND group_id = $2', [enrollment.user_id, oldGid]);
     }
-    await query('UPDATE course_enrollments SET group_id = $1 WHERE id = $2', [groupId || null, req.params.id]);
-    res.json({ ok: true });
+
+    await query('UPDATE course_enrollments SET group_id = $1 WHERE id = $2', [newGid, req.params.id]);
+    res.json({ ok: true, preserved: !!preserveProgress });
   } catch (err) { console.error('[Enrollments move]', err); res.status(500).json({ error: err.message }); }
 });
 
@@ -2064,8 +2120,8 @@ router.post('/trainer/toggle-completion', async (req, res) => {
     await query(
       `INSERT INTO course_progress (user_id, course_id, activity_id, day, elapsed_seconds, completed, group_id, updated_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
-       ON CONFLICT (user_id, course_id, activity_id, day)
-       DO UPDATE SET completed = $6, elapsed_seconds = $5, group_id = $7, updated_at = NOW()`,
+       ON CONFLICT (user_id, group_id, activity_id, day)
+       DO UPDATE SET completed = $6, elapsed_seconds = $5, updated_at = NOW()`,
       [userId, courseId, activityId, day, elapsed, newCompleted, gid]
     );
 
@@ -2370,6 +2426,15 @@ router.post('/calls', async (req, res) => {
     } else {
       gid = await getDefaultGroup(courseId);
     }
+    // v30-3 правило: живой созвон = абсолютное время (scheduled_at), значит
+    // группа должна быть привязана к календарю — иначе day=N ученика в
+    // free/self_paced не сопоставляется с датой звонка.
+    const grp = await queryOne('SELECT bound_to_calendar FROM course_groups WHERE id = $1', [gid]);
+    if (!grp?.bound_to_calendar) {
+      return res.status(400).json({
+        error: 'Звонки можно планировать только для групп, привязанных к дате. Включите привязку в настройках группы.',
+      });
+    }
 
     const dur = durationMin || 30;
     const roomName = generateJitsiRoomName(courseId, day);
@@ -2515,12 +2580,14 @@ router.post('/calls/:id/attendance', async (req, res) => {
          ON CONFLICT (call_id, user_id) DO UPDATE SET attended = $3`,
         [call.id, row.user_id, attended]
       );
+      // v30: прогресс per-group. call.group_id проставлен при создании call
+      // (см. POST /calls), берём его напрямую.
       await query(
-        `INSERT INTO course_progress (user_id, course_id, activity_id, day, elapsed_seconds, completed, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, NOW())
-         ON CONFLICT (user_id, course_id, activity_id, day)
+        `INSERT INTO course_progress (user_id, course_id, activity_id, day, elapsed_seconds, completed, group_id, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+         ON CONFLICT (user_id, group_id, activity_id, day)
          DO UPDATE SET completed = $6, updated_at = NOW()`,
-        [row.user_id, call.course_id, courseActivity.id, call.day, attended ? (call.duration_min || 30) * 60 : 0, attended]
+        [row.user_id, call.course_id, courseActivity.id, call.day, attended ? (call.duration_min || 30) * 60 : 0, attended, call.group_id]
       );
     }
 

@@ -47,6 +47,9 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
   // v29: группы курса + активная секция для перевода
   const [groups, setGroups] = useState([]);
   const [moveOpenId, setMoveOpenId] = useState(null); // enrollment_id где открыт групповой Dropdown
+  // v30-3: незакомиченный выбор перевода группы (ждёт от тренера подтверждения
+  // «сохранить прогресс?» либо «начать заново»). null = нет активного pending.
+  const [pendingMove, setPendingMove] = useState(null); // { enrollmentId, newGroupId }
   // Свёрнутые группы (по id). null = ещё не инициализировано — первая загрузка
   // свернёт все существующие. Внутри развёрнутой группы — список её учеников.
   const [groupCollapsedIds, setGroupCollapsedIds] = useState(null);
@@ -114,10 +117,13 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
     }
   };
 
-  // v29: перевод ученика в другую группу (или снятие из группы)
-  const handleMoveGroup = async (enrollmentId, groupId) => {
+  // v29/v30-3: перевод ученика в другую группу.
+  //   preserveProgress=true  — прогресс/дни/исключения переезжают.
+  //   preserveProgress=false — прогресс в старой группе стирается, ученик
+  //     начинает новую программу с нуля.
+  const handleMoveGroup = async (enrollmentId, groupId, preserveProgress) => {
     setActionId(enrollmentId);
-    const r = await moveEnrollmentToGroup(enrollmentId, groupId || null);
+    const r = await moveEnrollmentToGroup(enrollmentId, groupId || null, preserveProgress);
     if (r?.error) { alert(r.error); setActionId(null); return; }
     await loadData();
     setActionId(null);
@@ -582,28 +588,62 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
                       }}
                     />
 
-                    {/* v29: селектор группы (только когда groups_enabled) */}
-                    {course?.groups_enabled && !isOwner && st.role === 'student' && (
-                      <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 10, background: 'rgba(39,174,96,0.05)', border: '1px solid rgba(39,174,96,0.15)' }}>
-                        <div style={{ fontSize: 11, color: '#888', fontWeight: 600, marginBottom: 6, textTransform: 'uppercase' }}>
-                          Группа
+                    {/* v29/v30-3: селектор группы. При выборе новой группы
+                        сначала спрашиваем — сохранить прогресс ученика или
+                        начать программу заново. */}
+                    {course?.groups_enabled && !isOwner && st.role === 'student' && (() => {
+                      const isPending = pendingMove?.enrollmentId === st.enrollment_id;
+                      const displayValue = isPending ? pendingMove.newGroupId : (st.group_id || '');
+                      const newGroupMeta = isPending ? groups.find(g => g.id === pendingMove.newGroupId) : null;
+                      return (
+                        <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 10, background: 'rgba(39,174,96,0.05)', border: '1px solid rgba(39,174,96,0.15)' }}>
+                          <div style={{ fontSize: 11, color: '#888', fontWeight: 600, marginBottom: 6, textTransform: 'uppercase' }}>
+                            Группа
+                          </div>
+                          <Dropdown
+                            value={displayValue}
+                            disabled={isBusy}
+                            fullWidth
+                            onChange={(newGroupId) => {
+                              const current = st.group_id || '';
+                              if ((newGroupId || '') === current) {
+                                setPendingMove(null);
+                                return;
+                              }
+                              setPendingMove({ enrollmentId: st.enrollment_id, newGroupId: newGroupId || null });
+                            }}
+                            options={groups.map(g => ({ value: g.id, label: g.name }))}
+                          />
+                          {isPending && (
+                            <div style={{ marginTop: 10, padding: 10, borderRadius: 8, background: '#fff', border: '1px solid rgba(230,126,34,0.35)' }}>
+                              <div style={{ fontSize: 12, color: '#1a1a2e', marginBottom: 8, lineHeight: 1.4 }}>
+                                Перевести в группу «{newGroupMeta?.name || '—'}». Что делать с прогрессом ученика?
+                              </div>
+                              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                                <button
+                                  onClick={() => { handleMoveGroup(st.enrollment_id, pendingMove.newGroupId, true); setPendingMove(null); }}
+                                  disabled={isBusy}
+                                  style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${GREEN}`, background: '#fff', color: GREEN, fontSize: 12, fontWeight: 600, cursor: isBusy ? 'wait' : 'pointer' }}>
+                                  Сохранить прогресс
+                                </button>
+                                <button
+                                  onClick={() => { handleMoveGroup(st.enrollment_id, pendingMove.newGroupId, false); setPendingMove(null); }}
+                                  disabled={isBusy}
+                                  style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid rgba(231,76,60,0.35)', background: 'rgba(231,76,60,0.05)', color: RED, fontSize: 12, fontWeight: 600, cursor: isBusy ? 'wait' : 'pointer' }}>
+                                  Начать заново
+                                </button>
+                                <button
+                                  onClick={() => setPendingMove(null)}
+                                  disabled={isBusy}
+                                  style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.1)', background: '#fff', color: '#666', fontSize: 12, fontWeight: 600, cursor: isBusy ? 'wait' : 'pointer' }}>
+                                  Отмена
+                                </button>
+                              </div>
+                            </div>
+                          )}
                         </div>
-                        <Dropdown
-                          value={st.group_id || ''}
-                          disabled={isBusy}
-                          fullWidth
-                          onChange={(newGroupId) => {
-                            if ((newGroupId || null) !== (st.group_id || null)) {
-                              handleMoveGroup(st.enrollment_id, newGroupId || null);
-                            }
-                          }}
-                          options={[
-                            { value: '', label: 'Без группы (по курс-настройкам)' },
-                            ...groups.map(g => ({ value: g.id, label: g.name })),
-                          ]}
-                        />
-                      </div>
-                    )}
+                      );
+                    })()}
 
                     {/* v25: селектор per-student Режима зачёта дня. NULL = «Как у курса». */}
                     {!isOwner && st.role === 'student' && (

@@ -498,12 +498,37 @@ ALTER TABLE course_day_closures          ADD COLUMN IF NOT EXISTS group_id UUID 
 ALTER TABLE student_activity_exclusions  ADD COLUMN IF NOT EXISTS group_id UUID REFERENCES course_groups(id) ON DELETE CASCADE;
 
 CREATE INDEX IF NOT EXISTS idx_course_activities_group ON course_activities(group_id) WHERE group_id IS NOT NULL;
--- v30-2b: UNIQUE перенесён на (group_id, activity_id) — клонирование
--- шаблона в новую группу сохраняет slug, а с UNIQUE(course_id, activity_id)
--- это бы падало конфликтом. Партиальный (WHERE group_id IS NOT NULL) —
--- защита от строк без group_id, но после v30-3 партиальность уйдёт.
-CREATE UNIQUE INDEX IF NOT EXISTS uq_course_activities_group_slug
-  ON course_activities(group_id, activity_id) WHERE group_id IS NOT NULL;
+-- v30-3: group_id везде NOT NULL, UNIQUE-констрейнты пересобраны на group_id.
+ALTER TABLE course_enrollments          ALTER COLUMN group_id SET NOT NULL;
+ALTER TABLE course_activities           ALTER COLUMN group_id SET NOT NULL;
+ALTER TABLE activity_media              ALTER COLUMN group_id SET NOT NULL;
+ALTER TABLE activity_calls              ALTER COLUMN group_id SET NOT NULL;
+ALTER TABLE course_progress             ALTER COLUMN group_id SET NOT NULL;
+ALTER TABLE course_day_closures         ALTER COLUMN group_id SET NOT NULL;
+ALTER TABLE student_activity_exclusions ALTER COLUMN group_id SET NOT NULL;
+
+ALTER TABLE course_activities
+  ADD CONSTRAINT uq_course_activities_group_slug UNIQUE (group_id, activity_id);
+
+-- Прогресс и исключения ключуются per-group: разные группы курса могут
+-- иметь независимые записи по одному и тому же slug для одного ученика.
+ALTER TABLE course_progress
+  DROP CONSTRAINT IF EXISTS course_progress_user_id_course_id_activity_id_day_key;
+ALTER TABLE course_progress
+  ADD CONSTRAINT course_progress_user_group_activity_day_key
+  UNIQUE (user_id, group_id, activity_id, day);
+
+ALTER TABLE student_activity_exclusions
+  DROP CONSTRAINT IF EXISTS student_activity_exclusions_user_id_course_id_activity_id_d_key;
+ALTER TABLE student_activity_exclusions
+  ADD CONSTRAINT student_activity_exclusions_user_group_activity_day_key
+  UNIQUE (user_id, group_id, activity_id, day);
+
+-- День закрытия — тоже per-group (после смены группы можно закрыть день заново).
+ALTER TABLE course_day_closures
+  DROP CONSTRAINT IF EXISTS course_day_closures_pkey;
+ALTER TABLE course_day_closures
+  ADD CONSTRAINT course_day_closures_pkey PRIMARY KEY (user_id, group_id, day);
 CREATE INDEX IF NOT EXISTS idx_activity_media_group    ON activity_media(group_id) WHERE group_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_activity_calls_group    ON activity_calls(group_id) WHERE group_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_course_progress_group   ON course_progress(group_id) WHERE group_id IS NOT NULL;

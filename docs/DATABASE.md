@@ -288,10 +288,24 @@ enrollments.group_id (для прогресса). Старые UNIQUE-огран
 сохраняется, id новый; media_url ссылается на ту же папку файлов —
 физическая копия не делается).
 
-**v30-3** (плановое): `group_id` → NOT NULL, партиальность UNIQUE
-уходит, старые UNIQUE в `course_progress` и `student_activity_exclusions`
-пересобраны на `(group_id, …)`. Endpoint перехода ученика в другую
-группу принимает `preserveProgress: boolean`.
+**v30-3** (миграция `migration_v30_3_finalize.sql`): все `group_id`
+`SET NOT NULL`, партиальность UNIQUE ушла. UNIQUE в `course_progress` и
+`student_activity_exclusions` пересобраны на `(user_id, group_id,
+activity_id, day)`. PRIMARY KEY `course_day_closures` пересобран на
+`(user_id, group_id, day)` — после смены группы ученик может закрыть тот
+же день заново.
+
+`PATCH /trainer/enrollments/:id/group` принимает `preserveProgress:
+boolean`. При `true` — прогресс/closures/exclusions переезжают в новую
+группу (при коллизии по slug в новой — записи новой затираются данными
+старой). При `false` — данные старой группы удаляются, в новой группе
+ученик начинает с нуля.
+
+Правило: `POST /calls` создаёт звонок только когда `group.bound_to_calendar
+= true`. Иначе 400 — в свободном режиме нет соответствия «день N ↔ дата».
+
+UI перевода в TrainerCabinet: селектор группы → inline-подтверждение с
+двумя кнопками «Сохранить прогресс» / «Начать заново» + «Отмена».
 
 ---
 
