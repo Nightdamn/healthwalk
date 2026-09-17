@@ -127,10 +127,13 @@ router.post('/upload/:courseId/:activityId', requireAuth, upload.single('video')
 
     // Для image mediaType не гоняем через ffmpeg normalize — сохраняем как есть.
     // (video/audio нормализуются выше уже).
+    // v30: media.group_id из активности.
+    const actRow = await queryOne('SELECT group_id FROM course_activities WHERE id = $1 AND course_id = $2', [activityId, courseId]);
+    if (!actRow) throw new Error('Активность не найдена');
     const v = await queryOne(
-      `INSERT INTO activity_media (course_id, activity_id, media_type, source_type, media_url, file_size, duration_sec, first_day, last_day, interval_days)
-       VALUES ($1,$2,$3,'file',$4,$5,$6,$7,$8,$9) RETURNING *`,
-      [courseId, activityId, mt, filePath, normSize, normDuration,
+      `INSERT INTO activity_media (course_id, group_id, activity_id, media_type, source_type, media_url, file_size, duration_sec, first_day, last_day, interval_days)
+       VALUES ($1,$2,$3,$4,'file',$5,$6,$7,$8,$9,$10) RETURNING *`,
+      [courseId, actRow.group_id, activityId, mt, filePath, normSize, normDuration,
        parseInt(firstDay) || 1, parseInt(lastDay) || 1, iv]
     );
 
@@ -318,10 +321,13 @@ async function runDriveImport(jobId, params) {
     const finalSize = norm.fileSize ?? bytes;
 
     const relPath = `${params.courseId}/${params.activityId}/${finalFilename}`;
+    // v30: media.group_id из активности.
+    const actRow = await queryOne('SELECT group_id FROM course_activities WHERE id = $1 AND course_id = $2', [params.activityId, params.courseId]);
+    if (!actRow) throw new Error('Активность не найдена');
     const v = await queryOne(
-      `INSERT INTO activity_media (course_id, activity_id, media_type, source_type, media_url, file_size, duration_sec, first_day, last_day, interval_days)
-       VALUES ($1,$2,'video','file',$3,$4,$5,$6,$7,$8) RETURNING *`,
-      [params.courseId, params.activityId, relPath, finalSize, norm.durationSec,
+      `INSERT INTO activity_media (course_id, group_id, activity_id, media_type, source_type, media_url, file_size, duration_sec, first_day, last_day, interval_days)
+       VALUES ($1,$2,$3,'video','file',$4,$5,$6,$7,$8,$9) RETURNING *`,
+      [params.courseId, actRow.group_id, params.activityId, relPath, finalSize, norm.durationSec,
        parseInt(params.firstDay) || 1, parseInt(params.lastDay) || 1,
        Math.max(1, parseInt(params.intervalDays) || 1)]
     );

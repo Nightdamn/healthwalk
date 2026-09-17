@@ -60,6 +60,30 @@ router.patch('/settings', async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════
+// v30 helpers — контент/прогресс живут per-group. Если у enrollment
+// уже проставлен group_id, используем его; иначе (для owner без
+// enrollment, или защита от старых записей) — is_default группа курса.
+// ═══════════════════════════════════════════════════════════
+async function resolveEffectiveGroup(userId, courseId) {
+  const row = await queryOne(`
+    SELECT COALESCE(
+      (SELECT ce.group_id FROM course_enrollments ce
+        WHERE ce.user_id = $1 AND ce.course_id = $2),
+      (SELECT g.id FROM course_groups g
+        WHERE g.course_id = $2 AND g.is_default LIMIT 1)
+    ) AS gid
+  `, [userId, courseId]);
+  return row?.gid || null;
+}
+async function getDefaultGroup(courseId) {
+  const row = await queryOne(
+    'SELECT id FROM course_groups WHERE course_id = $1 AND is_default LIMIT 1',
+    [courseId]
+  );
+  return row?.id || null;
+}
+
+// ═══════════════════════════════════════════════════════════
 // AVAILABLE ITEMS (courses + trackers)
 // ═══════════════════════════════════════════════════════════
 
@@ -85,6 +109,13 @@ router.get('/items', async (req, res) => {
              c.id, c.title, c.description, c.days_count, c.avatar_icon, c.avatar_custom, c.owner_id, c.created_at,
              c.bound_to_calendar, c.start_date, c.access_days_after, c.progression_mode,
              c.groups_enabled,
+             -- v30: контент/прогресс читаются per-group. Если у enrollment
+             -- нет group_id (защита от старых записей) — падаем на is_default.
+             COALESCE(
+               ce.group_id,
+               (SELECT gd.id FROM course_groups gd
+                 WHERE gd.course_id = c.id AND gd.is_default LIMIT 1)
+             ) AS effective_group_id,
              (SELECT count(*) FROM course_enrollments WHERE course_id = c.id) AS enroll_count
       FROM course_enrollments ce
       JOIN courses c ON c.id = ce.course_id
@@ -102,7 +133,9 @@ router.get('/items', async (req, res) => {
     };
 
     for (const e of enrolled) {
-      const acts = await query('SELECT * FROM course_activities WHERE course_id = $1 ORDER BY sort_order', [e.id]);
+      // v30: практики и день-закрытия читаются per-group. effective_group_id
+      // резолвит либо enrollment.group_id, либо is_default группу курса.
+      const acts = await query('SELECT * FROM course_activities WHERE group_id = $1 ORDER BY sort_order', [e.effective_group_id]);
       // v29 источники (только если groups_enabled=true у курса и есть группа):
       const useGroup = e.groups_enabled && e.group_id;
       const effBound = pick(e.bound_to_calendar_override, useGroup ? e.group_bound_to_calendar : null, e.bound_to_calendar);
@@ -114,8 +147,8 @@ router.get('/items', async (req, res) => {
         ? toISODate(effStart)
         : toISODate(e.joined_at || e.created_at);
       const closures = await query(
-        'SELECT day, closure_type, closed_at FROM course_day_closures WHERE user_id = $1 AND course_id = $2 ORDER BY day',
-        [req.userId, e.id]
+        'SELECT day, closure_type, closed_at FROM course_day_closures WHERE user_id = $1 AND group_id = $2 ORDER BY day',
+        [req.userId, e.effective_group_id]
       );
       items.push({
         type: 'course', id: e.id, title: e.title, description: e.description || '',
@@ -152,11 +185,16 @@ router.get('/items', async (req, res) => {
       });
     }
 
-    // Own courses not enrolled
-    const own = await query('SELECT * FROM courses WHERE owner_id = $1', [req.userId]);
+    // Own courses not enrolled. v30: контент читаем из is_default группы курса.
+    const own = await query(`
+      SELECT c.*,
+             (SELECT gd.id FROM course_groups gd
+               WHERE gd.course_id = c.id AND gd.is_default LIMIT 1) AS default_group_id
+      FROM courses c WHERE c.owner_id = $1
+    `, [req.userId]);
     for (const c of own) {
       if (courseIds.has(c.id)) continue;
-      const acts = await query('SELECT * FROM course_activities WHERE course_id = $1 ORDER BY sort_order', [c.id]);
+      const acts = await query('SELECT * FROM course_activities WHERE group_id = $1 ORDER BY sort_order', [c.default_group_id]);
       const cnt = await queryOne('SELECT count(*) AS n FROM course_enrollments WHERE course_id = $1', [c.id]);
       const startDate = (c.bound_to_calendar && c.start_date)
         ? toISODate(c.start_date)
@@ -213,9 +251,11 @@ router.get('/items', async (req, res) => {
 
 router.get('/progress/course/:courseId', async (req, res) => {
   try {
+    // v30: progress per-group. Читаем только записи текущей группы ученика.
+    const gid = await resolveEffectiveGroup(req.userId, req.params.courseId);
     const rows = await query(
-      'SELECT activity_id, day, elapsed_seconds, completed FROM course_progress WHERE user_id = $1 AND course_id = $2',
-      [req.userId, req.params.courseId]
+      'SELECT activity_id, day, elapsed_seconds, completed FROM course_progress WHERE user_id = $1 AND course_id = $2 AND group_id = $3',
+      [req.userId, req.params.courseId, gid]
     );
     const r = {};
     for (const row of rows) {
@@ -229,12 +269,13 @@ router.get('/progress/course/:courseId', async (req, res) => {
 router.post('/progress/course', async (req, res) => {
   try {
     const { courseId, activityId, day, elapsed, completed } = req.body;
+    const gid = await resolveEffectiveGroup(req.userId, courseId);
     await query(
-      `INSERT INTO course_progress (user_id, course_id, activity_id, day, elapsed_seconds, completed, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, NOW())
+      `INSERT INTO course_progress (user_id, course_id, activity_id, day, elapsed_seconds, completed, group_id, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
        ON CONFLICT (user_id, course_id, activity_id, day)
-       DO UPDATE SET elapsed_seconds = $5, completed = $6, updated_at = NOW()`,
-      [req.userId, courseId, activityId, day, elapsed, completed]
+       DO UPDATE SET elapsed_seconds = $5, completed = $6, group_id = $7, updated_at = NOW()`,
+      [req.userId, courseId, activityId, day, elapsed, completed, gid]
     );
     // v25: auto-closure для free/self_paced когда день зачтён на 100%.
     // Проверяем только когда только что поставили completed=true (иначе смысла нет).
@@ -274,30 +315,30 @@ function daysWithActivities(activities, day) {
 }
 
 // Если mode ∈ {free, self_paced} и все активности этого дня done — INSERT closure.
+// v30: активности / прогресс / closure — per-group ученика.
 async function maybeAutoCloseDay(userId, courseId, day) {
   const mode = await getEffectiveMode(userId, courseId);
   if (mode === 'daily') return;
-  // Уже закрыт?
+  const gid = await resolveEffectiveGroup(userId, courseId);
   const existing = await queryOne(
-    'SELECT day FROM course_day_closures WHERE user_id=$1 AND course_id=$2 AND day=$3',
-    [userId, courseId, day]
+    'SELECT day FROM course_day_closures WHERE user_id=$1 AND group_id=$2 AND day=$3',
+    [userId, gid, day]
   );
   if (existing) return;
-  // Все активности этого дня выполнены?
-  const acts = await query('SELECT * FROM course_activities WHERE course_id = $1', [courseId]);
+  const acts = await query('SELECT * FROM course_activities WHERE group_id = $1', [gid]);
   const dayActs = daysWithActivities(acts, day);
   if (dayActs.length === 0) return;
   const progress = await query(
-    'SELECT activity_id, completed FROM course_progress WHERE user_id=$1 AND course_id=$2 AND day=$3',
-    [userId, courseId, day]
+    'SELECT activity_id, completed FROM course_progress WHERE user_id=$1 AND group_id=$2 AND day=$3',
+    [userId, gid, day]
   );
   const doneIds = new Set(progress.filter(p => p.completed).map(p => p.activity_id));
   const allDone = dayActs.every(a => doneIds.has(a.id));
   if (!allDone) return;
   await query(
-    `INSERT INTO course_day_closures (user_id, course_id, day, closure_type)
-     VALUES ($1, $2, $3, 'auto') ON CONFLICT DO NOTHING`,
-    [userId, courseId, day]
+    `INSERT INTO course_day_closures (user_id, course_id, day, closure_type, group_id)
+     VALUES ($1, $2, $3, 'auto', $4) ON CONFLICT DO NOTHING`,
+    [userId, courseId, day, gid]
   );
 }
 
@@ -310,9 +351,10 @@ router.post('/courses/:id/close-day', async (req, res) => {
     if (mode !== 'self_paced') return res.status(400).json({ error: 'Только для режима «Свободно»' });
     const course = await queryOne('SELECT days_count FROM courses WHERE id=$1', [courseId]);
     if (!course) return res.status(404).json({ error: 'Курс не найден' });
+    const gid = await resolveEffectiveGroup(req.userId, courseId);
     const closures = await query(
-      'SELECT day FROM course_day_closures WHERE user_id=$1 AND course_id=$2',
-      [req.userId, courseId]
+      'SELECT day FROM course_day_closures WHERE user_id=$1 AND group_id=$2',
+      [req.userId, gid]
     );
     const closedSet = new Set(closures.map(c => c.day));
     let currentDay = 1;
@@ -320,14 +362,14 @@ router.post('/courses/:id/close-day', async (req, res) => {
     if (currentDay > course.days_count) return res.status(400).json({ error: 'Все дни уже пройдены' });
     // Хоть какой-то прогресс на этом дне?
     const anyProgress = await queryOne(
-      'SELECT 1 FROM course_progress WHERE user_id=$1 AND course_id=$2 AND day=$3 AND elapsed_seconds > 0 LIMIT 1',
-      [req.userId, courseId, currentDay]
+      'SELECT 1 FROM course_progress WHERE user_id=$1 AND group_id=$2 AND day=$3 AND elapsed_seconds > 0 LIMIT 1',
+      [req.userId, gid, currentDay]
     );
     if (!anyProgress) return res.status(400).json({ error: 'Начните хотя бы одну практику' });
     await query(
-      `INSERT INTO course_day_closures (user_id, course_id, day, closure_type)
-       VALUES ($1, $2, $3, 'forced') ON CONFLICT DO NOTHING`,
-      [req.userId, courseId, currentDay]
+      `INSERT INTO course_day_closures (user_id, course_id, day, closure_type, group_id)
+       VALUES ($1, $2, $3, 'forced', $4) ON CONFLICT DO NOTHING`,
+      [req.userId, courseId, currentDay, gid]
     );
     res.json({ ok: true, closedDay: currentDay });
   } catch (err) { console.error(err); res.status(500).json({ error: err.message }); }
@@ -342,25 +384,25 @@ router.delete('/courses/:id/closures/:day', async (req, res) => {
     if (!Number.isFinite(day) || day < 1) return res.status(400).json({ error: 'Bad day' });
     const mode = await getEffectiveMode(req.userId, courseId);
     if (mode !== 'self_paced') return res.status(400).json({ error: 'Только для режима «Свободно»' });
-    // Есть closure?
+    const gid = await resolveEffectiveGroup(req.userId, courseId);
     const existing = await queryOne(
-      'SELECT day FROM course_day_closures WHERE user_id=$1 AND course_id=$2 AND day=$3',
-      [req.userId, courseId, day]
+      'SELECT day FROM course_day_closures WHERE user_id=$1 AND group_id=$2 AND day=$3',
+      [req.userId, gid, day]
     );
     if (!existing) return res.status(404).json({ error: 'День не закрыт' });
     // Проверка: не 100% — иначе кнопка «Пройти заново» не имеет смысла.
-    const acts = await query('SELECT * FROM course_activities WHERE course_id=$1', [courseId]);
+    const acts = await query('SELECT * FROM course_activities WHERE group_id=$1', [gid]);
     const dayActs = daysWithActivities(acts, day);
     const progress = await query(
-      'SELECT activity_id, completed FROM course_progress WHERE user_id=$1 AND course_id=$2 AND day=$3',
-      [req.userId, courseId, day]
+      'SELECT activity_id, completed FROM course_progress WHERE user_id=$1 AND group_id=$2 AND day=$3',
+      [req.userId, gid, day]
     );
     const doneIds = new Set(progress.filter(p => p.completed).map(p => p.activity_id));
     const allDone = dayActs.length > 0 && dayActs.every(a => doneIds.has(a.id));
     if (allDone) return res.status(400).json({ error: 'День выполнен на 100%, нечего добирать' });
     await query(
-      'DELETE FROM course_day_closures WHERE user_id=$1 AND course_id=$2 AND day=$3',
-      [req.userId, courseId, day]
+      'DELETE FROM course_day_closures WHERE user_id=$1 AND group_id=$2 AND day=$3',
+      [req.userId, gid, day]
     );
     res.json({ ok: true, reopenedDay: day });
   } catch (err) { console.error(err); res.status(500).json({ error: err.message }); }
@@ -417,13 +459,15 @@ router.patch('/trainer/enrollments/:enrollmentId/mode', async (req, res) => {
 
     if (sd !== null && (newEffective === 'free' || newEffective === 'self_paced')) {
       // Полностью пересобираем closures: чистим все и вставляем 1..sd-1.
-      await query('DELETE FROM course_day_closures WHERE user_id=$1 AND course_id=$2',
-        [enroll.user_id, enroll.course_id]);
+      // v30: closures per-group (enrollment.group_id — актуальная группа ученика).
+      const gid = await resolveEffectiveGroup(enroll.user_id, enroll.course_id);
+      await query('DELETE FROM course_day_closures WHERE user_id=$1 AND group_id=$2',
+        [enroll.user_id, gid]);
       for (let d = 1; d < sd; d++) {
         await query(
-          `INSERT INTO course_day_closures (user_id, course_id, day, closure_type)
-           VALUES ($1,$2,$3,'auto')`,
-          [enroll.user_id, enroll.course_id, d]
+          `INSERT INTO course_day_closures (user_id, course_id, day, closure_type, group_id)
+           VALUES ($1,$2,$3,'auto',$4)`,
+          [enroll.user_id, enroll.course_id, d, gid]
         );
       }
     } else if (sd !== null && newEffective === 'daily') {
@@ -441,9 +485,10 @@ router.patch('/trainer/enrollments/:enrollmentId/mode', async (req, res) => {
         `UPDATE course_enrollments SET joined_at = NOW() - INTERVAL '1 day' * ($1 - 1) WHERE id=$2`,
         [sd, req.params.enrollmentId]
       );
-      // Также очищаем closures (в daily режиме они не используются).
-      await query('DELETE FROM course_day_closures WHERE user_id=$1 AND course_id=$2',
-        [enroll.user_id, enroll.course_id]);
+      // Также очищаем closures (в daily режиме они не используются). v30: per-group.
+      const gid = await resolveEffectiveGroup(enroll.user_id, enroll.course_id);
+      await query('DELETE FROM course_day_closures WHERE user_id=$1 AND group_id=$2',
+        [enroll.user_id, gid]);
     }
     res.json({ ok: true, effectiveMode: newEffective });
   } catch (err) { console.error(err); res.status(500).json({ error: err.message }); }
@@ -537,22 +582,39 @@ router.post('/courses', async (req, res) => {
        (typeof accessDaysAfter === 'number' && accessDaysAfter >= 0) ? accessDaysAfter : null]
     );
 
+    // v30: каждый новый курс получает невидимую «Общую» группу is_default=true.
+    // Она — контейнер контента + шаблон для клонирования будущих групп.
+    const defaultGroup = await queryOne(
+      `INSERT INTO course_groups (
+         course_id, name, avatar_icon,
+         progression_mode, bound_to_calendar, start_date, access_days_after,
+         trainer_id, sort_order, is_default
+       ) VALUES ($1,'Общая','health/1',$2,$3,$4,$5,$6,0,true) RETURNING id`,
+      [course.id, course.progression_mode || 'daily', !!boundToCalendar,
+       startDate || null,
+       (typeof accessDaysAfter === 'number' && accessDaysAfter >= 0) ? accessDaysAfter : null,
+       req.userId]
+    );
+    const gid = defaultGroup.id;
+
     if (activities?.length) {
       for (let i = 0; i < activities.length; i++) {
         const a = activities[i];
         await query(
-          `INSERT INTO course_activities (course_id, activity_id, label, duration_min, icon_num, practice_type, description_html, first_day, last_day, sort_order, interval_days)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-          [course.id, a.activityId || `act_${Date.now()}_${i}`, a.label, a.durationMin || 10,
+          `INSERT INTO course_activities (course_id, group_id, activity_id, label, duration_min, icon_num, practice_type, description_html, first_day, last_day, sort_order, interval_days)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+          [course.id, gid, a.activityId || `act_${Date.now()}_${i}`, a.label, a.durationMin || 10,
            a.iconNum || 'health/1', a.practiceType || 'media', a.descriptionHtml || null,
            a.firstDay || 1, a.lastDay || daysCount, i, a.intervalDays || 1]
         );
       }
     }
 
+    // Owner-enrollment привязан к дефолтной группе (иначе он «staff курса»,
+    // не увидит контент через per-group фильтры).
     await query(
-      'INSERT INTO course_enrollments (course_id, user_id, role, invited_by) VALUES ($1,$2,$3,$4)',
-      [course.id, req.userId, 'trainer', req.userId]
+      'INSERT INTO course_enrollments (course_id, user_id, role, invited_by, group_id) VALUES ($1,$2,$3,$4,$5)',
+      [course.id, req.userId, 'trainer', req.userId, gid]
     );
 
     res.json(course);
@@ -572,8 +634,21 @@ router.get('/courses/:id', async (req, res) => {
       );
       if (!enroll) return res.status(403).json({ error: 'Нет доступа' });
     }
-    const acts = await query('SELECT * FROM course_activities WHERE course_id = $1 ORDER BY sort_order', [req.params.id]);
-    res.json({ ...course, course_activities: acts });
+    // v30: активности читаются per-group. Клиент может передать ?groupId=
+    // (v30-2c UI). Иначе — is_default группа курса.
+    let gid = req.query.groupId || null;
+    if (gid) {
+      // Валидация: группа принадлежит этому курсу.
+      const belongs = await queryOne(
+        'SELECT 1 FROM course_groups WHERE id = $1 AND course_id = $2',
+        [gid, req.params.id]
+      );
+      if (!belongs) return res.status(400).json({ error: 'Группа не из этого курса' });
+    } else {
+      gid = await getDefaultGroup(req.params.id);
+    }
+    const acts = await query('SELECT * FROM course_activities WHERE group_id = $1 ORDER BY sort_order', [gid]);
+    res.json({ ...course, course_activities: acts, group_id: gid });
   } catch (err) { console.error(err); res.status(500).json({ error: err.message }); }
 });
 
@@ -584,32 +659,45 @@ router.put('/courses/:id', async (req, res) => {
     const owner = await queryOne('SELECT owner_id FROM courses WHERE id = $1', [req.params.id]);
     if (!owner) return res.status(404).json({ error: 'Курс не найден' });
     if (owner.owner_id !== req.userId) return res.status(403).json({ error: 'Нет прав' });
-    const { title, description, avatarIcon, avatarCustom, daysCount, activities, deletedActivityIds } = req.body;
+    const { title, description, avatarIcon, avatarCustom, daysCount, activities, deletedActivityIds, groupId } = req.body;
     await query(
       'UPDATE courses SET title=$1, description=$2, days_count=$3, avatar_icon=$4, avatar_custom=$5, updated_at=NOW() WHERE id=$6',
       [title, description || '', daysCount, avatarIcon || null, avatarCustom || null, req.params.id]
     );
 
+    // v30: активности/медиа привязаны к группе. Клиент может передать groupId
+    // (v30-2c UI). Иначе — is_default группа курса.
+    let gid = groupId || null;
+    if (gid) {
+      const belongs = await queryOne(
+        'SELECT 1 FROM course_groups WHERE id = $1 AND course_id = $2',
+        [gid, req.params.id]
+      );
+      if (!belongs) return res.status(400).json({ error: 'Группа не из этого курса' });
+    } else {
+      gid = await getDefaultGroup(req.params.id);
+    }
+
     if (deletedActivityIds?.length) {
       // Cascade: drop activity_media rows + their files on disk for each removed activity.
       // course_activities is keyed by UUID; activity_media.activity_id is TEXT but stores
-      // that same UUID, so the IN-list works.
+      // that same UUID, so the IN-list works. v30: удаление тоже per-group.
       const { deleteVideoFile, deleteActivityDir } = await import('../storage.js');
       const orphaned = await query(
         `SELECT id, source_type, media_url FROM activity_media
-         WHERE course_id = $1 AND activity_id = ANY($2)`,
-        [req.params.id, deletedActivityIds]
+         WHERE group_id = $1 AND activity_id = ANY($2)`,
+        [gid, deletedActivityIds]
       );
       for (const v of orphaned) {
         if (v.source_type === 'file') await deleteVideoFile(v.media_url);
       }
       await query(
-        `DELETE FROM activity_media WHERE course_id = $1 AND activity_id = ANY($2)`,
-        [req.params.id, deletedActivityIds]
+        `DELETE FROM activity_media WHERE group_id = $1 AND activity_id = ANY($2)`,
+        [gid, deletedActivityIds]
       );
       // Wipe the per-activity dir to clean any stale partial-upload leftovers too.
       for (const aid of deletedActivityIds) await deleteActivityDir(req.params.id, aid);
-      await query('DELETE FROM course_activities WHERE id = ANY($1)', [deletedActivityIds]);
+      await query('DELETE FROM course_activities WHERE id = ANY($1) AND group_id = $2', [deletedActivityIds, gid]);
     }
 
     if (activities) {
@@ -617,19 +705,19 @@ router.put('/courses/:id', async (req, res) => {
         const a = activities[i];
         if (a.dbId) {
           await query(
-            'UPDATE course_activities SET label=$1, duration_min=$2, icon_num=$3, practice_type=$4, description_html=$5, first_day=$6, last_day=$7, sort_order=$8, interval_days=$9 WHERE id=$10',
-            [a.label, a.durationMin, a.iconNum, a.practiceType || 'media', a.descriptionHtml || null, a.firstDay, a.lastDay, i, a.intervalDays || 1, a.dbId]
+            'UPDATE course_activities SET label=$1, duration_min=$2, icon_num=$3, practice_type=$4, description_html=$5, first_day=$6, last_day=$7, sort_order=$8, interval_days=$9 WHERE id=$10 AND group_id=$11',
+            [a.label, a.durationMin, a.iconNum, a.practiceType || 'media', a.descriptionHtml || null, a.firstDay, a.lastDay, i, a.intervalDays || 1, a.dbId, gid]
           );
         } else {
           await query(
-            `INSERT INTO course_activities (course_id, activity_id, label, duration_min, icon_num, practice_type, description_html, first_day, last_day, sort_order, interval_days)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-            [req.params.id, `act_${Date.now()}_${i}`, a.label, a.durationMin, a.iconNum, a.practiceType || 'media', a.descriptionHtml || null, a.firstDay, a.lastDay, i, a.intervalDays || 1]
+            `INSERT INTO course_activities (course_id, group_id, activity_id, label, duration_min, icon_num, practice_type, description_html, first_day, last_day, sort_order, interval_days)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+            [req.params.id, gid, `act_${Date.now()}_${i}`, a.label, a.durationMin, a.iconNum, a.practiceType || 'media', a.descriptionHtml || null, a.firstDay, a.lastDay, i, a.intervalDays || 1]
           );
         }
       }
     }
-    res.json({ id: req.params.id });
+    res.json({ id: req.params.id, group_id: gid });
   } catch (err) { console.error(err); res.status(500).json({ error: err.message }); }
 });
 
@@ -745,7 +833,16 @@ router.post('/courses/:id/activities', async (req, res) => {
     const courseId = req.params.id;
     if (!await isTrainer(req.userId, courseId)) return res.status(403).json({ error: 'Нет прав' });
 
-    const { label, iconNum, practiceType, descriptionHtml, firstDay, lastDay, durationMin, intervalDays, sortOrder } = req.body || {};
+    const { label, iconNum, practiceType, descriptionHtml, firstDay, lastDay, durationMin, intervalDays, sortOrder, groupId } = req.body || {};
+    // v30: активность per-group. Клиент может передать groupId (v30-2c UI);
+    // иначе — is_default группа курса.
+    let gid = groupId || null;
+    if (gid) {
+      const belongs = await queryOne('SELECT 1 FROM course_groups WHERE id = $1 AND course_id = $2', [gid, courseId]);
+      if (!belongs) return res.status(400).json({ error: 'Группа не из этого курса' });
+    } else {
+      gid = await getDefaultGroup(courseId);
+    }
     const days = await queryOne('SELECT days_count FROM courses WHERE id = $1', [courseId]);
     const daysCount = days?.days_count || 30;
     const pt = ['media', 'theory', 'call'].includes(practiceType) ? practiceType : 'media';
@@ -758,16 +855,16 @@ router.post('/courses/:id/activities', async (req, res) => {
     if (Number.isFinite(so)) {
       resolvedSortOrder = so;
     } else {
-      const lastRow = await queryOne('SELECT COALESCE(MAX(sort_order), -1) AS m FROM course_activities WHERE course_id = $1', [courseId]);
+      const lastRow = await queryOne('SELECT COALESCE(MAX(sort_order), -1) AS m FROM course_activities WHERE group_id = $1', [gid]);
       resolvedSortOrder = parseInt(lastRow?.m ?? -1) + 1;
     }
     const activityKey = `act_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const row = await queryOne(
       `INSERT INTO course_activities
-         (course_id, activity_id, label, duration_min, icon_num, practice_type,
+         (course_id, group_id, activity_id, label, duration_min, icon_num, practice_type,
           description_html, first_day, last_day, sort_order, interval_days)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
-      [courseId, activityKey, label || '', dur, iconNum || 'health/1', pt,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
+      [courseId, gid, activityKey, label || '', dur, iconNum || 'health/1', pt,
        descriptionHtml || null, fd, ld, resolvedSortOrder, iv]
     );
     res.json({ data: row });
@@ -1657,17 +1754,25 @@ router.delete('/library/:id', async (req, res) => {
 router.post('/courses/:courseId/activities/from-library', async (req, res) => {
   try {
     const { courseId } = req.params;
-    const { libraryIds } = req.body || {};
+    const { libraryIds, groupId } = req.body || {};
     if (!Array.isArray(libraryIds) || libraryIds.length === 0) {
       return res.status(400).json({ error: 'libraryIds обязательны' });
     }
     if (!await isTrainer(req.userId, courseId)) return res.status(403).json({ error: 'Нет прав' });
+    // v30: активности и медиа per-group. groupId с клиента или is_default.
+    let gid = groupId || null;
+    if (gid) {
+      const belongs = await queryOne('SELECT 1 FROM course_groups WHERE id = $1 AND course_id = $2', [gid, courseId]);
+      if (!belongs) return res.status(400).json({ error: 'Группа не из этого курса' });
+    } else {
+      gid = await getDefaultGroup(courseId);
+    }
     const days = await queryOne('SELECT days_count FROM courses WHERE id = $1', [courseId]);
     const daysCount = days?.days_count || 30;
     const clampDay = (d) => Math.max(1, Math.min(parseInt(d) || 1, daysCount));
     const clampDays = (arr) => (arr || []).map(d => parseInt(d)).filter(d => d >= 1 && d <= daysCount);
 
-    const lastRow = await queryOne('SELECT COALESCE(MAX(sort_order), -1) AS m FROM course_activities WHERE course_id = $1', [courseId]);
+    const lastRow = await queryOne('SELECT COALESCE(MAX(sort_order), -1) AS m FROM course_activities WHERE group_id = $1', [gid]);
     let nextSort = parseInt(lastRow?.m ?? -1) + 1;
 
     const created = [];
@@ -1677,11 +1782,11 @@ router.post('/courses/:courseId/activities/from-library', async (req, res) => {
       const activityKey = `act_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       const row = await queryOne(
         `INSERT INTO course_activities
-           (course_id, activity_id, label, duration_min, icon_num, practice_type,
+           (course_id, group_id, activity_id, label, duration_min, icon_num, practice_type,
             description_html, first_day, last_day, interval_days, sort_order,
             excluded_days, extra_days, library_practice_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
-        [courseId, activityKey, lib.label, lib.duration_min, lib.icon_num, lib.practice_type,
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
+        [courseId, gid, activityKey, lib.label, lib.duration_min, lib.icon_num, lib.practice_type,
          lib.description_html, clampDay(lib.first_day), clampDay(lib.last_day),
          lib.interval_days || 1, nextSort++, clampDays(lib.excluded_days),
          clampDays(lib.extra_days), lib.id]
@@ -1695,11 +1800,11 @@ router.post('/courses/:courseId/activities/from-library', async (req, res) => {
       for (const m of libMedia) {
         await query(
           `INSERT INTO activity_media
-             (course_id, activity_id, media_type, source_type, media_url, text_content, description_html,
+             (course_id, group_id, activity_id, media_type, source_type, media_url, text_content, description_html,
               file_size, duration_sec, first_day, last_day, interval_days,
               excluded_days, extra_days, sort_order)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
-          [courseId, row.id, m.media_type, m.source_type, m.media_url,
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+          [courseId, gid, row.id, m.media_type, m.source_type, m.media_url,
            m.text_content, m.description_html, m.file_size, m.duration_sec,
            clampDay(m.first_day), clampDay(m.last_day), m.interval_days || 1,
            clampDays(m.excluded_days), clampDays(m.extra_days), m.sort_order || 0]
@@ -1761,9 +1866,18 @@ router.get('/trainer/students/:courseId', async (req, res) => {
 router.get('/trainer/progress/:courseId', async (req, res) => {
   try {
     if (!await isTrainer(req.userId, req.params.courseId)) return res.status(403).json({});
+    // v30: тренер видит прогресс по (course_id, group_id ученика). Собираем per-user,
+    // фильтр по группе (?groupId=) если задан — иначе прогресс всех учеников курса.
+    let params = [req.params.courseId];
+    let where = 'WHERE course_id = $1';
+    if (req.query.groupId) {
+      const belongs = await queryOne('SELECT 1 FROM course_groups WHERE id = $1 AND course_id = $2', [req.query.groupId, req.params.courseId]);
+      if (!belongs) return res.status(400).json({});
+      where += ' AND group_id = $2'; params.push(req.query.groupId);
+    }
     const rows = await query(
-      'SELECT user_id, activity_id, day, elapsed_seconds, completed FROM course_progress WHERE course_id = $1',
-      [req.params.courseId]
+      `SELECT user_id, activity_id, day, elapsed_seconds, completed FROM course_progress ${where}`,
+      params
     );
     const result = {};
     for (const row of rows) {
@@ -1793,7 +1907,16 @@ router.post('/trainer/remove-student', async (req, res) => {
     if (!enroll || !await isTrainer(req.userId, enroll.course_id)) return res.json({ success: false, error: 'Нет прав' });
     const course = await queryOne('SELECT owner_id FROM courses WHERE id = $1', [enroll.course_id]);
     if (enroll.user_id === course.owner_id) return res.json({ success: false, error: 'Нельзя удалить владельца' });
-    await query('DELETE FROM course_progress WHERE user_id = $1 AND course_id = $2', [enroll.user_id, enroll.course_id]);
+    // v30: чистим прогресс/day-closures/exclusions в разрезе группы, к которой
+    // был привязан enrollment. Записи других групп (если ученик когда-то был в
+    // другой) — не трогаем.
+    if (enroll.group_id) {
+      await query('DELETE FROM course_progress WHERE user_id = $1 AND group_id = $2', [enroll.user_id, enroll.group_id]);
+      await query('DELETE FROM course_day_closures WHERE user_id = $1 AND group_id = $2', [enroll.user_id, enroll.group_id]);
+      await query('DELETE FROM student_activity_exclusions WHERE user_id = $1 AND group_id = $2', [enroll.user_id, enroll.group_id]);
+    } else {
+      await query('DELETE FROM course_progress WHERE user_id = $1 AND course_id = $2', [enroll.user_id, enroll.course_id]);
+    }
     await query('DELETE FROM course_enrollments WHERE id = $1', [enrollmentId]);
     res.json({ success: true });
   } catch (err) { res.json({ success: false, error: err.message }); }
@@ -1814,17 +1937,19 @@ router.post('/trainer/toggle-exclusion', async (req, res) => {
   try {
     const { courseId, userId, activityId, day } = req.body;
     if (!await isTrainer(req.userId, courseId)) return res.json({ success: false, error: 'Нет прав' });
+    // v30: exclusion per-group. Берём группу ученика.
+    const gid = await resolveEffectiveGroup(userId, courseId);
     const existing = await queryOne(
-      'SELECT id FROM student_activity_exclusions WHERE user_id = $1 AND course_id = $2 AND activity_id = $3 AND day = $4',
-      [userId, courseId, activityId, day]
+      'SELECT id FROM student_activity_exclusions WHERE user_id = $1 AND group_id = $2 AND activity_id = $3 AND day = $4',
+      [userId, gid, activityId, day]
     );
     if (existing) {
       await query('DELETE FROM student_activity_exclusions WHERE id = $1', [existing.id]);
       res.json({ success: true, excluded: false });
     } else {
       await query(
-        'INSERT INTO student_activity_exclusions (user_id, course_id, activity_id, day) VALUES ($1,$2,$3,$4)',
-        [userId, courseId, activityId, day]
+        'INSERT INTO student_activity_exclusions (user_id, course_id, activity_id, day, group_id) VALUES ($1,$2,$3,$4,$5)',
+        [userId, courseId, activityId, day, gid]
       );
       res.json({ success: true, excluded: true });
     }
@@ -1854,10 +1979,11 @@ router.post('/trainer/toggle-completion', async (req, res) => {
   try {
     const { courseId, userId, activityId, day, completed } = req.body;
     if (!await isTrainer(req.userId, courseId)) return res.json({ success: false, error: 'Нет прав' });
+    const gid = await resolveEffectiveGroup(userId, courseId);
 
     const existing = await queryOne(
-      'SELECT completed, elapsed_seconds FROM course_progress WHERE user_id = $1 AND course_id = $2 AND activity_id = $3 AND day = $4',
-      [userId, courseId, activityId, day]
+      'SELECT completed, elapsed_seconds FROM course_progress WHERE user_id = $1 AND group_id = $2 AND activity_id = $3 AND day = $4',
+      [userId, gid, activityId, day]
     );
     const newCompleted = typeof completed === 'boolean' ? completed : !existing?.completed;
 
@@ -1879,11 +2005,11 @@ router.post('/trainer/toggle-completion', async (req, res) => {
     }
 
     await query(
-      `INSERT INTO course_progress (user_id, course_id, activity_id, day, elapsed_seconds, completed, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, NOW())
+      `INSERT INTO course_progress (user_id, course_id, activity_id, day, elapsed_seconds, completed, group_id, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
        ON CONFLICT (user_id, course_id, activity_id, day)
-       DO UPDATE SET completed = $6, elapsed_seconds = $5, updated_at = NOW()`,
-      [userId, courseId, activityId, day, elapsed, newCompleted]
+       DO UPDATE SET completed = $6, elapsed_seconds = $5, group_id = $7, updated_at = NOW()`,
+      [userId, courseId, activityId, day, elapsed, newCompleted, gid]
     );
 
     res.json({ success: true, completed: newCompleted, elapsed });
@@ -1962,7 +2088,15 @@ router.get('/custom-activities/:courseId', async (req, res) => {
 
 router.get('/media/:courseId', async (req, res) => {
   try {
-    const rows = await query('SELECT * FROM activity_media WHERE course_id = $1 ORDER BY sort_order', [req.params.courseId]);
+    // v30: медиа per-group. Клиент может передать ?groupId=; иначе — is_default.
+    let gid = req.query.groupId || null;
+    if (gid) {
+      const belongs = await queryOne('SELECT 1 FROM course_groups WHERE id = $1 AND course_id = $2', [gid, req.params.courseId]);
+      if (!belongs) return res.status(400).json({ error: 'Группа не из этого курса' });
+    } else {
+      gid = await getDefaultGroup(req.params.courseId);
+    }
+    const rows = await query('SELECT * FROM activity_media WHERE group_id = $1 ORDER BY sort_order', [gid]);
     res.json(rows);
   } catch (err) { res.json([]); }
 });
@@ -1985,12 +2119,15 @@ router.post('/media/link', async (req, res) => {
   try {
     const { courseId, activityId, url, sourceType, mediaType, firstDay, lastDay, intervalDays } = req.body;
     if (!await isTrainer(req.userId, courseId)) return res.status(403).json({ error: 'Нет прав' });
+    // v30: media.group_id берём из самой активности (activity_id — это UUID row).
+    const act = await queryOne('SELECT group_id FROM course_activities WHERE id = $1 AND course_id = $2', [activityId, courseId]);
+    if (!act) return res.status(404).json({ error: 'Активность не найдена' });
     const iv = Math.max(1, parseInt(intervalDays) || 1);
     const mt = mediaType && ['video','audio','image','text','none'].includes(mediaType) ? mediaType : 'video';
     const v = await queryOne(
-      `INSERT INTO activity_media (course_id, activity_id, media_type, source_type, media_url, first_day, last_day, interval_days)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-      [courseId, activityId, mt, sourceType, url, firstDay, lastDay, iv]
+      `INSERT INTO activity_media (course_id, group_id, activity_id, media_type, source_type, media_url, first_day, last_day, interval_days)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+      [courseId, act.group_id, activityId, mt, sourceType, url, firstDay, lastDay, iv]
     );
     res.json({ data: v });
   } catch (err) { console.error(err); res.json({ error: err.message }); }
@@ -2001,13 +2138,15 @@ router.post('/media/empty', async (req, res) => {
   try {
     const { courseId, activityId, mediaType, textContent, firstDay, lastDay, intervalDays } = req.body;
     if (!await isTrainer(req.userId, courseId)) return res.status(403).json({ error: 'Нет прав' });
+    const act = await queryOne('SELECT group_id FROM course_activities WHERE id = $1 AND course_id = $2', [activityId, courseId]);
+    if (!act) return res.status(404).json({ error: 'Активность не найдена' });
     const iv = Math.max(1, parseInt(intervalDays) || 1);
     const mt = mediaType && ['video','audio','image','text','none'].includes(mediaType) ? mediaType : 'text';
     const st = mt === 'text' ? 'text' : 'none';
     const v = await queryOne(
-      `INSERT INTO activity_media (course_id, activity_id, media_type, source_type, media_url, text_content, first_day, last_day, interval_days)
-       VALUES ($1,$2,$3,$4,'',$5,$6,$7,$8) RETURNING *`,
-      [courseId, activityId, mt, st, textContent || null, firstDay, lastDay, iv]
+      `INSERT INTO activity_media (course_id, group_id, activity_id, media_type, source_type, media_url, text_content, first_day, last_day, interval_days)
+       VALUES ($1,$2,$3,$4,$5,'',$6,$7,$8,$9) RETURNING *`,
+      [courseId, act.group_id, activityId, mt, st, textContent || null, firstDay, lastDay, iv]
     );
     res.json({ data: v });
   } catch (err) { console.error(err); res.json({ error: err.message }); }
@@ -2146,9 +2285,17 @@ router.get('/calls/:courseId', async (req, res) => {
       const enroll = await queryOne('SELECT id FROM course_enrollments WHERE course_id = $1 AND user_id = $2', [req.params.courseId, req.userId]);
       if (!enroll) return res.json([]);
     }
+    // v30: звонки per-group. Клиент может передать ?groupId=; иначе — is_default.
+    let gid = req.query.groupId || null;
+    if (gid) {
+      const belongs = await queryOne('SELECT 1 FROM course_groups WHERE id = $1 AND course_id = $2', [gid, req.params.courseId]);
+      if (!belongs) return res.status(400).json({ error: 'Группа не из этого курса' });
+    } else {
+      gid = await getDefaultGroup(req.params.courseId);
+    }
     const rows = await query(
-      'SELECT * FROM activity_calls WHERE course_id = $1 ORDER BY scheduled_at',
-      [req.params.courseId]
+      'SELECT * FROM activity_calls WHERE group_id = $1 ORDER BY scheduled_at',
+      [gid]
     );
     res.json(rows);
   } catch (err) { res.json([]); }
@@ -2156,17 +2303,25 @@ router.get('/calls/:courseId', async (req, res) => {
 
 router.post('/calls', async (req, res) => {
   try {
-    const { courseId, activityId, day, scheduledAt, durationMin } = req.body;
+    const { courseId, activityId, day, scheduledAt, durationMin, groupId } = req.body;
     if (!await isTrainer(req.userId, courseId)) return res.status(403).json({ error: 'Нет прав' });
+    // v30: звонок per-group. Клиент может передать groupId; иначе — is_default.
+    let gid = groupId || null;
+    if (gid) {
+      const belongs = await queryOne('SELECT 1 FROM course_groups WHERE id = $1 AND course_id = $2', [gid, courseId]);
+      if (!belongs) return res.status(400).json({ error: 'Группа не из этого курса' });
+    } else {
+      gid = await getDefaultGroup(courseId);
+    }
 
     const dur = durationMin || 30;
     const roomName = generateJitsiRoomName(courseId, day);
     const roomUrl = `${JITSI_HOST}/${roomName}`;
 
     const call = await queryOne(
-      `INSERT INTO activity_calls (course_id, activity_id, day, scheduled_at, duration_min, room_url, room_name, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-      [courseId, activityId, day, scheduledAt, dur, roomUrl, roomName, req.userId]
+      `INSERT INTO activity_calls (course_id, group_id, activity_id, day, scheduled_at, duration_min, room_url, room_name, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+      [courseId, gid, activityId, day, scheduledAt, dur, roomUrl, roomName, req.userId]
     );
     res.json({ data: call });
   } catch (err) { console.error(err); res.json({ error: err.message }); }
