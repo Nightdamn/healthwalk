@@ -311,7 +311,10 @@ export default function Dashboard({
                 elapsedTime={elapsedTime}
                 currentDay={currentDay}
                 courseName={activeItem?.title}
-                onOpenMap={() => setDashView('map')}
+                accessDaysAfter={activeItem?.accessDaysAfter ?? null}
+                progressionMode={progressionMode}
+                startDate={activeItem?.startDate || null}
+                closures={closures}
               />
             ) : dashView === 'stats' ? (
               <CourseStatsView
@@ -645,7 +648,7 @@ export default function Dashboard({
 }
 
 /* ── Course completion view ── */
-function CourseCompleteView({ progress, allActivities, daysTotal, exclusions, isActivityOnDay, getElapsedForDay, elapsedTime, currentDay, courseName, onOpenMap }) {
+function CourseCompleteView({ progress, allActivities, daysTotal, exclusions, isActivityOnDay, getElapsedForDay, elapsedTime, currentDay, courseName, accessDaysAfter, progressionMode, startDate, closures }) {
   // Compute stats
   let completedDays = 0;
   let totalActiveDays = 0;
@@ -698,20 +701,64 @@ function CourseCompleteView({ progress, allActivities, daysTotal, exclusions, is
           </svg>
         </div>
         <div style={{ fontSize: 22, fontWeight: 800, color: '#1a1a2e', marginBottom: 4 }}>Поздравляем!</div>
-        <div style={{ fontSize: 15, color: '#555', fontWeight: 500, marginBottom: 16 }}>
+        <div style={{ fontSize: 15, color: '#555', fontWeight: 500 }}>
           Курс {courseName ? `«${courseName}»` : ''} окончен
         </div>
-        {onOpenMap && (
-          <button onClick={onOpenMap}
-            style={{
-              padding: '10px 22px', background: '#1a1a2e', color: '#fff', border: 'none',
-              borderRadius: 12, fontSize: 13, fontWeight: 600, cursor: 'pointer',
-              boxShadow: '0 3px 10px rgba(26,26,46,0.15)',
-            }}>
-            Карта курса
-          </button>
-        )}
       </div>
+
+      {/* Access window tile: сколько ещё дней ученик видит материалы.
+          Дата окончания курса = start_date + daysTotal - 1 для daily,
+          иначе — максимальная дата закрытия дня (когда фактически прошёл
+          последний день). accessDaysAfter=null → бессрочно. */}
+      {(() => {
+        const endDate = (() => {
+          if (progressionMode === 'daily' && startDate) {
+            const d = new Date(startDate);
+            d.setDate(d.getDate() + Math.max(0, daysTotal - 1));
+            return d;
+          }
+          const dates = (closures || []).map(c => c.closedAt ? new Date(c.closedAt) : null).filter(Boolean);
+          if (dates.length === 0) return null;
+          return new Date(Math.max(...dates.map(d => d.getTime())));
+        })();
+        if (!endDate) return null;
+        const accessTile = (title, subtitle, tone) => (
+          <div style={{
+            ...glass, borderRadius: 16, padding: '16px 18px', textAlign: 'center',
+            background: tone === 'muted' ? 'rgba(0,0,0,0.02)' : 'rgba(39,174,96,0.05)',
+            border: `1px solid ${tone === 'muted' ? 'rgba(0,0,0,0.06)' : 'rgba(39,174,96,0.2)'}`,
+          }}>
+            <div style={{ fontSize: 13, color: '#1a1a2e', fontWeight: 600, lineHeight: 1.4 }}>{title}</div>
+            {subtitle && <div style={{ fontSize: 12, color: '#888', marginTop: 4 }}>{subtitle}</div>}
+          </div>
+        );
+        if (accessDaysAfter == null) {
+          return accessTile('Материалы курса доступны вам бессрочно', null, 'green');
+        }
+        const expires = new Date(endDate);
+        expires.setDate(expires.getDate() + accessDaysAfter);
+        const today = new Date(); today.setHours(0, 0, 0, 0);
+        const expDay = new Date(expires); expDay.setHours(0, 0, 0, 0);
+        const daysLeft = Math.round((expDay.getTime() - today.getTime()) / (24 * 60 * 60 * 1000));
+        const dd = String(expDay.getDate()).padStart(2, '0');
+        const mm = String(expDay.getMonth() + 1).padStart(2, '0');
+        const yyyy = expDay.getFullYear();
+        const dateStr = `${dd}.${mm}.${yyyy}`;
+        const plural = (n, one, few, many) => {
+          const n10 = n % 10, n100 = n % 100;
+          if (n10 === 1 && n100 !== 11) return one;
+          if (n10 >= 2 && n10 <= 4 && (n100 < 12 || n100 > 14)) return few;
+          return many;
+        };
+        if (daysLeft <= 0) {
+          return accessTile('Окно доступа закрыто', `Материалы были доступны до ${dateStr}`, 'muted');
+        }
+        return accessTile(
+          `Материалы курса будут доступны вам ещё ${daysLeft} ${plural(daysLeft, 'день', 'дня', 'дней')}`,
+          `до ${dateStr}`,
+          'green'
+        );
+      })()}
 
       {/* Ring chart + key stats */}
       <div style={{
