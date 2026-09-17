@@ -234,6 +234,53 @@ UNIQUE(course_id, user_id, activity_id, day)
 
 ---
 
+## Группа = стрела прогресса (v30)
+
+v30 расширяет модель v29: группа теперь не только «параметры зачёта», но и
+**собственный набор контента**. Разные группы одного курса могут иметь
+разные практики, разное расписание и разные звонки. Прогресс ученика
+привязан к его группе.
+
+**Составной идентификатор**: `(course_id, group_id)` = уникальный
+«инстанс курса» для конкретного потока.
+
+### `course_groups.is_default BOOLEAN`
+Ровно одна дефолтная группа на курс (UNIQUE index WHERE is_default).
+Служит невидимым шаблоном для клонирования новых групп. Пока
+`courses.groups_enabled=false` — эта группа не видна в UI, все ученики
+и весь контент курса привязаны к ней.
+
+### `group_id` в контентных и прогрессных таблицах
+Все таблицы, где «жил» контент или прогресс, получили nullable
+`group_id UUID REFERENCES course_groups ON DELETE CASCADE`:
+
+- `course_activities.group_id` — практика per-group. Общий якорь между
+  группами — `activity_id` (slug). При клонировании из шаблона slug
+  сохраняется, что позволяет опционально перенести прогресс ученика при
+  смене группы.
+- `activity_media.group_id` — файлы/видео практики per-group. Тренер
+  «начинашек» может залить более лёгкий контент в ту же практику.
+- `activity_calls.group_id` — звонок per-group. Правило v30: звонок
+  создаётся только для группы с `bound_to_calendar=true`.
+- `course_progress.group_id` — прогресс ученика per-group.
+- `course_day_closures.group_id` — закрытые дни per-group.
+- `student_activity_exclusions.group_id` — исключения дней per-group.
+
+**v30-1** (миграция `migration_v30_group_content.sql`): non-breaking —
+столбцы nullable, backfill из is_default группы (для контента) и
+enrollments.group_id (для прогресса). Старые UNIQUE-ограничения по
+`course_id` сохранены, сервер работает как раньше.
+
+**v30-2** (плановое): сервер начинает читать/писать через `group_id`.
+Endpoints добавляют параметр `groupId`, создание новой группы клонирует
+контент из is_default.
+
+**v30-3** (плановое): `group_id` → NOT NULL, старые UNIQUE-ограничения
+пересобраны на `(group_id, …)`. Endpoint перехода ученика в другую
+группу принимает `preserveProgress: boolean`.
+
+---
+
 ## Банк практик (Practice Library, v27)
 
 Личный банк переиспользуемых практик тренера. Активность в курсе можно

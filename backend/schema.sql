@@ -179,6 +179,11 @@ CREATE TABLE IF NOT EXISTS course_groups (
   trainer_id UUID REFERENCES users(id) ON DELETE SET NULL,
   curator_id UUID REFERENCES users(id) ON DELETE SET NULL,
   sort_order INTEGER NOT NULL DEFAULT 0,
+  -- v30: ровно одна is_default группа на курс. Служит невидимым шаблоном для
+  -- клонирования новых групп (при создании копируются activities/media из неё).
+  -- Пока groups_enabled=false — эта группа скрыта в UI, но все ученики и весь
+  -- контент курса привязаны к ней.
+  is_default BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE (course_id, name)
@@ -186,6 +191,7 @@ CREATE TABLE IF NOT EXISTS course_groups (
 CREATE INDEX IF NOT EXISTS idx_course_groups_course ON course_groups(course_id);
 CREATE INDEX IF NOT EXISTS idx_course_groups_trainer ON course_groups(trainer_id) WHERE trainer_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_course_groups_curator ON course_groups(curator_id) WHERE curator_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_course_groups_default ON course_groups(course_id) WHERE is_default;
 
 CREATE TABLE IF NOT EXISTS course_enrollments (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -477,6 +483,26 @@ CREATE TABLE IF NOT EXISTS call_attendance (
 
 CREATE INDEX IF NOT EXISTS idx_call_attendance_call ON call_attendance(call_id);
 CREATE INDEX IF NOT EXISTS idx_call_attendance_user ON call_attendance(user_id);
+
+-- ═══════════════════════════════════════════════════════════
+-- v30: per-group content — nullable group_id everywhere. FKs added here
+-- because these tables are defined before course_groups. Backfill is done
+-- separately (see supabase/migration_v30_group_content.sql). Once every
+-- row is bound (v30-3) the columns will be flipped to NOT NULL.
+-- ═══════════════════════════════════════════════════════════
+ALTER TABLE course_activities            ADD COLUMN IF NOT EXISTS group_id UUID REFERENCES course_groups(id) ON DELETE CASCADE;
+ALTER TABLE activity_media               ADD COLUMN IF NOT EXISTS group_id UUID REFERENCES course_groups(id) ON DELETE CASCADE;
+ALTER TABLE activity_calls               ADD COLUMN IF NOT EXISTS group_id UUID REFERENCES course_groups(id) ON DELETE CASCADE;
+ALTER TABLE course_progress              ADD COLUMN IF NOT EXISTS group_id UUID REFERENCES course_groups(id) ON DELETE CASCADE;
+ALTER TABLE course_day_closures          ADD COLUMN IF NOT EXISTS group_id UUID REFERENCES course_groups(id) ON DELETE CASCADE;
+ALTER TABLE student_activity_exclusions  ADD COLUMN IF NOT EXISTS group_id UUID REFERENCES course_groups(id) ON DELETE CASCADE;
+
+CREATE INDEX IF NOT EXISTS idx_course_activities_group ON course_activities(group_id) WHERE group_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_activity_media_group    ON activity_media(group_id) WHERE group_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_activity_calls_group    ON activity_calls(group_id) WHERE group_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_course_progress_group   ON course_progress(group_id) WHERE group_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_day_closures_group      ON course_day_closures(group_id) WHERE group_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_exclusions_group        ON student_activity_exclusions(group_id) WHERE group_id IS NOT NULL;
 
 -- ═══════════════════════════════════════════════════════════
 -- LEGACY (original single-course progress, kept for compat)
