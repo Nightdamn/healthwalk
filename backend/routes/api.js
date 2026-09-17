@@ -1490,6 +1490,63 @@ router.post('/courses/:id/groups', async (req, res) => {
       tzOffsetMin ?? null,
       trainer, curatorId || null, sortOrder,
     ]);
+
+    // v30-2b: клонируем контент из шаблона (is_default группы курса) в новую
+    // группу. activity_id (slug) сохраняется — так переход ученика с
+    // preserveProgress найдёт соответствия по slug. activity_calls НЕ
+    // клонируем: это индивидуальное расписание, тренер планирует своё.
+    const template = await queryOne(
+      'SELECT id FROM course_groups WHERE course_id = $1 AND is_default LIMIT 1',
+      [req.params.id]
+    );
+    if (template && template.id !== row.id) {
+      const srcActs = await query(
+        'SELECT * FROM course_activities WHERE group_id = $1 ORDER BY sort_order',
+        [template.id]
+      );
+      // Мапа oldActivityUUID → newActivityUUID нужна, чтобы клонированные
+      // activity_media (media.activity_id хранит UUID row course_activities)
+      // указывали на новые строки активностей, а не на строки шаблона.
+      const idMap = new Map();
+      for (const a of srcActs) {
+        const newRow = await queryOne(
+          `INSERT INTO course_activities (
+             course_id, group_id, activity_id, label, duration_min, icon_num,
+             practice_type, description_html, first_day, last_day,
+             interval_days, sort_order, excluded_days, extra_days, library_practice_id
+           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id`,
+          [req.params.id, row.id, a.activity_id, a.label, a.duration_min, a.icon_num,
+           a.practice_type, a.description_html, a.first_day, a.last_day,
+           a.interval_days, a.sort_order, a.excluded_days || [], a.extra_days || [],
+           a.library_practice_id]
+        );
+        idMap.set(a.id, newRow.id);
+      }
+      // Медиа: копируем каждую строку с новым activity_id (UUID клонированной
+      // активности). Файлы физически не копируем — media_url ссылается на
+      // ту же папку. Правки контента в новой группе позже будут добавлять
+      // отдельные строки в activity_media уже с её group_id.
+      const srcMedia = await query(
+        'SELECT * FROM activity_media WHERE group_id = $1 ORDER BY sort_order',
+        [template.id]
+      );
+      for (const m of srcMedia) {
+        const newActId = idMap.get(m.activity_id);
+        if (!newActId) continue; // orphan media без активности — пропускаем
+        await query(
+          `INSERT INTO activity_media (
+             course_id, group_id, activity_id, media_type, source_type, media_url,
+             text_content, description_html, file_size, duration_sec,
+             first_day, last_day, interval_days, excluded_days, extra_days, sort_order
+           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+          [req.params.id, row.id, newActId, m.media_type, m.source_type, m.media_url,
+           m.text_content, m.description_html, m.file_size, m.duration_sec,
+           m.first_day, m.last_day, m.interval_days || 1,
+           m.excluded_days || [], m.extra_days || [], m.sort_order || 0]
+        );
+      }
+    }
+
     res.json({ data: row });
   } catch (err) {
     if (err.code === '23505') return res.status(409).json({ error: 'Группа с таким названием уже есть' });

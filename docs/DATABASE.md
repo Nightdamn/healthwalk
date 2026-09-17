@@ -271,11 +271,25 @@ v30 расширяет модель v29: группа теперь не толь
 enrollments.group_id (для прогресса). Старые UNIQUE-ограничения по
 `course_id` сохранены, сервер работает как раньше.
 
-**v30-2** (плановое): сервер начинает читать/писать через `group_id`.
-Endpoints добавляют параметр `groupId`, создание новой группы клонирует
-контент из is_default.
+**v30-2a**: сервер читает/пишет per-group. Все endpoints (создание курса,
+активности, медиа, звонки, прогресс, closures, exclusions) принимают
+`groupId` явно; без него — резолвим `is_default` группу курса (для
+владельца) или `enrollment.group_id` (для ученика). Каждый новый курс
+автоматически получает «Общую» is_default группу + owner-enrollment
+привязан к ней.
 
-**v30-3** (плановое): `group_id` → NOT NULL, старые UNIQUE-ограничения
+**v30-2b** (миграция `migration_v30_2b_group_content_unique.sql`):
+`UNIQUE(course_id, activity_id)` в `course_activities` заменён на
+партиальный `UNIQUE(group_id, activity_id)` — клонирование шаблона в
+новую группу сохраняет `activity_id` (slug), что позволит переносить
+прогресс ученика между группами по совпадающему slug. `POST
+/courses/:id/groups` теперь клонирует все `course_activities` +
+`activity_media` из is_default в свежесозданную группу (activity_id
+сохраняется, id новый; media_url ссылается на ту же папку файлов —
+физическая копия не делается).
+
+**v30-3** (плановое): `group_id` → NOT NULL, партиальность UNIQUE
+уходит, старые UNIQUE в `course_progress` и `student_activity_exclusions`
 пересобраны на `(group_id, …)`. Endpoint перехода ученика в другую
 группу принимает `preserveProgress: boolean`.
 

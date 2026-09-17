@@ -156,8 +156,8 @@ CREATE TABLE IF NOT EXISTS course_activities (
   extra_days INTEGER[] NOT NULL DEFAULT '{}',
   sort_order INTEGER NOT NULL DEFAULT 0,
   library_practice_id UUID,  -- v27 FK на practice_library, добавляется через ALTER после её создания
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE(course_id, activity_id)
+  created_at TIMESTAMPTZ DEFAULT NOW()
+  -- v30-2b: UNIQUE перенесён на (group_id, activity_id), см. блок в конце файла.
 );
 
 -- v29: группы внутри курса (потоки). Каждая группа — свой шаблон
@@ -498,6 +498,12 @@ ALTER TABLE course_day_closures          ADD COLUMN IF NOT EXISTS group_id UUID 
 ALTER TABLE student_activity_exclusions  ADD COLUMN IF NOT EXISTS group_id UUID REFERENCES course_groups(id) ON DELETE CASCADE;
 
 CREATE INDEX IF NOT EXISTS idx_course_activities_group ON course_activities(group_id) WHERE group_id IS NOT NULL;
+-- v30-2b: UNIQUE перенесён на (group_id, activity_id) — клонирование
+-- шаблона в новую группу сохраняет slug, а с UNIQUE(course_id, activity_id)
+-- это бы падало конфликтом. Партиальный (WHERE group_id IS NOT NULL) —
+-- защита от строк без group_id, но после v30-3 партиальность уйдёт.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_course_activities_group_slug
+  ON course_activities(group_id, activity_id) WHERE group_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_activity_media_group    ON activity_media(group_id) WHERE group_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_activity_calls_group    ON activity_calls(group_id) WHERE group_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_course_progress_group   ON course_progress(group_id) WHERE group_id IS NOT NULL;
