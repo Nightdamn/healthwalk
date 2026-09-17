@@ -139,18 +139,20 @@ export async function createCourse(ownerId, title, description, daysCount) {
   return createCourseWithActivities(ownerId, { title, description, daysCount, activities: [] });
 }
 
-export async function loadCourseForEdit(courseId) {
+// v30: groupId необязателен. Без него бэк отдаёт контент is_default группы курса.
+export async function loadCourseForEdit(courseId, groupId) {
   try {
-    return await apiGet(`/api/courses/${courseId}`);
+    const q = groupId ? `?groupId=${encodeURIComponent(groupId)}` : '';
+    return await apiGet(`/api/courses/${courseId}${q}`);
   } catch (err) {
     console.error('[DB] Load course for edit:', err);
     return null;
   }
 }
 
-export async function updateCourseWithActivities(courseId, { title, description, avatarIcon, avatarCustom, daysCount, activities, deletedActivityIds }) {
+export async function updateCourseWithActivities(courseId, { title, description, avatarIcon, avatarCustom, daysCount, activities, deletedActivityIds, groupId }) {
   try {
-    return await apiPut(`/api/courses/${courseId}`, { title, description, avatarIcon, avatarCustom, daysCount, activities, deletedActivityIds });
+    return await apiPut(`/api/courses/${courseId}`, { title, description, avatarIcon, avatarCustom, daysCount, activities, deletedActivityIds, groupId });
   } catch (err) {
     return { error: err.message };
   }
@@ -166,9 +168,11 @@ export async function patchCourseMeta(courseId, fields) {
   }
 }
 
-export async function createActivity(courseId, fields) {
+export async function createActivity(courseId, fields, groupId) {
   try {
-    const res = await apiPost(`/api/courses/${courseId}/activities`, fields || {});
+    const body = { ...(fields || {}) };
+    if (groupId) body.groupId = groupId;
+    const res = await apiPost(`/api/courses/${courseId}/activities`, body);
     return res?.data || res;
   } catch (err) {
     return { error: err.message };
@@ -615,9 +619,10 @@ export async function updateActivityDuration(activityId, durationMin) {
   }
 }
 
-export async function getActivityMedia(courseId) {
+export async function getActivityMedia(courseId, groupId) {
   try {
-    return await apiGet(`/api/media/${courseId}`);
+    const q = groupId ? `?groupId=${encodeURIComponent(groupId)}` : '';
+    return await apiGet(`/api/media/${courseId}${q}`);
   } catch {
     return [];
   }
@@ -653,13 +658,14 @@ export async function getMediaSignedUrl(filePath) {
 // ACTIVITY CALLS
 // ═══════════════════════════════════════════════════════════
 
-export async function getActivityCalls(courseId) {
-  const res = await apiGet(`/api/calls/${courseId}`);
+export async function getActivityCalls(courseId, groupId) {
+  const q = groupId ? `?groupId=${encodeURIComponent(groupId)}` : '';
+  const res = await apiGet(`/api/calls/${courseId}${q}`);
   return res || [];
 }
 
-export async function createActivityCall(courseId, activityId, day, scheduledAt, durationMin) {
-  return await apiPost('/api/calls', { courseId, activityId, day, scheduledAt, durationMin });
+export async function createActivityCall(courseId, activityId, day, scheduledAt, durationMin, groupId) {
+  return await apiPost('/api/calls', { courseId, activityId, day, scheduledAt, durationMin, groupId });
 }
 
 export async function patchActivityCall(callId, fields) {

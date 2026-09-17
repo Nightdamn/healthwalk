@@ -146,8 +146,8 @@ export async function refreshLibraryFromActivity(libraryId, activityId) {
 export async function deleteLibraryEntry(libraryId) {
   return await apiDelete(`/api/library/${libraryId}`);
 }
-export async function copyLibraryToCourse(courseId, libraryIds) {
-  return await apiPost(`/api/courses/${courseId}/activities/from-library`, { libraryIds });
+export async function copyLibraryToCourse(courseId, libraryIds, groupId) {
+  return await apiPost(`/api/courses/${courseId}/activities/from-library`, { libraryIds, groupId });
 }
 
 export function signInWithGoogle() {

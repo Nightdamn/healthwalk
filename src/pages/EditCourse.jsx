@@ -170,6 +170,10 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
   // Открытый IconPicker для аватара группы (id группы) — отдельный от pickerTarget
   // (который для активностей курса).
   const [groupPickerId, setGroupPickerId] = useState(null);
+  // v30: какую группу редактируем (её контент). null до первой loadGroups —
+  // тогда бэк fallback на is_default. После — держим id выбранной группы,
+  // селектор над блоком «Активности» позволяет переключаться.
+  const [selectedGroupId, setSelectedGroupId] = useState(null);
   // v28: витрина курсов — статус модерации, цена, блокировка.
   const [storeStatus, setStoreStatus] = useState('draft');
   const [storeRejectReason, setStoreRejectReason] = useState('');
@@ -245,13 +249,15 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
   }, []);
 
   // Load (or re-load) course data from the server.
+  // v30: контент читается per-group. selectedGroupId сидит в deps, значит
+  // смена группы триггерит перезагрузку активностей/медиа/звонков.
   const loadCourse = useCallback(async ({ withSpinner = true } = {}) => {
     if (!courseId) return;
     if (withSpinner) setLoading(true);
     const [course, vids, callsData] = await Promise.all([
-      loadCourseForEdit(courseId),
-      getActivityMedia(courseId),
-      getActivityCalls(courseId),
+      loadCourseForEdit(courseId, selectedGroupId),
+      getActivityMedia(courseId, selectedGroupId),
+      getActivityCalls(courseId, selectedGroupId),
     ]);
     if (!course) { setError('Не удалось загрузить курс'); setLoading(false); return; }
 
@@ -331,7 +337,7 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
       });
     setActivities(acts);
     if (withSpinner) setLoading(false);
-  }, [courseId]);
+  }, [courseId, selectedGroupId]);
 
   useEffect(() => { loadCourse(); }, [loadCourse]);
 
@@ -348,6 +354,13 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
       // если хочет редактировать. Новые группы (созданные из UI) в set
       // не попадают → остаются развёрнутыми.
       setGroupCollapsedIds(prev => prev === null ? new Set(list.map(g => g.id)) : prev);
+      // v30: инициализируем selectedGroupId — is_default если такая есть,
+      // иначе первая группа. Селектор над «Активностями» переключает контекст.
+      setSelectedGroupId(prev => {
+        if (prev && list.some(g => g.id === prev)) return prev; // текущий валиден
+        const def = list.find(g => g.is_default);
+        return def?.id || list[0]?.id || null;
+      });
     } finally { setGroupsLoading(false); }
   }, [courseId]);
   useEffect(() => { loadGroups(); }, [loadGroups]);
@@ -490,7 +503,7 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
   };
 
   const handleCreateCall = async (activityId, day, scheduledAt, durationMin) => {
-    const result = await createActivityCall(courseId, activityId, day, scheduledAt, durationMin);
+    const result = await createActivityCall(courseId, activityId, day, scheduledAt, durationMin, selectedGroupId);
     if (result.error) { setError(`Ошибка: ${result.error}`); return; }
     if (result.data) setCalls(prev => [...prev, result.data]);
   };
@@ -697,7 +710,7 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
       label: '', iconNum: 'health/1', practiceType: 'media',
       firstDay: 1, lastDay: days, durationMin: 10, intervalDays: 1,
       sortOrder: activities.length,
-    });
+    }, selectedGroupId);
     if (created?.error || !created?.id) {
       setError(`Ошибка создания активности: ${created?.error || 'unknown'}`);
       setActivities(prev => prev.filter(a => a._key !== tempKey));
@@ -974,6 +987,9 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
                   const res = await createGroup(courseId, { name: `Группа ${groups.length + 1}`, progressionMode });
                   if (res?.error) { setError(res.error); return; }
                   await loadGroups();
+                  // v30: переключаем контекст редактирования на новосозданную
+                  // группу — тренеру логично сразу начать её настраивать.
+                  if (res?.data?.id) setSelectedGroupId(res.data.id);
                 }} style={{
                   padding: '6px 12px', borderRadius: 10, border: `1px solid ${GREEN}`,
                   background: '#fff', color: GREEN, fontSize: 13, fontWeight: 600, cursor: 'pointer',
@@ -1069,6 +1085,42 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
         <div style={{ fontSize: 14, fontWeight: 600, color: '#888', marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 }}>
           Активности
         </div>
+
+        {/* v30: селектор группы — только когда groups_enabled и есть ≥1 группа.
+             Правки активностей ниже применяются к выбранной группе.
+             is_default выводим первой с меткой «Общая (шаблон)», остальные — по алфавиту. */}
+        {groupsEnabled && groups.length > 0 && (() => {
+          const sortedGroups = [...groups].sort((a, b) => {
+            if (a.is_default !== b.is_default) return a.is_default ? -1 : 1;
+            return (a.name || '').localeCompare(b.name || '', 'ru');
+          });
+          const opts = sortedGroups.map(g => ({
+            value: g.id,
+            label: g.is_default ? `${g.name} (шаблон)` : g.name,
+          }));
+          const current = selectedGroupId && groups.some(g => g.id === selectedGroupId)
+            ? selectedGroupId
+            : sortedGroups[0]?.id;
+          const isTemplate = groups.find(g => g.id === current)?.is_default;
+          return (
+            <div style={{
+              ...glass, borderRadius: 12, padding: 12, marginBottom: 12,
+            }}>
+              <label style={{ fontSize: 11, color: '#666', display: 'block', marginBottom: 6 }}>
+                Программа для группы
+              </label>
+              <Dropdown value={current}
+                onChange={v => setSelectedGroupId(v)}
+                options={opts} fullWidth />
+              {isTemplate && (
+                <div style={{ fontSize: 11, color: '#e67e22', marginTop: 6, lineHeight: 1.4 }}>
+                  Это шаблон. Правки применятся только к новым создаваемым группам —
+                  в существующих потоках контент не изменится.
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {activities.map((a, idx) => (
           <ActivityCard key={a._key} activity={a} index={idx} maxDay={daysCount}
