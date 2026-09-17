@@ -1615,13 +1615,26 @@ router.post('/groups/:id/apply-defaults', async (req, res) => {
   } catch (err) { console.error('[Groups apply-defaults]', err); res.status(500).json({ error: err.message }); }
 });
 
-// DELETE /groups/:id — только owner. Enrollments теряют group_id (SET NULL).
+// DELETE /groups/:id — только owner. v30-3: enrollments всегда в группе
+// (NOT NULL), поэтому удалять группу с учениками нельзя — тренер должен
+// сначала перевести их в другую группу. is_default (шаблон) удалить тоже
+// нельзя — она контейнер контента и источник клонирования.
 router.delete('/groups/:id', async (req, res) => {
   try {
-    const g = await queryOne('SELECT course_id FROM course_groups WHERE id = $1', [req.params.id]);
+    const g = await queryOne('SELECT course_id, is_default FROM course_groups WHERE id = $1', [req.params.id]);
     if (!g) return res.json({ deleted: true });
     const course = await queryOne('SELECT owner_id FROM courses WHERE id = $1', [g.course_id]);
     if (course?.owner_id !== req.userId) return res.status(403).json({ error: 'Только владелец курса удаляет группы' });
+    if (g.is_default) return res.status(400).json({ error: 'Шаблонную группу удалить нельзя' });
+    const enrolls = await queryOne(
+      'SELECT COUNT(*)::int AS n FROM course_enrollments WHERE group_id = $1',
+      [req.params.id]
+    );
+    if (enrolls?.n > 0) {
+      return res.status(400).json({
+        error: `В группе ${enrolls.n} участник${enrolls.n === 1 ? '' : (enrolls.n < 5 ? 'а' : 'ов')}. Сначала переведите их в другую группу.`,
+      });
+    }
     await query('DELETE FROM course_groups WHERE id = $1', [req.params.id]);
     res.json({ deleted: true });
   } catch (err) { console.error('[Groups delete]', err); res.status(500).json({ error: err.message }); }
