@@ -872,6 +872,14 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
 
   const avatarSrc = avatarCustom || (avatarIcon ? getIconPath(avatarIcon) : null);
 
+  // Привязка и дата старта редактируемого потока: при «По группам» — у
+  // выбранной группы, иначе у курса. От них строятся даты созвонов.
+  const selectedGroup = groupsEnabled ? groups.find(g => g.id === selectedGroupId) : null;
+  const streamBound = selectedGroup ? !!selectedGroup.bound_to_calendar : boundToCalendar;
+  const streamStartDate = selectedGroup
+    ? (selectedGroup.start_date ? String(selectedGroup.start_date).slice(0, 10) : '')
+    : startDate;
+
   if (loading) {
     return (
       <Layout>
@@ -1147,8 +1155,8 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
             onDeleteCall={handleDeleteCall}
             onPatchCall={handlePatchCall}
             tzOffsetMin={tzOffsetMin}
-            boundToCalendar={boundToCalendar}
-            courseStartDate={startDate}
+            boundToCalendar={streamBound}
+            courseStartDate={streamStartDate}
             collapsed={collapsedKeys.has(a._key)}
             onToggleCollapsed={() => toggleCollapsed(a._key)}
             isDragging={dragKey === a._key}
@@ -1312,7 +1320,7 @@ function CallSchedule({ activity, maxDay, calls, courseId, tzMin, trainerTzLabel
           Расписание звонков
         </div>
         <div style={{ fontSize: 11, color: '#999', padding: '8px 10px', borderRadius: 8, background: 'rgba(0,0,0,0.03)', lineHeight: 1.5 }}>
-          Чтобы запланировать звонки, отметьте курс как привязанный к календарю и укажите дату начала — звонки появятся автоматически на отмеченные дни активности.
+          Чтобы запланировать звонки, включите привязку к дате и укажите дату начала (у курса, а при режиме «По группам» — у выбранной группы). Звонки появятся автоматически на отмеченные дни активности.
         </div>
       </div>
     );

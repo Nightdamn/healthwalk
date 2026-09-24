@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import jwt from 'jsonwebtoken';
 import rateLimit from 'express-rate-limit';
-import { query, queryOne, execute } from '../db.js';
+import { query, queryOne, execute, withTransaction } from '../db.js';
 import { requireAuth } from '../middleware.js';
 
 const router = Router();
@@ -288,15 +288,38 @@ router.post('/progress/course', async (req, res) => {
 
 // ─── v25: Progression modes ───────────────────────────────────────────────
 // Effective mode для (user, course) с учётом enrollment override.
+// Приоритет: личный override → группа (если курс по группам) → курс.
 async function getEffectiveMode(userId, courseId) {
   const row = await queryOne(
-    `SELECT COALESCE(ce.progression_mode_override, c.progression_mode, 'daily') AS mode
+    `SELECT COALESCE(ce.progression_mode_override,
+                     CASE WHEN c.groups_enabled THEN g.progression_mode END,
+                     c.progression_mode, 'daily') AS mode
        FROM courses c
        LEFT JOIN course_enrollments ce ON ce.course_id = c.id AND ce.user_id = $1
+       LEFT JOIN course_groups g ON g.id = ce.group_id
       WHERE c.id = $2`,
     [userId, courseId]
   );
   return row?.mode || 'daily';
+}
+
+// Привязка к дате и дата старта потока ученика (тот же приоритет).
+async function getEffectiveCalendar(userId, courseId) {
+  const row = await queryOne(
+    `SELECT COALESCE(ce.bound_to_calendar_override,
+                     CASE WHEN c.groups_enabled THEN g.bound_to_calendar END,
+                     c.bound_to_calendar, false) AS bound,
+            COALESCE(ce.start_date_override,
+                     CASE WHEN c.groups_enabled THEN g.start_date END,
+                     c.start_date) AS start_date,
+            ce.joined_at
+       FROM courses c
+       LEFT JOIN course_enrollments ce ON ce.course_id = c.id AND ce.user_id = $1
+       LEFT JOIN course_groups g ON g.id = ce.group_id
+      WHERE c.id = $2`,
+    [userId, courseId]
+  );
+  return { bound: !!row?.bound, startDate: row?.start_date || null, joinedAt: row?.joined_at || null };
 }
 
 // Все дни где практика активна (учитывая first_day/last_day/interval/exclusions).
@@ -423,8 +446,9 @@ router.patch('/trainer/enrollments/:enrollmentId/mode', async (req, res) => {
     const enroll = await queryOne('SELECT * FROM course_enrollments WHERE id=$1', [req.params.enrollmentId]);
     if (!enroll) return res.status(404).json({ error: 'Не найден' });
     if (!await isTrainer(req.userId, enroll.course_id)) return res.status(403).json({ error: 'Нет прав' });
-    const course = await queryOne('SELECT days_count, bound_to_calendar FROM courses WHERE id=$1', [enroll.course_id]);
+    const course = await queryOne('SELECT days_count FROM courses WHERE id=$1', [enroll.course_id]);
     const daysCount = course?.days_count || 30;
+    const cal = await getEffectiveCalendar(enroll.user_id, enroll.course_id);
     if (mode !== undefined) {
       await query('UPDATE course_enrollments SET progression_mode_override=$1 WHERE id=$2',
         [mode, req.params.enrollmentId]);
@@ -440,15 +464,9 @@ router.patch('/trainer/enrollments/:enrollmentId/mode', async (req, res) => {
 
     // Если тренер поставил режим free/self_paced БЕЗ явного startDay, но
     // раньше был daily — автоматически берём calendar_day этого enrollment
-    // (для bound_to_calendar от course.start_date, иначе от enrollment.joined_at).
+    // (при привязке к дате — от даты старта потока, иначе от joined_at).
     if (sd === null && mode !== undefined && (newEffective === 'free' || newEffective === 'self_paced')) {
-      const c2 = await queryOne(
-        `SELECT c.start_date, c.bound_to_calendar, ce.joined_at
-           FROM courses c JOIN course_enrollments ce ON ce.course_id = c.id
-          WHERE ce.id = $1`,
-        [req.params.enrollmentId]
-      );
-      let startISO = c2?.bound_to_calendar && c2.start_date ? c2.start_date : c2.joined_at;
+      const startISO = cal.bound && cal.startDate ? cal.startDate : cal.joinedAt;
       if (startISO) {
         const startDay = new Date(startISO);
         const today = new Date();
@@ -472,11 +490,11 @@ router.patch('/trainer/enrollments/:enrollmentId/mode', async (req, res) => {
       }
     } else if (sd !== null && newEffective === 'daily') {
       // Для daily надо, чтобы клиент вычислил currentDay = sd. Это работает
-      // через сдвиг «даты старта для этого ученика». Для bound-курса стартовая
-      // дата общая (courses.start_date), сдвинуть её нельзя — вернём warning.
-      if (course.bound_to_calendar) {
+      // через сдвиг «даты старта для этого ученика». При привязке к дате
+      // старт общий для потока, сдвинуть его индивидуально нельзя.
+      if (cal.bound) {
         return res.status(400).json({
-          error: 'Курс привязан к общей дате начала — сместить день индивидуально в daily-режиме нельзя. Уберите привязку или используйте прогрессивный режим.'
+          error: 'Поток привязан к общей дате начала — сместить день индивидуально в режиме «По дням» нельзя. Уберите привязку или используйте режим «По прохождению».'
         });
       }
       // enrollment.joined_at = today - (sd - 1) дней. Клиент вычислит день
@@ -821,7 +839,12 @@ router.patch('/courses/:id/meta', async (req, res) => {
     if (sets.length === 0) return res.json({ ok: true });
     sets.push(`updated_at=NOW()`);
     params.push(courseId);
+    const before = await queryOne('SELECT start_date, groups_enabled FROM courses WHERE id = $1', [courseId]);
     await query(`UPDATE courses SET ${sets.join(', ')} WHERE id=$${i}`, params);
+    // Курс без групп живёт по своей дате, а созвоны лежат в скрытой группе.
+    if (startDate !== undefined && !before?.groups_enabled) {
+      await shiftScheduledCalls(await getDefaultGroup(courseId), before?.start_date, startDate || null);
+    }
     res.json({ ok: true });
   } catch (err) { console.error(err); res.status(500).json({ error: err.message }); }
 });
@@ -1581,13 +1604,30 @@ router.patch('/groups/:id', async (req, res) => {
     if (sets.length === 0) return res.json({ ok: true });
     sets.push(`updated_at=NOW()`);
     params.push(req.params.id);
+    const before = await queryOne('SELECT start_date FROM course_groups WHERE id = $1', [req.params.id]);
     await query(`UPDATE course_groups SET ${sets.join(', ')} WHERE id=$${i}`, params);
+    if (startDate !== undefined) {
+      await shiftScheduledCalls(req.params.id, before?.start_date, startDate || null);
+    }
     res.json({ ok: true });
   } catch (err) {
     if (err.code === '23505') return res.status(409).json({ error: 'Группа с таким названием уже есть' });
     console.error('[Groups patch]', err); res.status(500).json({ error: err.message });
   }
 });
+
+// При смене даты старта потока сдвигаем его ещё не прошедшие созвоны на ту же
+// разницу в днях, сохраняя время. Иначе день N созвона и его дата расходятся.
+async function shiftScheduledCalls(groupId, oldStart, newStart) {
+  if (!groupId || !oldStart || !newStart || String(oldStart) === String(newStart)) return;
+  await query(
+    `UPDATE activity_calls
+        SET scheduled_at = scheduled_at + ($2::date - $3::date) * INTERVAL '1 day',
+            updated_at = NOW()
+      WHERE group_id = $1 AND status = 'scheduled'`,
+    [groupId, newStart, oldStart]
+  );
+}
 
 // POST /groups/:id/apply-defaults — сбросить все *_override у enrollments
 // группы (эффективно = все ученики берут значения группы).
@@ -1675,59 +1715,56 @@ router.patch('/trainer/enrollments/:id/group', async (req, res) => {
     const newGid = groupId;
     if (oldGid === newGid) return res.json({ ok: true, unchanged: true });
 
-    // v30-3: перевод ученика между группами.
-    //   preserveProgress=true  — прогресс/closures/exclusions переезжают в
-    //     новую группу. Если в новой уже есть запись с тем же ключом
-    //     (user, activity, day), она перезаписывается прогрессом из старой.
-    //   preserveProgress=false — прогресс/closures/exclusions в СТАРОЙ группе
-    //     удаляются. Записи в новой (если ученик там раньше был) остаются.
-    if (preserveProgress) {
-      // Убираем возможные коллизии в новой группе — иначе UPDATE упадёт по
-      // UNIQUE (user_id, group_id, activity_id, day). Затем UPDATE переносит
-      // записи старой группы в новую.
-      await query(
-        `DELETE FROM course_progress
-          WHERE user_id = $1 AND group_id = $2
-            AND (activity_id, day) IN (
-              SELECT activity_id, day FROM course_progress
-               WHERE user_id = $1 AND group_id = $3
-            )`,
-        [enrollment.user_id, newGid, oldGid]
-      );
-      await query(
-        'UPDATE course_progress SET group_id = $1 WHERE user_id = $2 AND group_id = $3',
-        [newGid, enrollment.user_id, oldGid]
-      );
-      await query(
-        `DELETE FROM course_day_closures
-          WHERE user_id = $1 AND group_id = $2
-            AND day IN (SELECT day FROM course_day_closures WHERE user_id = $1 AND group_id = $3)`,
-        [enrollment.user_id, newGid, oldGid]
-      );
-      await query(
-        'UPDATE course_day_closures SET group_id = $1 WHERE user_id = $2 AND group_id = $3',
-        [newGid, enrollment.user_id, oldGid]
-      );
-      await query(
-        `DELETE FROM student_activity_exclusions
-          WHERE user_id = $1 AND group_id = $2
-            AND (activity_id, day) IN (
-              SELECT activity_id, day FROM student_activity_exclusions
-               WHERE user_id = $1 AND group_id = $3
-            )`,
-        [enrollment.user_id, newGid, oldGid]
-      );
-      await query(
-        'UPDATE student_activity_exclusions SET group_id = $1 WHERE user_id = $2 AND group_id = $3',
-        [newGid, enrollment.user_id, oldGid]
-      );
-    } else {
-      await query('DELETE FROM course_progress WHERE user_id = $1 AND group_id = $2', [enrollment.user_id, oldGid]);
-      await query('DELETE FROM course_day_closures WHERE user_id = $1 AND group_id = $2', [enrollment.user_id, oldGid]);
-      await query('DELETE FROM student_activity_exclusions WHERE user_id = $1 AND group_id = $2', [enrollment.user_id, oldGid]);
-    }
-
-    await query('UPDATE course_enrollments SET group_id = $1 WHERE id = $2', [newGid, req.params.id]);
+    // Перевод ученика между группами, всё в одной транзакции.
+    //   preserveProgress=true  — прогресс/дни/исключения переезжают в новую
+    //     группу. Прогресс и исключения хранят UUID строки course_activities,
+    //     а у каждой группы свои строки, поэтому activity_id пересопоставляется
+    //     через общий slug (course_activities.activity_id). Записи практик,
+    //     которых в новой группе нет, и личные практики ученика переезжают
+    //     как есть. Коллизии в новой группе перезаписываются данными старой.
+    //   preserveProgress=false — данные старой группы удаляются.
+    const uid = enrollment.user_id;
+    await withTransaction(async (db) => {
+      if (preserveProgress) {
+        for (const table of ['course_progress', 'student_activity_exclusions']) {
+          // Сопоставление: для каждой записи старой группы — id практики в новой.
+          const remap = `
+            SELECT o.ctid AS row_ctid, COALESCE(nw.id::text, o.activity_id) AS new_activity_id, o.day
+              FROM ${table} o
+              LEFT JOIN course_activities od ON od.id::text = o.activity_id AND od.group_id = $2
+              LEFT JOIN course_activities nw ON nw.group_id = $3 AND nw.activity_id = od.activity_id
+             WHERE o.user_id = $1 AND o.group_id = $2`;
+          await db.query(
+            `DELETE FROM ${table} t
+              USING (${remap}) m
+              WHERE t.user_id = $1 AND t.group_id = $3
+                AND t.activity_id = m.new_activity_id AND t.day = m.day`,
+            [uid, oldGid, newGid]
+          );
+          await db.query(
+            `UPDATE ${table} o SET group_id = $3, activity_id = m.new_activity_id
+               FROM (${remap}) m
+              WHERE o.ctid = m.row_ctid`,
+            [uid, oldGid, newGid]
+          );
+        }
+        await db.query(
+          `DELETE FROM course_day_closures
+            WHERE user_id = $1 AND group_id = $3
+              AND day IN (SELECT day FROM course_day_closures WHERE user_id = $1 AND group_id = $2)`,
+          [uid, oldGid, newGid]
+        );
+        await db.query(
+          'UPDATE course_day_closures SET group_id = $3 WHERE user_id = $1 AND group_id = $2',
+          [uid, oldGid, newGid]
+        );
+      } else {
+        for (const table of ['course_progress', 'course_day_closures', 'student_activity_exclusions']) {
+          await db.query(`DELETE FROM ${table} WHERE user_id = $1 AND group_id = $2`, [uid, oldGid]);
+        }
+      }
+      await db.query('UPDATE course_enrollments SET group_id = $1 WHERE id = $2', [newGid, req.params.id]);
+    });
     res.json({ ok: true, preserved: !!preserveProgress });
   } catch (err) { console.error('[Enrollments move]', err); res.status(500).json({ error: err.message }); }
 });
@@ -1976,7 +2013,18 @@ router.get('/trainer/students/:courseId', async (req, res) => {
               c.access_days_after AS course_access_days_after,
               c.groups_enabled,
               (c.owner_id = u.id) AS is_owner,
-              (SELECT COUNT(*) FROM course_day_closures WHERE user_id=u.id AND course_id=c.id) AS closed_days
+              -- Настройки потока ученика с тем же приоритетом, что и в /items:
+              -- личный override → группа (если курс по группам) → курс.
+              COALESCE(ce.progression_mode_override,
+                       CASE WHEN c.groups_enabled THEN g.progression_mode END,
+                       c.progression_mode, 'daily') AS effective_mode,
+              COALESCE(ce.bound_to_calendar_override,
+                       CASE WHEN c.groups_enabled THEN g.bound_to_calendar END,
+                       c.bound_to_calendar, false) AS effective_bound,
+              COALESCE(ce.start_date_override,
+                       CASE WHEN c.groups_enabled THEN g.start_date END,
+                       c.start_date) AS effective_start_date,
+              (SELECT COUNT(*) FROM course_day_closures WHERE user_id=u.id AND group_id=ce.group_id) AS closed_days
        FROM course_enrollments ce
        JOIN users u ON u.id = ce.user_id
        JOIN courses c ON c.id = ce.course_id
@@ -2439,13 +2487,18 @@ router.post('/calls', async (req, res) => {
     } else {
       gid = await getDefaultGroup(courseId);
     }
-    // v30-3 правило: живой созвон = абсолютное время (scheduled_at), значит
-    // группа должна быть привязана к календарю — иначе day=N ученика в
-    // free/self_paced не сопоставляется с датой звонка.
-    const grp = await queryOne('SELECT bound_to_calendar FROM course_groups WHERE id = $1', [gid]);
-    if (!grp?.bound_to_calendar) {
+    // Созвон — абсолютное время, поэтому поток должен быть привязан к дате.
+    // Настройки потока: курс без групп — настройки курса (скрытая группа
+    // с ними не синхронизируется), курс по группам — настройки группы.
+    const stream = await queryOne(
+      `SELECT CASE WHEN c.groups_enabled THEN g.bound_to_calendar ELSE c.bound_to_calendar END AS bound
+         FROM course_groups g JOIN courses c ON c.id = g.course_id
+        WHERE g.id = $1`,
+      [gid]
+    );
+    if (!stream?.bound) {
       return res.status(400).json({
-        error: 'Звонки можно планировать только для групп, привязанных к дате. Включите привязку в настройках группы.',
+        error: 'Звонки можно планировать только при привязке к дате старта. Включите её в настройках курса или группы.',
       });
     }
 

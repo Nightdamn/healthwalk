@@ -141,6 +141,19 @@ export default function App() {
       // free / self_paced: currentDay = первый не-closed. Если все закрыты —
       // isFinished=true (Dashboard покажет CourseCompleteView).
       const daysCount = activeItem.daysCount || 30;
+      // С привязкой к дате поток стартует в общий день: до него — экран
+      // «до старта N дней», после — ученик идёт в своём темпе.
+      if (activeItem.boundToCalendar && activeItem.startDate) {
+        const startInfo = getCourseDayInfo(activeItem.startDate, daysCount, null, tzOffsetMin, dayStartHour);
+        if (startInfo.isUpcoming) {
+          setDayInfo({
+            day: 0, isUpcoming: true, isFinished: false, isAccessExpired: false,
+            daysUntilStart: startInfo.daysUntilStart, daysSinceFinish: 0,
+          });
+          setCurrentDay(1);
+          return;
+        }
+      }
       let day = 1;
       while (closureDays.has(day) && day <= daysCount) day++;
       const isFinished = closureDays.size >= daysCount;

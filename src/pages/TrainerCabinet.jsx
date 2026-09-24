@@ -47,6 +47,9 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
   // v29: группы курса + активная секция для перевода
   const [groups, setGroups] = useState([]);
   const [moveOpenId, setMoveOpenId] = useState(null); // enrollment_id где открыт групповой Dropdown
+  // Практики каждой группы: у групп свой контент, а прогресс ученика
+  // ключуется id практики его группы. { [groupId]: activities[] }
+  const [activitiesByGroup, setActivitiesByGroup] = useState({});
   // v30-3: незакомиченный выбор перевода группы (ждёт от тренера подтверждения
   // «сохранить прогресс?» либо «начать заново»). null = нет активного pending.
   const [pendingMove, setPendingMove] = useState(null); // { enrollmentId, newGroupId }
@@ -86,6 +89,10 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
         const gs = await getGroups(courseId);
         const list = Array.isArray(gs) ? gs : [];
         setGroups(list);
+        const perGroup = await Promise.all(
+          list.map(g => loadCourseForEdit(courseId, g.id).then(r => [g.id, r?.course_activities || []]))
+        );
+        setActivitiesByGroup(Object.fromEntries(perGroup));
         // Первая загрузка — сворачиваем все существующие группы. При
         // редактировании группы (updateGroup → loadData) состояние сохраняется.
         setGroupCollapsedIds(prev => prev === null ? new Set(list.map(g => g.id)) : prev);
@@ -239,12 +246,20 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
     setActionId(null);
   };
 
-  const activities = (course?.course_activities || []).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+  const bySort = (a, b) => (a.sort_order || 0) - (b.sort_order || 0);
+  const activities = [...(course?.course_activities || [])].sort(bySort);
   const daysCount = course?.days_count || 30;
+  // Практики группы ученика; для курса без групп — практики курса.
+  const activitiesFor = (student) => {
+    const list = course?.groups_enabled && student.group_id ? activitiesByGroup[student.group_id] : null;
+    return list ? [...list].sort(bySort) : activities;
+  };
 
+  // Режим, привязка и дата старта считаются сервером по потоку ученика
+  // (override → группа → курс).
   const effectiveStartDate = (student) => {
-    if (course?.bound_to_calendar && course.start_date) {
-      return String(course.start_date).slice(0, 10);
+    if (student.effective_bound && student.effective_start_date) {
+      return String(student.effective_start_date).slice(0, 10);
     }
     return (student.joined_at || '').slice(0, 10);
   };
@@ -254,7 +269,7 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
 
   const getStudentStats = (student) => {
     // v25: для progressive-режимов currentDay = closed_days + 1 (первый не-closed).
-    const effectiveMode = student.progression_mode_override || student.course_progression_mode || 'daily';
+    const effectiveMode = student.effective_mode || 'daily';
     const isProgressive = effectiveMode === 'free' || effectiveMode === 'self_paced';
     const startDate = effectiveStartDate(student);
     const dailyCurrentDay = startDate ? getCourseDay(startDate, null, 0, daysCount) : 1;
@@ -267,7 +282,7 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
     const customActs = allCustomActivities.filter(ca => ca.user_id === student.user_id);
     let completedDays = 0;
     for (let d = 1; d < studentCurrentDay; d++) {
-      const dayActs = [...activities, ...customActs]
+      const dayActs = [...activitiesFor(student), ...customActs]
         .filter(a => isActOnDayForStudent(a, d, student) && !excl[`${a.id}_${d}`]);
       if (dayActs.length === 0) continue;
       if (dayActs.every(a => prog[d]?.[a.id]?.completed)) completedDays++;
@@ -526,7 +541,7 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
                       userId={st.user_id}
                       courseId={courseId}
                       progress={allProgress[st.user_id] || {}}
-                      activities={activities}
+                      activities={activitiesFor(st)}
                       daysCount={daysCount}
                       studentCurrentDay={stats.studentCurrentDay}
                       studentStartDate={effectiveStartDate(st)}
@@ -659,7 +674,9 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
                             handleChangeMode(st.enrollment_id, newMode || null);
                           }}
                           options={[
-                            { value: '', label: `Как у курса (${courseMode(st.course_progression_mode)})` },
+                            { value: '', label: st.groups_enabled && st.group_id
+                                ? `Как у группы (${courseMode(st.group_progression_mode)})`
+                                : `Как у курса (${courseMode(st.course_progression_mode)})` },
                             { value: 'daily', label: 'По дням' },
                             { value: 'free', label: 'По прохождению' },
                             { value: 'self_paced', label: 'Свободно' },
