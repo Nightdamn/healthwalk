@@ -2,6 +2,7 @@ import { Router } from 'express';
 import jwt from 'jsonwebtoken';
 import rateLimit from 'express-rate-limit';
 import { query, queryOne, execute, withTransaction } from '../db.js';
+import { accessWindow, localDate, getStudentAccess } from '../access.js';
 import { requireAuth } from '../middleware.js';
 
 const router = Router();
@@ -140,7 +141,11 @@ router.get('/items', async (req, res) => {
       const useGroup = e.groups_enabled && e.group_id;
       const effBound = pick(e.bound_to_calendar_override, useGroup ? e.group_bound_to_calendar : null, e.bound_to_calendar);
       const effStart = pick(e.start_date_override, useGroup ? e.group_start_date : null, e.start_date);
-      const effAccess = pick(e.access_days_after_override, useGroup ? e.group_access_days_after : null, e.access_days_after);
+      // Окно доступа: пустое значение у группы/курса — бессрочно, без отката
+      // на уровень выше. Личная настройка ученика перекрывает, если задана.
+      const effAccess = e.access_days_after_override !== null && e.access_days_after_override !== undefined
+        ? e.access_days_after_override
+        : (useGroup ? e.group_access_days_after : e.access_days_after);
       const effMode = pick(e.progression_mode_override, useGroup ? e.group_progression_mode : null, e.progression_mode) || 'daily';
       // startDate для клиента (как раньше)
       const startDate = (effBound && effStart)
@@ -150,6 +155,13 @@ router.get('/items', async (req, res) => {
         'SELECT day, closure_type, closed_at FROM course_day_closures WHERE user_id = $1 AND group_id = $2 ORDER BY day',
         [req.userId, e.effective_group_id]
       );
+      const isStaff = e.owner_id === req.userId || e.role !== 'student';
+      const access = isStaff
+        ? { accessExpiresOn: null, accessExpired: false }
+        : accessWindow({
+            mode: effMode, startDate, daysCount: e.days_count || 30,
+            closedDates: closures.map(c => localDate(c.closed_at)), accessDays: effAccess,
+          });
       items.push({
         type: 'course', id: e.id, title: e.title, description: e.description || '',
         daysCount: e.days_count, avatarIcon: e.avatar_icon, avatarCustom: e.avatar_custom,
@@ -157,6 +169,8 @@ router.get('/items', async (req, res) => {
         startDate,
         boundToCalendar: !!effBound,
         accessDaysAfter: effAccess,
+        accessExpiresOn: access.accessExpiresOn,
+        accessExpired: access.accessExpired,
         enrollCount: parseInt(e.enroll_count),
         progressionMode: effMode,
         courseProgressionMode: e.progression_mode || 'daily',
@@ -174,10 +188,12 @@ router.get('/items', async (req, res) => {
           trainerId: e.group_trainer_id, curatorId: e.group_curator_id,
         } : null,
         closures: closures.map(c => ({ day: c.day, type: c.closure_type, closedAt: c.closed_at })),
+        // После закрытия доступа отдаём только каркас практик (для статистики),
+        // без описаний; медиа и записи созвонов закрыты на своих эндпоинтах.
         activities: acts.map(a => ({
           id: a.id, activityId: a.activity_id, label: a.label, durationMin: a.duration_min,
           iconNum: a.icon_num || 'health/1', practiceType: a.practice_type || 'media',
-          descriptionHtml: a.description_html || null, firstDay: a.first_day || 1,
+          descriptionHtml: access.accessExpired ? null : (a.description_html || null), firstDay: a.first_day || 1,
           lastDay: a.last_day || e.days_count, intervalDays: a.interval_days || 1,
           createdAt: a.created_at,
           excludedDays: a.excluded_days || [], extraDays: a.extra_days || [],
@@ -2024,6 +2040,10 @@ router.get('/trainer/students/:courseId', async (req, res) => {
               COALESCE(ce.start_date_override,
                        CASE WHEN c.groups_enabled THEN g.start_date END,
                        c.start_date) AS effective_start_date,
+              -- Окно доступа потока без личной настройки: пустое у группы —
+              -- бессрочно, к курсу не откатываемся.
+              CASE WHEN c.groups_enabled THEN g.access_days_after
+                   ELSE c.access_days_after END AS stream_access_days_after,
               (SELECT COUNT(*) FROM course_day_closures WHERE user_id=u.id AND group_id=ce.group_id) AS closed_days
        FROM course_enrollments ce
        JOIN users u ON u.id = ce.user_id
@@ -2270,6 +2290,7 @@ router.get('/media/:courseId', async (req, res) => {
     } else {
       gid = await getDefaultGroup(req.params.courseId);
     }
+    if ((await getStudentAccess(req.userId, req.params.courseId)).accessExpired) return res.json([]);
     const rows = await query('SELECT * FROM activity_media WHERE group_id = $1 ORDER BY sort_order', [gid]);
     res.json(rows);
   } catch (err) { res.json([]); }
@@ -2467,6 +2488,7 @@ router.get('/calls/:courseId', async (req, res) => {
     } else {
       gid = await getDefaultGroup(req.params.courseId);
     }
+    if ((await getStudentAccess(req.userId, req.params.courseId)).accessExpired) return res.json([]);
     const rows = await query(
       'SELECT * FROM activity_calls WHERE group_id = $1 ORDER BY scheduled_at',
       [gid]

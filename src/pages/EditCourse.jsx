@@ -1070,6 +1070,7 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
             <div style={{ fontSize: 12, color: '#888', marginBottom: 6 }}>
               Сколько дней после окончания курса ученик ещё видит материалы и практики.
               Пусто = бессрочно, 0 = только в день окончания.
+              {groupsEnabled && ' При режиме «По группам» действует значение группы, это поле — только для новых групп.'}
             </div>
             <input type="number" min={0} max={3650} placeholder="бессрочно"
               value={accessDaysAfter}

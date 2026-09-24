@@ -710,8 +710,7 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
                           </div>
                           <AccessOverrideInput
                             override={st.access_days_after_override}
-                            groupDefault={st.group_access_days_after}
-                            courseDefault={st.course_access_days_after}
+                            streamDefault={st.stream_access_days_after}
                             disabled={isBusy}
                             onApply={(v) => handleAccessOverride(st.enrollment_id, v)}
                           />
@@ -1399,8 +1398,9 @@ function StudentDayInput({ currentDay, maxDay, disabled, onApply }) {
 // v29: индивидуальный override окна доступа к материалам после окончания.
 // Пусто в input = вернуть override в null → наследовать группу/курс.
 // Placeholder показывает effective default (что применится если override пуст).
-function AccessOverrideInput({ override, groupDefault, courseDefault, disabled, onApply }) {
-  const effectiveDefault = groupDefault ?? courseDefault;
+// streamDefault — значение группы (курс по группам) или курса; пустое = бессрочно.
+function AccessOverrideInput({ override, streamDefault, disabled, onApply }) {
+  const effectiveDefault = streamDefault;
   const [draft, setDraft] = useState(override === null || override === undefined ? '' : String(override));
   useEffect(() => {
     setDraft(override === null || override === undefined ? '' : String(override));

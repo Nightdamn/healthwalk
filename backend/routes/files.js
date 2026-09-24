@@ -7,6 +7,7 @@ import { createWriteStream } from 'fs';
 import { randomUUID } from 'crypto';
 import { fileURLToPath } from 'url';
 import { queryOne } from '../db.js';
+import { getStudentAccess } from '../access.js';
 import { requireAuth, verifyToken } from '../middleware.js';
 import { normalizeVideoFile, probeDuration } from '../videoProcess.js';
 
@@ -174,6 +175,9 @@ router.get('/video/:courseId/:activityId/:filename', requireAuthOrQueryToken, as
         [courseId, req.userId]
       );
       if (!enroll) return res.status(403).json({ error: 'Нет доступа' });
+    }
+    if ((await getStudentAccess(req.userId, courseId)).accessExpired) {
+      return res.status(403).json({ error: 'Доступ к материалам курса закрыт' });
     }
 
     try {

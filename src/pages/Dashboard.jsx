@@ -280,6 +280,8 @@ export default function Dashboard({
 
             {/* ── Map/Stats buttons ── */}
             <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+              {/* Карта ведёт к материалам — после закрытия доступа её нет. */}
+              {!activeItem?.accessExpired && (
               <button onClick={() => { setViewingDay(null); setDashView(dashView === 'map' ? (courseFinished ? 'completed' : 'day') : 'map'); }}
                 style={{
                   flex: 1, padding: '12px 0', borderRadius: 14, fontSize: 13, fontWeight: 600,
@@ -289,6 +291,7 @@ export default function Dashboard({
                 }}>
                 Карта курса
               </button>
+              )}
               <button onClick={() => { setViewingDay(null); setDashView(dashView === 'stats' ? (courseFinished ? 'completed' : 'day') : 'stats'); }}
                 style={{
                   flex: 1, padding: '12px 0', borderRadius: 14, fontSize: 13, fontWeight: 600,
@@ -312,9 +315,9 @@ export default function Dashboard({
                 currentDay={currentDay}
                 courseName={activeItem?.title}
                 accessDaysAfter={activeItem?.accessDaysAfter ?? null}
-                progressionMode={progressionMode}
-                startDate={activeItem?.startDate || null}
-                closures={closures}
+                accessExpiresOn={activeItem?.accessExpiresOn || null}
+                accessExpired={!!activeItem?.accessExpired}
+                isStaff={activeItem?.enrollRole === 'trainer' || activeItem?.enrollRole === 'curator'}
               />
             ) : dashView === 'stats' ? (
               <CourseStatsView
@@ -648,7 +651,7 @@ export default function Dashboard({
 }
 
 /* ── Course completion view ── */
-function CourseCompleteView({ progress, allActivities, daysTotal, exclusions, isActivityOnDay, getElapsedForDay, elapsedTime, currentDay, courseName, accessDaysAfter, progressionMode, startDate, closures }) {
+function CourseCompleteView({ progress, allActivities, daysTotal, exclusions, isActivityOnDay, getElapsedForDay, elapsedTime, currentDay, courseName, accessDaysAfter, accessExpiresOn, accessExpired, isStaff }) {
   // Compute stats
   let completedDays = 0;
   let totalActiveDays = 0;
@@ -706,22 +709,10 @@ function CourseCompleteView({ progress, allActivities, daysTotal, exclusions, is
         </div>
       </div>
 
-      {/* Access window tile: сколько ещё дней ученик видит материалы.
-          Дата окончания курса = start_date + daysTotal - 1 для daily,
-          иначе — максимальная дата закрытия дня (когда фактически прошёл
-          последний день). accessDaysAfter=null → бессрочно. */}
-      {(() => {
-        const endDate = (() => {
-          if (progressionMode === 'daily' && startDate) {
-            const d = new Date(startDate);
-            d.setDate(d.getDate() + Math.max(0, daysTotal - 1));
-            return d;
-          }
-          const dates = (closures || []).map(c => c.closedAt ? new Date(c.closedAt) : null).filter(Boolean);
-          if (dates.length === 0) return null;
-          return new Date(Math.max(...dates.map(d => d.getTime())));
-        })();
-        if (!endDate) return null;
+      {/* Окно доступа к материалам. Последний день доступа (accessExpiresOn)
+          и факт закрытия считает сервер (backend/access.js) — той же логикой
+          он закрывает медиа и записи. accessDaysAfter=null → бессрочно. */}
+      {!isStaff && (() => {
         const accessTile = (title, subtitle, tone) => (
           <div style={{
             ...glass, borderRadius: 16, padding: '16px 18px', textAlign: 'center',
@@ -735,27 +726,24 @@ function CourseCompleteView({ progress, allActivities, daysTotal, exclusions, is
         if (accessDaysAfter == null) {
           return accessTile('Материалы курса доступны вам бессрочно', null, 'green');
         }
-        const expires = new Date(endDate);
-        expires.setDate(expires.getDate() + accessDaysAfter);
-        const today = new Date(); today.setHours(0, 0, 0, 0);
-        const expDay = new Date(expires); expDay.setHours(0, 0, 0, 0);
-        const daysLeft = Math.round((expDay.getTime() - today.getTime()) / (24 * 60 * 60 * 1000));
-        const dd = String(expDay.getDate()).padStart(2, '0');
-        const mm = String(expDay.getMonth() + 1).padStart(2, '0');
-        const yyyy = expDay.getFullYear();
-        const dateStr = `${dd}.${mm}.${yyyy}`;
+        if (!accessExpiresOn) return null;
+        const [y, m, d] = accessExpiresOn.split('-').map(Number);
+        const dateStr = `${String(d).padStart(2, '0')}.${String(m).padStart(2, '0')}.${y}`;
+        if (accessExpired) {
+          return accessTile('Доступ к материалам курса закрыт', `Материалы были доступны до ${dateStr} включительно`, 'muted');
+        }
+        const now = new Date();
+        const todayUTC = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+        const daysLeft = Math.round((Date.UTC(y, m - 1, d) - todayUTC) / 86400000) + 1;
         const plural = (n, one, few, many) => {
           const n10 = n % 10, n100 = n % 100;
           if (n10 === 1 && n100 !== 11) return one;
           if (n10 >= 2 && n10 <= 4 && (n100 < 12 || n100 > 14)) return few;
           return many;
         };
-        if (daysLeft <= 0) {
-          return accessTile('Окно доступа закрыто', `Материалы были доступны до ${dateStr}`, 'muted');
-        }
         return accessTile(
           `Материалы курса будут доступны вам ещё ${daysLeft} ${plural(daysLeft, 'день', 'дня', 'дней')}`,
-          `до ${dateStr}`,
+          `до ${dateStr} включительно`,
           'green'
         );
       })()}
