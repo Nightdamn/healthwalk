@@ -1720,24 +1720,23 @@ function GroupInlineEditor({ group, onPickIcon, onSave, onClose }) {
           options={MODE_OPTS} fullWidth />
       </div>
 
-      {mode === 'daily' && (
-        <>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, cursor: 'pointer', fontSize: 12, color: '#1a1a2e' }}>
-            <input type="checkbox" checked={boundCal}
-              onChange={e => { setBoundCal(e.target.checked); save({ boundToCalendar: e.target.checked }); }} />
-            Привязать к дате
-          </label>
-          {boundCal && (
-            <div style={{ marginBottom: 8 }}>
-              <label style={{ fontSize: 11, color: '#666', display: 'block' }}>Дата старта</label>
-              <input type="date" value={startDate}
-                onChange={e => setStartDate(e.target.value)}
-                onBlur={() => save({ startDate: startDate || null })}
-                style={{ width: 200, padding: '6px 8px', borderRadius: 8, fontSize: 13,
-                  border: '1px solid rgba(0,0,0,0.1)', background: '#fff' }} />
-            </div>
-          )}
-        </>
+      {/* Календарная привязка — во всех режимах. В free/self_paced дни
+          ученика идут от прогресса, но общая дата нужна для планирования
+          созвонов в этой группе. */}
+      <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, cursor: 'pointer', fontSize: 12, color: '#1a1a2e' }}>
+        <input type="checkbox" checked={boundCal}
+          onChange={e => { setBoundCal(e.target.checked); save({ boundToCalendar: e.target.checked }); }} />
+        Привязать к дате
+      </label>
+      {boundCal && (
+        <div style={{ marginBottom: 8 }}>
+          <label style={{ fontSize: 11, color: '#666', display: 'block' }}>Дата старта</label>
+          <input type="date" value={startDate}
+            onChange={e => setStartDate(e.target.value)}
+            onBlur={() => save({ startDate: startDate || null })}
+            style={{ width: 200, padding: '6px 8px', borderRadius: 8, fontSize: 13,
+              border: '1px solid rgba(0,0,0,0.1)', background: '#fff' }} />
+        </div>
       )}
 
       <div style={{ marginBottom: 8 }}>

@@ -1026,8 +1026,11 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
             </div>
           )}
 
-          {/* v22 calendar binding — только для daily */}
-          {progressionMode === 'daily' && (
+          {/* Календарная привязка — доступна для всех режимов.
+              В daily — определяет, с какой даты пойдут дни ученика.
+              В free/self_paced — дни считаются от прогресса, но старт нужен
+              для планирования созвонов на конкретные даты (кто не пришёл —
+              смотрит запись, когда доберётся до этого дня). */}
           <div style={{ marginTop: 14, padding: 12, borderRadius: 12, background: 'rgba(0,0,0,0.02)' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 14, fontWeight: 600, color: '#1a1a2e' }}>
               <input type="checkbox" checked={boundToCalendar}
@@ -1035,7 +1038,9 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
               Привязать начало к дате
             </label>
             <div style={{ fontSize: 12, color: '#888', marginTop: 4, marginLeft: 24 }}>
-              Курс будет виден ученикам в плане, но дни пойдут только с указанной даты.
+              {progressionMode === 'daily'
+                ? 'Курс будет виден ученикам в плане, но дни пойдут только с указанной даты.'
+                : 'Дни у ученика идут от его прогресса, но у курса есть общая дата старта — нужна, чтобы планировать созвоны.'}
             </div>
             {boundToCalendar && (
               <div style={{ marginTop: 10, marginLeft: 24 }}>
@@ -1046,7 +1051,6 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
               </div>
             )}
           </div>
-          )}
 
           {/* Окно доступа после окончания — работает во всех режимах.
               daily: считается от start_date + days_count.
@@ -1860,25 +1864,23 @@ function GroupCard({ group, onSave, onApplyDefaults, onDelete, collapsed = false
           options={MODE_OPTS} fullWidth />
       </div>
 
-      {/* Календарная привязка — только для daily (в free/self_paced дни считаются от closures) */}
-      {mode === 'daily' && (
-        <>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, cursor: 'pointer', fontSize: 12, color: '#1a1a2e' }}>
-            <input type="checkbox" checked={boundCal}
-              onChange={e => { setBoundCal(e.target.checked); saveField({ boundToCalendar: e.target.checked }); }} />
-            Привязать к дате
-          </label>
-          {boundCal && (
-            <div style={{ marginBottom: 8 }}>
-              <label style={{ fontSize: 11, color: '#666', display: 'block' }}>Дата старта</label>
-              <input type="date" value={startDate}
-                onChange={e => setStartDate(e.target.value)}
-                onBlur={() => saveField({ startDate: startDate || null })}
-                style={{ width: 200, padding: '6px 8px', borderRadius: 8, fontSize: 13,
-                  border: '1px solid rgba(0,0,0,0.1)', background: '#fff' }} />
-            </div>
-          )}
-        </>
+      {/* Календарная привязка — во всех режимах. В free/self_paced дни у
+          ученика считаются от closures, но общая дата старта нужна, чтобы
+          в этой группе можно было планировать созвоны. */}
+      <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, cursor: 'pointer', fontSize: 12, color: '#1a1a2e' }}>
+        <input type="checkbox" checked={boundCal}
+          onChange={e => { setBoundCal(e.target.checked); saveField({ boundToCalendar: e.target.checked }); }} />
+        Привязать к дате
+      </label>
+      {boundCal && (
+        <div style={{ marginBottom: 8 }}>
+          <label style={{ fontSize: 11, color: '#666', display: 'block' }}>Дата старта</label>
+          <input type="date" value={startDate}
+            onChange={e => setStartDate(e.target.value)}
+            onBlur={() => saveField({ startDate: startDate || null })}
+            style={{ width: 200, padding: '6px 8px', borderRadius: 8, fontSize: 13,
+              border: '1px solid rgba(0,0,0,0.1)', background: '#fff' }} />
+        </div>
       )}
 
       {/* Доступ к материалам после окончания — во всех режимах */}
