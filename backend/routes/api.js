@@ -2710,9 +2710,9 @@ router.get('/calls/:id/attendance', async (req, res) => {
        JOIN users u ON u.id = ce.user_id
        JOIN courses c ON c.id = ce.course_id
        LEFT JOIN call_attendance ca ON ca.call_id = $1 AND ca.user_id = u.id
-       WHERE ce.course_id = $2
+       WHERE ce.course_id = $2 AND ce.group_id = $3
        ORDER BY (c.owner_id = u.id) DESC, ce.role, u.display_name`,
-      [call.id, call.course_id]
+      [call.id, call.course_id, call.group_id]
     );
 
     res.json({
@@ -2736,11 +2736,13 @@ router.post('/calls/:id/attendance', async (req, res) => {
 
     const attendedIds = Array.isArray(req.body?.attendedUserIds) ? req.body.attendedUserIds : [];
 
-    // activity_calls.activity_id is the activity definition key (text);
-    // course_progress stores the course_activities.id (uuid). Translate once.
+    // activity_calls.activity_id — общий slug практики; course_progress хранит
+    // UUID строки course_activities. У каждой группы своя строка с тем же slug,
+    // поэтому ищем строго в группе звонка — иначе зачёт уходил на практику
+    // другой группы и у ученика не засчитывался.
     const courseActivity = await queryOne(
-      'SELECT id FROM course_activities WHERE course_id = $1 AND activity_id = $2',
-      [call.course_id, call.activity_id]
+      'SELECT id FROM course_activities WHERE group_id = $1 AND activity_id = $2',
+      [call.group_id, call.activity_id]
     );
     if (!courseActivity) return res.status(404).json({ error: 'Активность курса не найдена' });
 
@@ -2748,12 +2750,13 @@ router.post('/calls/:id/attendance', async (req, res) => {
     const allAttended = new Set(attendedIds);
     allAttended.add(req.userId);
 
+    // Только участники группы звонка (у курса без групп — все, они в одной группе).
     const enrollees = await query(
       `SELECT u.id AS user_id
        FROM course_enrollments ce
        JOIN users u ON u.id = ce.user_id
-       WHERE ce.course_id = $1`,
-      [call.course_id]
+       WHERE ce.course_id = $1 AND ce.group_id = $2`,
+      [call.course_id, call.group_id]
     );
 
     for (const row of enrollees) {
