@@ -2,9 +2,16 @@ import React, { useState } from 'react';
 
 // Custom dropdown styled like the role selector in TrainerCabinet:
 // rounded button with chevron, popup with overlay close, current item highlighted.
+// option.icon (необязательный) — src картинки-аватара слева от подписи,
+// и в выбранном значении, и в списке.
+const OptIcon = ({ src }) => src ? (
+  <img src={src} alt="" style={{ width: 20, height: 20, borderRadius: 5, objectFit: 'contain', flexShrink: 0, background: '#fafafa' }} />
+) : null;
+
 export default function Dropdown({ value, onChange, options, color = '#1a1a2e', disabled = false, fullWidth = false, fontSize = 13 }) {
   const [open, setOpen] = useState(false);
   const current = options.find(o => o.value === value) || options[0];
+  const hasIcons = options.some(o => o.icon);
 
   return (
     <div style={{ position: 'relative', display: fullWidth ? 'block' : 'inline-block' }}
@@ -25,8 +32,10 @@ export default function Dropdown({ value, onChange, options, color = '#1a1a2e', 
           opacity: disabled ? 0.5 : 1,
           textAlign: 'left',
           position: 'relative',
+          ...(hasIcons ? { display: 'flex', alignItems: 'center', gap: 8 } : {}),
         }}
       >
+        {hasIcons && <OptIcon src={current?.icon} />}
         {current?.label || ''}
         <span style={{
           position: 'absolute', right: 12, top: '50%', transform: `translateY(-50%) rotate(${open ? 180 : 0}deg)`,
@@ -65,6 +74,7 @@ export default function Dropdown({ value, onChange, options, color = '#1a1a2e', 
                   }}
                 >
                   {active && <span style={{ fontSize: 11 }}>✓</span>}
+                  <OptIcon src={opt.icon} />
                   {opt.label}
                 </button>
               );

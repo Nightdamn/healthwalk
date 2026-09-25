@@ -42,9 +42,19 @@ export async function getAvailableItems(userId) {
 // COURSE PROGRESS
 // ═══════════════════════════════════════════════════════════
 
-export async function loadCourseProgress(userId, courseId) {
+// groupId (необязательный) — группа из селектора мастера; без него сервер
+// берёт группу записи пользователя.
+const gq = (groupId) => (groupId ? `?groupId=${encodeURIComponent(groupId)}` : '');
+
+// Курс так, как его видит группа (селектор «Группа» у мастера).
+export async function getCourseItemAsGroup(courseId, groupId) {
+  try { return await apiGet(`/api/items/course/${courseId}${gq(groupId)}`); }
+  catch (err) { console.error('[DB] Course as group:', err); return null; }
+}
+
+export async function loadCourseProgress(userId, courseId, groupId) {
   try {
-    return await apiGet(`/api/progress/course/${courseId}`);
+    return await apiGet(`/api/progress/course/${courseId}${gq(groupId)}`);
   } catch (err) {
     console.error('[DB] Load course progress:', err);
     return {};
@@ -52,12 +62,12 @@ export async function loadCourseProgress(userId, courseId) {
 }
 
 // v25: progression modes.
-export async function closeCurrentDay(courseId) {
-  try { return await apiPost(`/api/courses/${courseId}/close-day`, {}); }
+export async function closeCurrentDay(courseId, groupId) {
+  try { return await apiPost(`/api/courses/${courseId}/close-day`, groupId ? { groupId } : {}); }
   catch (err) { return { error: err.message }; }
 }
-export async function reopenClosedDay(courseId, day) {
-  try { return await apiDelete(`/api/courses/${courseId}/closures/${day}`); }
+export async function reopenClosedDay(courseId, day, groupId) {
+  try { return await apiDelete(`/api/courses/${courseId}/closures/${day}${gq(groupId)}`); }
   catch (err) { return { error: err.message }; }
 }
 export async function setEnrollmentMode(enrollmentId, mode, startDay) {
@@ -68,9 +78,9 @@ export async function setEnrollmentMode(enrollmentId, mode, startDay) {
   catch (err) { return { error: err.message }; }
 }
 
-export async function saveCourseActivityProgress(userId, courseId, activityId, day, elapsed, completed) {
+export async function saveCourseActivityProgress(userId, courseId, activityId, day, elapsed, completed, groupId) {
   try {
-    await apiPost('/api/progress/course', { courseId, activityId, day, elapsed, completed });
+    await apiPost('/api/progress/course', { courseId, activityId, day, elapsed, completed, groupId: groupId || undefined });
   } catch (err) {
     console.error('[DB] Save course progress:', err);
   }
@@ -449,9 +459,9 @@ export async function getCourseCustomActivities(courseId) {
   }
 }
 
-export async function loadStudentExclusions(userId, courseId) {
+export async function loadStudentExclusions(userId, courseId, groupId) {
   try {
-    return await apiGet(`/api/exclusions/${courseId}`);
+    return await apiGet(`/api/exclusions/${courseId}${gq(groupId)}`);
   } catch {
     return {};
   }

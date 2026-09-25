@@ -5,6 +5,7 @@ import { MOTTOS, isActivityScheduled } from '../data/constants';
 import { getMediaForDay } from '../lib/db';
 import { getIconPath } from '../data/iconCatalog';
 import { glass } from '../styles/shared';
+import Dropdown from '../components/Dropdown';
 import { useMenu } from '../components/MenuContext';
 import { MenuButton } from '../components/TopBar';
 
@@ -91,6 +92,7 @@ export default function Dashboard({
   closures = [],
   onCloseDay,
   onReopenDay,
+  onSelectViewGroup,
 }) {
   const { openMenu } = useMenu();
   const [viewingDay, setViewingDay] = useState(null);
@@ -240,6 +242,27 @@ export default function Dashboard({
           </div>
         ) : (
           <>
+            {/* ── Группа (для мастера, курс по группам): курс так, как его
+                видит выбранная группа. Сервер присылает viewGroups только
+                тем, кому доступно больше одной группы. ── */}
+            {activeItem.type === 'course' && activeItem.viewGroups?.length > 1 && onSelectViewGroup && (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 11, color: '#888', fontWeight: 600, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                  Группа
+                </div>
+                <Dropdown
+                  value={activeItem.viewGroupId || activeItem.ownGroupId}
+                  onChange={onSelectViewGroup}
+                  fullWidth fontSize={14}
+                  options={activeItem.viewGroups.map(g => ({
+                    value: g.id,
+                    label: g.isDefault ? `${g.name} (шаблон)` : g.name,
+                    icon: g.avatarCustom || (g.avatarIcon ? getIconPath(g.avatarIcon) : null),
+                  }))}
+                />
+              </div>
+            )}
+
             {/* ── 1. Прогресс курса ── */}
             <div style={{ ...glass, borderRadius: 18, padding: '16px 0', marginBottom: 16 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 20px', marginBottom: 12 }}>

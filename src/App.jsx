@@ -27,7 +27,7 @@ import {
   loadUserSettings, saveUserSettings,
   checkAndApplyPendingRole, getUserRole, assignRole as dbAssignRole,
   getAvailableItems, saveActiveContext,
-  loadCourseProgress, saveCourseActivityProgress,
+  loadCourseProgress, saveCourseActivityProgress, getCourseItemAsGroup,
   loadTrackerProgress, saveTrackerActivityProgress,
   loadStudentExclusions, loadStudentCustomActivities,
   getUnreadCount,
@@ -250,20 +250,23 @@ export default function App() {
           } catch (_) {}
         }
         if (!active && items.length > 0) active = items[0];
+        // Мастер мог выбрать «смотреть как группа» — восстанавливаем.
+        if (active) active = await withViewGroup(active);
 
         if (active) {
           setActiveItem(active);
+          const gid = active.type === 'course' ? (active.viewGroupId || null) : null;
           const loadPromises = [
             active.type === 'course'
-              ? loadCourseProgress(user.id, active.id)
+              ? loadCourseProgress(user.id, active.id, gid)
               : loadTrackerProgress(user.id, active.id),
           ];
           if (active.type === 'course') {
             loadPromises.push(
-              loadStudentExclusions(user.id, active.id),
+              loadStudentExclusions(user.id, active.id, gid),
               loadStudentCustomActivities(user.id, active.id),
-              getActivityMedia(active.id),
-              getActivityCalls(active.id),
+              getActivityMedia(active.id, gid),
+              getActivityCalls(active.id, gid),
             );
           }
           const [raw, excl, custom, vids, calls] = await Promise.all(loadPromises);
@@ -297,31 +300,40 @@ export default function App() {
     })();
   }, [user?.id]);
 
-  // ─── Switch context ───
-  const handleSwitchContext = useCallback(async (item) => {
-    if (!user?.id || item.id === activeItem?.id) return;
-    setActiveItem(item);
-    // Write to localStorage synchronously BEFORE the network call so a
-    // reload mid-flight still picks up the latest choice.
+  // ─── Группа «смотреть как» (селектор мастера) ───
+  // Выбор хранится per курс; применяется, только если группа есть в
+  // viewGroups элемента (доступна пользователю).
+  const viewGroupKey = (courseId) => `hw.viewGroup.${user?.id}.${courseId}`;
+  const savedViewGroup = (item) => {
+    if (item?.type !== 'course' || !item.viewGroups?.length) return null;
     try {
-      localStorage.setItem(
-        `hw.activeCtx.${user.id}`,
-        JSON.stringify({ type: item.type, id: item.id }),
-      );
-    } catch (_) {}
-    await saveActiveContext(user.id, item.type, item.id);
+      const g = localStorage.getItem(viewGroupKey(item.id));
+      return g && g !== item.ownGroupId && item.viewGroups.some(v => v.id === g) ? g : null;
+    } catch (_) { return null; }
+  };
+  // Элемент курса в выбранной группе (или сам элемент, если группа своя).
+  const withViewGroup = async (item) => {
+    const g = savedViewGroup(item);
+    if (!g) return item;
+    return (await getCourseItemAsGroup(item.id, g)) || item;
+  };
 
+  // Загрузка прогресса, исключений, медиа и созвонов для элемента.
+  // Для курса — в группе item.viewGroupId (null = своя группа записи).
+  const loadItemContext = async (item) => {
+    const gid = item.type === 'course' ? (item.viewGroupId || null) : null;
+    setActiveItem(item);
     const loadPromises = [
       item.type === 'course'
-        ? loadCourseProgress(user.id, item.id)
+        ? loadCourseProgress(user.id, item.id, gid)
         : loadTrackerProgress(user.id, item.id),
     ];
     if (item.type === 'course') {
       loadPromises.push(
-        loadStudentExclusions(user.id, item.id),
+        loadStudentExclusions(user.id, item.id, gid),
         loadStudentCustomActivities(user.id, item.id),
-        getActivityMedia(item.id),
-        getActivityCalls(item.id),
+        getActivityMedia(item.id, gid),
+        getActivityCalls(item.id, gid),
       );
     }
     const [raw, excl, custom, vids, calls] = await Promise.all(loadPromises);
@@ -353,14 +365,40 @@ export default function App() {
     const el = {};
     allActs.forEach(a => { el[a.id] = raw[day]?.[a.id]?.elapsed || 0; });
     setElapsedTime(el);
-  }, [user?.id, activeItem?.id, currentDay]);
+  };
+
+  // ─── Switch context ───
+  const handleSwitchContext = useCallback(async (item) => {
+    if (!user?.id || item.id === activeItem?.id) return;
+    setActiveItem(item);
+    // Write to localStorage synchronously BEFORE the network call so a
+    // reload mid-flight still picks up the latest choice.
+    try {
+      localStorage.setItem(
+        `hw.activeCtx.${user.id}`,
+        JSON.stringify({ type: item.type, id: item.id }),
+      );
+    } catch (_) {}
+    await saveActiveContext(user.id, item.type, item.id);
+    await loadItemContext(await withViewGroup(item));
+  }, [user?.id, activeItem?.id, currentDay, courseStartDate, tzOffsetMin, dayStartHour]);
+
+  // Селектор «Группа» на экране курса (мастер): показать курс так, как его
+  // видит выбранная группа. Своя группа — обычный вид.
+  const handleSelectViewGroup = useCallback(async (groupId) => {
+    if (!user?.id || activeItem?.type !== 'course') return;
+    const target = groupId && groupId !== activeItem.ownGroupId ? groupId : null;
+    try { localStorage.setItem(viewGroupKey(activeItem.id), target || ''); } catch (_) {}
+    const item = await getCourseItemAsGroup(activeItem.id, target);
+    if (item) await loadItemContext(item);
+  }, [user?.id, activeItem, courseStartDate, tzOffsetMin, dayStartHour]);
 
   // ─── Save progress helper ───
   const saveProgress = useCallback((actId, elapsed, completed, dayOverride) => {
     if (!user?.id || !activeItem) return;
     const day = dayOverride ?? currentDay;
     if (activeItem.type === 'course') {
-      saveCourseActivityProgress(user.id, activeItem.id, actId, day, elapsed, completed);
+      saveCourseActivityProgress(user.id, activeItem.id, actId, day, elapsed, completed, activeItem.viewGroupId || null);
     } else {
       saveTrackerActivityProgress(user.id, activeItem.id, actId, day, elapsed, completed);
     }
@@ -550,6 +588,13 @@ export default function App() {
     if (!user?.id) return;
     const items = await getAvailableItems(user.id);
     setAvailableItems(items);
+    // Курс, открытый «как группа», обновляем тем же запросом — иначе он
+    // подменился бы видом своей группы из общего списка.
+    if (activeItem?.type === 'course' && activeItem.viewGroupId) {
+      const fresh = await getCourseItemAsGroup(activeItem.id, activeItem.viewGroupId);
+      if (fresh) setActiveItem(fresh);
+      return items;
+    }
     // Обновить activeItem из свежего списка (сохранить выбранный курс, обновить closures/mode)
     setActiveItem(prev => {
       if (!prev) return prev;
@@ -562,14 +607,14 @@ export default function App() {
   const handleCloseDay = useCallback(async () => {
     if (!activeItem || activeItem.type !== 'course') return { error: 'Not a course' };
     const { closeCurrentDay } = await import('./lib/db');
-    const res = await closeCurrentDay(activeItem.id);
+    const res = await closeCurrentDay(activeItem.id, activeItem.viewGroupId || null);
     if (!res?.error) await refreshItems();
     return res;
   }, [activeItem]);
   const handleReopenDay = useCallback(async (day) => {
     if (!activeItem || activeItem.type !== 'course') return { error: 'Not a course' };
     const { reopenClosedDay } = await import('./lib/db');
-    const res = await reopenClosedDay(activeItem.id, day);
+    const res = await reopenClosedDay(activeItem.id, day, activeItem.viewGroupId || null);
     if (!res?.error) await refreshItems();
     return res;
   }, [activeItem]);
@@ -641,18 +686,11 @@ export default function App() {
   const handleEditCourseBack = async () => {
     // Editor auto-saves while open, so on back we just need to refresh
     // course list + active context so the dashboard reflects the latest state.
-    await refreshItems();
+    const items = await refreshItems();
     if (editCourseId && activeItem?.type === 'course' && activeItem?.id === editCourseId) {
-      const [items, vids, calls] = await Promise.all([
-        getAvailableItems(user.id),
-        getActivityMedia(editCourseId),
-        getActivityCalls(editCourseId),
-      ]);
-      setAvailableItems(items);
-      setCourseMedia(vids || []);
-      setCourseCalls(calls || []);
-      const updated = items.find(i => i.type === 'course' && i.id === editCourseId);
-      if (updated) setActiveItem(updated);
+      // Перечитываем курс целиком (в выбранной группе, если она выбрана).
+      const updated = items?.find(i => i.type === 'course' && i.id === editCourseId);
+      if (updated) await loadItemContext(await withViewGroup(updated));
     }
     setScreen('my_courses');
   };
@@ -660,18 +698,10 @@ export default function App() {
   // Refresh data when the editor saves but stay on the editor — the user
   // explicitly clicks the back arrow when they're done.
   const handleCourseSaved = async () => {
-    await refreshItems();
+    const items = await refreshItems();
     if (activeItem?.type === 'course' && activeItem?.id === editCourseId) {
-      const [items, vids, calls] = await Promise.all([
-        getAvailableItems(user.id),
-        getActivityMedia(editCourseId),
-        getActivityCalls(editCourseId),
-      ]);
-      setAvailableItems(items);
-      setCourseMedia(vids || []);
-      setCourseCalls(calls || []);
-      const updated = items.find(i => i.type === 'course' && i.id === editCourseId);
-      if (updated) setActiveItem(updated);
+      const updated = items?.find(i => i.type === 'course' && i.id === editCourseId);
+      if (updated) await loadItemContext(await withViewGroup(updated));
     }
   };
 
@@ -772,7 +802,8 @@ export default function App() {
         progressionMode={progressionMode}
         closures={activeItem?.closures || []}
         onCloseDay={handleCloseDay}
-        onReopenDay={handleReopenDay} />
+        onReopenDay={handleReopenDay}
+        onSelectViewGroup={handleSelectViewGroup} />
     );
     }
   };

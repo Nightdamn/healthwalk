@@ -122,81 +122,84 @@ async function resolveViewGroup(userId, courseId, requestedGid) {
 // AVAILABLE ITEMS (courses + trackers)
 // ═══════════════════════════════════════════════════════════
 
-router.get('/items', async (req, res) => {
-  try {
-    // Enrolled courses. v29: подтягиваем поля группы (LEFT JOIN),
-    // потом effective значения берутся с приоритетом enrollment→group→course.
-    const enrolled = await query(`
-      SELECT ce.id AS enrollment_id, ce.role, ce.joined_at,
-             ce.progression_mode_override,
-             ce.bound_to_calendar_override, ce.start_date_override,
-             ce.access_days_after_override,
-             ce.day_start_hour_override, ce.tz_offset_min_override,
-             ce.group_id,
-             g.name AS group_name, g.avatar_icon AS group_avatar_icon, g.avatar_custom AS group_avatar_custom,
-             g.progression_mode AS group_progression_mode,
-             g.bound_to_calendar AS group_bound_to_calendar,
-             g.start_date AS group_start_date,
-             g.access_days_after AS group_access_days_after,
-             g.day_start_hour AS group_day_start_hour,
-             g.tz_offset_min AS group_tz_offset_min,
-             g.trainer_id AS group_trainer_id, g.curator_id AS group_curator_id,
-             c.id, c.title, c.description, c.days_count, c.avatar_icon, c.avatar_custom, c.owner_id, c.created_at,
-             c.bound_to_calendar, c.start_date, c.access_days_after, c.progression_mode,
-             c.groups_enabled,
-             -- v30: контент/прогресс читаются per-group. Если у enrollment
-             -- нет group_id (защита от старых записей) — падаем на is_default.
-             COALESCE(
-               ce.group_id,
-               (SELECT gd.id FROM course_groups gd
-                 WHERE gd.course_id = c.id AND gd.is_default LIMIT 1)
-             ) AS effective_group_id,
-             (SELECT count(*) FROM course_enrollments WHERE course_id = c.id) AS enroll_count
-      FROM course_enrollments ce
-      JOIN courses c ON c.id = ce.course_id
-      LEFT JOIN course_groups g ON g.id = ce.group_id
-      WHERE ce.user_id = $1
-    `, [req.userId]);
+// Строка записи ученика на курс со всеми полями для построения элемента.
+// $2 — группа «смотреть как» (null = своя группа записи). Для чужой группы
+// личные настройки ученика не применяются — это настройки его группы.
+const ENROLLED_COURSES_SQL = (oneCourse) => `
+  SELECT ce.id AS enrollment_id, ce.role, ce.joined_at,
+         ce.group_id AS own_group_id,
+         CASE WHEN $2::uuid IS NULL OR $2::uuid = ce.group_id THEN ce.progression_mode_override END AS progression_mode_override,
+         CASE WHEN $2::uuid IS NULL OR $2::uuid = ce.group_id THEN ce.bound_to_calendar_override END AS bound_to_calendar_override,
+         CASE WHEN $2::uuid IS NULL OR $2::uuid = ce.group_id THEN ce.start_date_override END AS start_date_override,
+         CASE WHEN $2::uuid IS NULL OR $2::uuid = ce.group_id THEN ce.access_days_after_override END AS access_days_after_override,
+         COALESCE($2::uuid, ce.group_id) AS group_id,
+         g.name AS group_name, g.avatar_icon AS group_avatar_icon, g.avatar_custom AS group_avatar_custom,
+         g.progression_mode AS group_progression_mode,
+         g.bound_to_calendar AS group_bound_to_calendar,
+         g.start_date AS group_start_date,
+         g.access_days_after AS group_access_days_after,
+         g.trainer_id AS group_trainer_id, g.curator_id AS group_curator_id,
+         c.id, c.title, c.description, c.days_count, c.avatar_icon, c.avatar_custom, c.owner_id, c.created_at,
+         c.bound_to_calendar, c.start_date, c.access_days_after, c.progression_mode,
+         c.groups_enabled,
+         -- Контент и прогресс per-group; без группы у записи — шаблон курса.
+         COALESCE($2::uuid, ce.group_id,
+                  (SELECT gd.id FROM course_groups gd WHERE gd.course_id = c.id AND gd.is_default LIMIT 1)
+         ) AS effective_group_id,
+         (SELECT count(*) FROM course_enrollments WHERE course_id = c.id) AS enroll_count
+  FROM course_enrollments ce
+  JOIN courses c ON c.id = ce.course_id
+  LEFT JOIN course_groups g ON g.id = COALESCE($2::uuid, ce.group_id)
+  WHERE ce.user_id = $1${oneCourse ? ' AND c.id = $3' : ''}`;
 
-    const courseIds = new Set(enrolled.map(e => e.id));
-    const items = [];
+const pick = (...vals) => {
+  for (const v of vals) if (v !== null && v !== undefined) return v;
+  return null;
+};
 
-    // v29: helper — effective значение с приоритетом enrollment→group→course
-    const pick = (...vals) => {
-      for (const v of vals) if (v !== null && v !== undefined) return v;
-      return null;
-    };
+// Группы, которые пользователь может выбрать в селекторе «Группа» на экране
+// курса. Только для курсов по группам и только если групп больше одной.
+async function viewGroupsFor(userId, courseId, groupsEnabled) {
+  if (!groupsEnabled) return [];
+  const { ids } = await allowedViewGroups(userId, courseId);
+  if (ids.length < 2) return [];
+  const rows = await query(
+    `SELECT id, name, is_default, avatar_icon, avatar_custom FROM course_groups
+      WHERE id = ANY($1::uuid[]) ORDER BY is_default DESC, name`,
+    [ids]
+  );
+  return rows.map(g => ({ id: g.id, name: g.name, isDefault: g.is_default, avatarIcon: g.avatar_icon, avatarCustom: g.avatar_custom }));
+}
 
-    for (const e of enrolled) {
-      // v30: практики и день-закрытия читаются per-group. effective_group_id
-      // резолвит либо enrollment.group_id, либо is_default группу курса.
-      const acts = await query('SELECT * FROM course_activities WHERE group_id = $1 ORDER BY sort_order', [e.effective_group_id]);
-      // v29 источники (только если groups_enabled=true у курса и есть группа):
-      const useGroup = e.groups_enabled && e.group_id;
-      const effBound = pick(e.bound_to_calendar_override, useGroup ? e.group_bound_to_calendar : null, e.bound_to_calendar);
-      const effStart = pick(e.start_date_override, useGroup ? e.group_start_date : null, e.start_date);
-      // Окно доступа: пустое значение у группы/курса — бессрочно, без отката
-      // на уровень выше. Личная настройка ученика перекрывает, если задана.
-      const effAccess = e.access_days_after_override !== null && e.access_days_after_override !== undefined
-        ? e.access_days_after_override
-        : (useGroup ? e.group_access_days_after : e.access_days_after);
-      const effMode = pick(e.progression_mode_override, useGroup ? e.group_progression_mode : null, e.progression_mode) || 'daily';
-      // startDate для клиента (как раньше)
-      const startDate = (effBound && effStart)
-        ? toISODate(effStart)
-        : toISODate(e.joined_at || e.created_at);
-      const closures = await query(
-        'SELECT day, closure_type, closed_at FROM course_day_closures WHERE user_id = $1 AND group_id = $2 ORDER BY day',
-        [req.userId, e.effective_group_id]
-      );
-      const isStaff = e.owner_id === req.userId || e.role !== 'student';
-      const access = isStaff
-        ? { accessExpiresOn: null, accessExpired: false }
-        : accessWindow({
-            mode: effMode, startDate, daysCount: e.days_count || 30,
-            closedDates: closures.map(c => localDate(c.closed_at)), accessDays: effAccess,
-          });
-      items.push({
+// Элемент курса для пользователя из строки ENROLLED_COURSES_SQL.
+async function buildCourseItem(e, userId) {
+  const acts = await query('SELECT * FROM course_activities WHERE group_id = $1 ORDER BY sort_order', [e.effective_group_id]);
+  // Настройки группы — только если курс по группам.
+  const useGroup = e.groups_enabled && e.group_id;
+  const effBound = pick(e.bound_to_calendar_override, useGroup ? e.group_bound_to_calendar : null, e.bound_to_calendar);
+  const effStart = pick(e.start_date_override, useGroup ? e.group_start_date : null, e.start_date);
+  // Окно доступа: пустое значение у группы/курса — бессрочно, без отката
+  // на уровень выше. Личная настройка ученика перекрывает, если задана.
+  const effAccess = e.access_days_after_override !== null && e.access_days_after_override !== undefined
+    ? e.access_days_after_override
+    : (useGroup ? e.group_access_days_after : e.access_days_after);
+  const effMode = pick(e.progression_mode_override, useGroup ? e.group_progression_mode : null, e.progression_mode) || 'daily';
+  const startDate = (effBound && effStart)
+    ? toISODate(effStart)
+    : toISODate(e.joined_at || e.created_at);
+  const closures = await query(
+    'SELECT day, closure_type, closed_at FROM course_day_closures WHERE user_id = $1 AND group_id = $2 ORDER BY day',
+    [userId, e.effective_group_id]
+  );
+  const isStaff = e.owner_id === userId || e.role !== 'student';
+  const access = isStaff
+    ? { accessExpiresOn: null, accessExpired: false }
+    : accessWindow({
+        mode: effMode, startDate, daysCount: e.days_count || 30,
+        closedDates: closures.map(c => localDate(c.closed_at)), accessDays: effAccess,
+      });
+  const viewGroups = isStaff ? await viewGroupsFor(userId, e.id, e.groups_enabled) : [];
+  return {
         type: 'course', id: e.id, title: e.title, description: e.description || '',
         daysCount: e.days_count, avatarIcon: e.avatar_icon, avatarCustom: e.avatar_custom,
         ownerId: e.owner_id, enrollRole: e.role, enrollmentId: e.enrollment_id,
@@ -212,6 +215,11 @@ router.get('/items', async (req, res) => {
         // v29: групповые поля
         groupsEnabled: !!e.groups_enabled,
         groupId: e.group_id || null,
+        // Селектор «Группа» для мастера: доступные группы, своя группа записи
+        // и какая сейчас открыта (viewGroupId=null — своя).
+        viewGroups,
+        ownGroupId: e.own_group_id || null,
+        viewGroupId: e.own_group_id && e.group_id !== e.own_group_id ? e.group_id : null,
         group: e.group_id ? {
           id: e.group_id, name: e.group_name,
           avatarIcon: e.group_avatar_icon, avatarCustom: e.group_avatar_custom,
@@ -232,8 +240,29 @@ router.get('/items', async (req, res) => {
           createdAt: a.created_at,
           excludedDays: a.excluded_days || [], extraDays: a.extra_days || [],
         })),
-      });
-    }
+  };
+}
+
+// Курс так, как его видит выбранная группа (селектор «Группа» у мастера).
+// Недоступная группа — своя. Прогресс и закрытые дни — самого пользователя
+// в этой группе.
+router.get('/items/course/:courseId', async (req, res) => {
+  try {
+    const { courseId } = req.params;
+    const own = await resolveEffectiveGroup(req.userId, courseId);
+    const gid = await resolveViewGroup(req.userId, courseId, req.query.groupId || null);
+    const e = await queryOne(ENROLLED_COURSES_SQL(true), [req.userId, gid === own ? null : gid, courseId]);
+    if (!e) return res.status(404).json({ error: 'Вы не записаны на этот курс' });
+    res.json(await buildCourseItem(e, req.userId));
+  } catch (err) { console.error(err); res.status(500).json({ error: err.message }); }
+});
+
+router.get('/items', async (req, res) => {
+  try {
+    const enrolled = await query(ENROLLED_COURSES_SQL(false), [req.userId, null]);
+    const courseIds = new Set(enrolled.map(e => e.id));
+    const items = [];
+    for (const e of enrolled) items.push(await buildCourseItem(e, req.userId));
 
     // Own courses not enrolled. v30: контент читаем из is_default группы курса.
     const own = await query(`
@@ -301,8 +330,8 @@ router.get('/items', async (req, res) => {
 
 router.get('/progress/course/:courseId', async (req, res) => {
   try {
-    // v30: progress per-group. Читаем только записи текущей группы ученика.
-    const gid = await resolveEffectiveGroup(req.userId, req.params.courseId);
+    // Прогресс per-group: своя группа или выбранная в селекторе (если доступна).
+    const gid = await resolveViewGroup(req.userId, req.params.courseId, req.query.groupId || null);
     const rows = await query(
       'SELECT activity_id, day, elapsed_seconds, completed FROM course_progress WHERE user_id = $1 AND course_id = $2 AND group_id = $3',
       [req.userId, req.params.courseId, gid]
@@ -318,8 +347,8 @@ router.get('/progress/course/:courseId', async (req, res) => {
 
 router.post('/progress/course', async (req, res) => {
   try {
-    const { courseId, activityId, day, elapsed, completed } = req.body;
-    const gid = await resolveEffectiveGroup(req.userId, courseId);
+    const { courseId, activityId, day, elapsed, completed, groupId } = req.body;
+    const gid = await resolveViewGroup(req.userId, courseId, groupId || null);
     await query(
       `INSERT INTO course_progress (user_id, course_id, activity_id, day, elapsed_seconds, completed, group_id, updated_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
@@ -330,7 +359,7 @@ router.post('/progress/course', async (req, res) => {
     // v25: auto-closure для free/self_paced когда день зачтён на 100%.
     // Проверяем только когда только что поставили completed=true (иначе смысла нет).
     if (completed) {
-      await maybeAutoCloseDay(req.userId, courseId, day);
+      await maybeAutoCloseDay(req.userId, courseId, day, gid);
     }
     res.json({ ok: true });
   } catch (err) { console.error(err); res.status(500).json({ error: err.message }); }
@@ -351,6 +380,19 @@ async function getEffectiveMode(userId, courseId) {
     [userId, courseId]
   );
   return row?.mode || 'daily';
+}
+
+// Режим в конкретной группе: своя — с личным override, чужая (селектор
+// мастера) — режим группы, у курса без групп — режим курса.
+async function getModeForGroup(userId, courseId, gid) {
+  const own = await resolveEffectiveGroup(userId, courseId);
+  if (!gid || gid === own) return getEffectiveMode(userId, courseId);
+  const r = await queryOne(
+    `SELECT CASE WHEN c.groups_enabled THEN g.progression_mode ELSE c.progression_mode END AS mode
+       FROM course_groups g JOIN courses c ON c.id = g.course_id WHERE g.id = $1`,
+    [gid]
+  );
+  return r?.mode || 'daily';
 }
 
 // Привязка к дате и дата старта потока ученика (тот же приоритет).
@@ -388,11 +430,10 @@ function daysWithActivities(activities, day) {
 }
 
 // Если mode ∈ {free, self_paced} и все активности этого дня done — INSERT closure.
-// v30: активности / прогресс / closure — per-group ученика.
-async function maybeAutoCloseDay(userId, courseId, day) {
-  const mode = await getEffectiveMode(userId, courseId);
+// Активности / прогресс / closure — в группе gid (своя или выбранная мастером).
+async function maybeAutoCloseDay(userId, courseId, day, gid) {
+  const mode = await getModeForGroup(userId, courseId, gid);
   if (mode === 'daily') return;
-  const gid = await resolveEffectiveGroup(userId, courseId);
   const existing = await queryOne(
     'SELECT day FROM course_day_closures WHERE user_id=$1 AND group_id=$2 AND day=$3',
     [userId, gid, day]
@@ -420,11 +461,11 @@ async function maybeAutoCloseDay(userId, courseId, day) {
 router.post('/courses/:id/close-day', async (req, res) => {
   try {
     const courseId = req.params.id;
-    const mode = await getEffectiveMode(req.userId, courseId);
+    const gid = await resolveViewGroup(req.userId, courseId, req.body?.groupId || null);
+    const mode = await getModeForGroup(req.userId, courseId, gid);
     if (mode !== 'self_paced') return res.status(400).json({ error: 'Только для режима «Свободно»' });
     const course = await queryOne('SELECT days_count FROM courses WHERE id=$1', [courseId]);
     if (!course) return res.status(404).json({ error: 'Курс не найден' });
-    const gid = await resolveEffectiveGroup(req.userId, courseId);
     const closures = await query(
       'SELECT day FROM course_day_closures WHERE user_id=$1 AND group_id=$2',
       [req.userId, gid]
@@ -455,9 +496,9 @@ router.delete('/courses/:id/closures/:day', async (req, res) => {
     const courseId = req.params.id;
     const day = parseInt(req.params.day);
     if (!Number.isFinite(day) || day < 1) return res.status(400).json({ error: 'Bad day' });
-    const mode = await getEffectiveMode(req.userId, courseId);
+    const gid = await resolveViewGroup(req.userId, courseId, req.query.groupId || null);
+    const mode = await getModeForGroup(req.userId, courseId, gid);
     if (mode !== 'self_paced') return res.status(400).json({ error: 'Только для режима «Свободно»' });
-    const gid = await resolveEffectiveGroup(req.userId, courseId);
     const existing = await queryOne(
       'SELECT day FROM course_day_closures WHERE user_id=$1 AND group_id=$2 AND day=$3',
       [req.userId, gid, day]
@@ -2301,9 +2342,10 @@ router.get('/trainer/custom-activities/:courseId', async (req, res) => {
 // Student's own exclusions and custom activities
 router.get('/exclusions/:courseId', async (req, res) => {
   try {
+    const gid = await resolveViewGroup(req.userId, req.params.courseId, req.query.groupId || null);
     const rows = await query(
-      'SELECT activity_id, day FROM student_activity_exclusions WHERE user_id = $1 AND course_id = $2',
-      [req.userId, req.params.courseId]
+      'SELECT activity_id, day FROM student_activity_exclusions WHERE user_id = $1 AND group_id = $2',
+      [req.userId, gid]
     );
     const result = {};
     for (const r of rows) result[`${r.activity_id}_${r.day}`] = true;
