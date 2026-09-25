@@ -5,6 +5,7 @@ import { glass } from '../styles/shared';
 import Dropdown from '../components/Dropdown';
 import { getOwnCourses, inviteToCourse } from '../lib/db';
 import { getGroups } from '../lib/api';
+import { getIconPath } from '../data/iconCatalog';
 
 export default function InvitePage({ user, onBack }) {
   const [courses, setCourses] = useState([]);
@@ -37,11 +38,15 @@ export default function InvitePage({ user, onBack }) {
     }).catch(() => setGroups([]));
   }, [selectedCourse, courses]);
 
+  // Курс по группам: ученика без группы не приглашаем — иначе он молча
+  // попадёт в шаблон.
+  const needGroup = groups.length > 0 && role === 'student';
+
   const handleInvite = async () => {
-    if (!email.trim()) { setStatus({ type: 'err', msg: 'Введите email' }); return; }
-    if (!selectedCourse) { setStatus({ type: 'err', msg: 'Выберите курс' }); return; }
+    const missing = [!selectedCourse && 'курс', !email.trim() && 'email', needGroup && !groupId && 'группа'].filter(Boolean);
+    if (missing.length) { setStatus({ type: 'err', msg: `Заполните: ${missing.join(', ')}` }); return; }
     setLoading(true); setStatus(null);
-    const result = await inviteToCourse(selectedCourse, email.trim(), role, user.id, groupId || null);
+    const result = await inviteToCourse(selectedCourse, email.trim(), role, user.id, needGroup ? groupId : null);
     setLoading(false);
     if (result.success) {
       setStatus({ type: 'ok', msg: `Приглашение отправлено на ${email}` });
@@ -64,8 +69,12 @@ export default function InvitePage({ user, onBack }) {
     { value: 'curator', label: 'Куратор' },
     { value: 'trainer', label: 'Тренер' },
   ];
-  const groupOptions = [{ value: '', label: '— без группы (по курс-настройкам) —' },
-    ...groups.map(g => ({ value: g.id, label: g.name + (g.members_count ? ` · ${g.members_count} чел.` : '') }))];
+  const groupOptions = [{ value: '', label: 'Выберите группу' },
+    ...groups.map(g => ({
+      value: g.id,
+      label: g.name + (g.members_count ? ` · ${g.members_count} чел.` : ''),
+      icon: g.avatar_custom || (g.avatar_icon ? getIconPath(g.avatar_icon) : null),
+    }))];
 
   return (
     <Layout>
@@ -96,9 +105,9 @@ export default function InvitePage({ user, onBack }) {
               </div>
 
               {/* v29: селектор группы — только если у курса groups_enabled */}
-              {groups.length > 0 && role === 'student' && (
+              {needGroup && (
                 <>
-                  <label style={{ fontSize: 13, fontWeight: 600, color: "#888", marginBottom: 6, display: "block" }}>Группа</label>
+                  <label style={{ fontSize: 13, fontWeight: 600, color: "#888", marginBottom: 6, display: "block" }}>Группа *</label>
                   <div style={{ marginBottom: 20 }}>
                     <Dropdown value={groupId} onChange={setGroupId} options={groupOptions} fullWidth />
                   </div>

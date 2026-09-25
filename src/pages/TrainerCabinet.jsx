@@ -65,6 +65,8 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
   const [showInvite, setShowInvite] = useState(false);
   const [invEmail, setInvEmail] = useState('');
   const [invRole, setInvRole] = useState('student');
+  // Группа приглашённого ученика (курс по группам). Без выбора не отправляем.
+  const [invGroupId, setInvGroupId] = useState('');
   const [invLoading, setInvLoading] = useState(false);
   const [invStatus, setInvStatus] = useState(null);
 
@@ -111,13 +113,25 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
 
   useEffect(() => { loadData(); }, [loadData]);
 
+  // Группы, в которые текущий пользователь может приглашать: создатель — во
+  // все, тренер/куратор — в свои (группа записи + где он назначен).
+  const inviteGroups = (() => {
+    if (!course?.groups_enabled) return [];
+    if (course.owner_id === user.id) return groups;
+    const myGroup = students.find(s => s.user_id === user.id)?.group_id;
+    return groups.filter(g => g.id === myGroup || g.trainer_id === user.id || g.curator_id === user.id);
+  })();
+  const needInviteGroup = inviteGroups.length > 0 && invRole === 'student';
+
   const handleInvite = async () => {
-    if (!invEmail.trim()) { setInvStatus({ ok: false, msg: 'Введите email' }); return; }
+    const missing = [!invEmail.trim() && 'email', needInviteGroup && !invGroupId && 'группа'].filter(Boolean);
+    if (missing.length) { setInvStatus({ ok: false, msg: `Заполните: ${missing.join(', ')}` }); return; }
     setInvLoading(true); setInvStatus(null);
-    const result = await inviteToCourse(courseId, invEmail.trim(), invRole, user.id);
+    const result = await inviteToCourse(courseId, invEmail.trim(), invRole, user.id, needInviteGroup ? invGroupId : null);
     setInvLoading(false);
     if (result.success) {
-      setInvStatus({ ok: true, msg: `Приглашение отправлено: ${invEmail}` });
+      const gName = needInviteGroup ? inviteGroups.find(g => g.id === invGroupId)?.name : null;
+      setInvStatus({ ok: true, msg: `Приглашение отправлено: ${invEmail}${gName ? ` — в группу «${gName}»` : ''}` });
       setInvEmail('');
     } else {
       setInvStatus({ ok: false, msg: result.error || 'Ошибка' });
@@ -371,6 +385,22 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
                 </button>
               ))}
             </div>
+            {needInviteGroup && (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 11, color: '#888', fontWeight: 600, marginBottom: 6, textTransform: 'uppercase' }}>
+                  Группа *
+                </div>
+                <Dropdown value={invGroupId} onChange={setInvGroupId} fullWidth fontSize={14}
+                  options={[
+                    { value: '', label: 'Выберите группу' },
+                    ...inviteGroups.map(g => ({
+                      value: g.id,
+                      label: g.name,
+                      icon: g.avatar_custom || (g.avatar_icon ? getIconPath(g.avatar_icon) : null),
+                    })),
+                  ]} />
+              </div>
+            )}
             <button onClick={handleInvite} disabled={invLoading} style={{
               width: '100%', padding: '12px', borderRadius: 10,
               border: 'none', background: '#1a1a2e', color: '#fff',

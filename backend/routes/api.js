@@ -1250,16 +1250,23 @@ router.post('/courses/:id/invite', async (req, res) => {
   try {
     const { email, role, groupId } = req.body;
     const courseId = req.params.id;
-    const e = email.toLowerCase().trim();
+    const e = String(email || '').toLowerCase().trim();
+    if (!await isTrainer(req.userId, courseId)) return res.status(403).json({ success: false, error: 'Нет прав' });
 
-    // v29: если передан groupId — валидируем что группа этого же курса.
+    // Группа. В курсе по группам ученика без группы не приглашаем — иначе он
+    // молча попадёт в шаблон. Тренер/куратор приглашает только в свои группы,
+    // создатель — в любую.
+    const course = await queryOne('SELECT groups_enabled FROM courses WHERE id = $1', [courseId]);
     let gid = null;
-    if (groupId) {
-      const g = await queryOne('SELECT course_id FROM course_groups WHERE id = $1', [groupId]);
-      if (!g || g.course_id !== courseId) {
-        return res.json({ success: false, error: 'Группа не из этого курса' });
+    if (course?.groups_enabled) {
+      if (!groupId && role === 'student') {
+        return res.json({ success: false, error: 'Выберите группу' });
       }
-      gid = groupId;
+      if (groupId) {
+        const { ids } = await allowedViewGroups(req.userId, courseId);
+        if (!ids.includes(groupId)) return res.json({ success: false, error: 'Нет доступа к этой группе' });
+        gid = groupId;
+      }
     }
 
     // Check if already enrolled
