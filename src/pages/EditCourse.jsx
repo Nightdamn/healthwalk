@@ -1038,7 +1038,10 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
               В daily — определяет, с какой даты пойдут дни ученика.
               В free/self_paced — дни считаются от прогресса, но старт нужен
               для планирования созвонов на конкретные даты (кто не пришёл —
-              смотрит запись, когда доберётся до этого дня). */}
+              смотрит запись, когда доберётся до этого дня).
+              При «По группам» блок скрыт: дата старта задаётся у каждой группы,
+              поле курса на учеников не влияет и путало тренеров. */}
+          {!groupsEnabled && (
           <div style={{ marginTop: 14, padding: 12, borderRadius: 12, background: 'rgba(0,0,0,0.02)' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 14, fontWeight: 600, color: '#1a1a2e' }}>
               <input type="checkbox" checked={boundToCalendar}
@@ -1059,6 +1062,7 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
               </div>
             )}
           </div>
+          )}
 
           {/* Окно доступа после окончания — работает во всех режимах.
               daily: считается от start_date + days_count.
@@ -1109,7 +1113,7 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
           });
           const opts = sortedGroups.map(g => ({
             value: g.id,
-            label: g.is_default ? `${g.name} (шаблон)` : g.name,
+            label: g.is_default && !/шаблон/i.test(g.name) ? `${g.name} (шаблон)` : g.name,
           }));
           const current = selectedGroupId && groups.some(g => g.id === selectedGroupId)
             ? selectedGroupId

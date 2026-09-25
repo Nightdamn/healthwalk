@@ -256,7 +256,7 @@ export default function Dashboard({
                   fullWidth fontSize={14}
                   options={activeItem.viewGroups.map(g => ({
                     value: g.id,
-                    label: g.isDefault ? `${g.name} (шаблон)` : g.name,
+                    label: g.isDefault && !/шаблон/i.test(g.name) ? `${g.name} (шаблон)` : g.name,
                     icon: g.avatarCustom || (g.avatarIcon ? getIconPath(g.avatarIcon) : null),
                   }))}
                 />
