@@ -158,8 +158,9 @@ export default function MyCoursesPage({ user, userRole, onBack, onNavigate, onEd
               </>
             )}
 
-            {/* ── Trainer/Admin: own courses ── */}
-            {isTrainerOrAdmin && (
+            {/* ── Созданные курсы: тренерам/админам, а также любому владельцу
+                курса — его курсы не должны пропадать из-за общей роли. ── */}
+            {(isTrainerOrAdmin || myCourses.length > 0) && (
               <>
                 <SectionTitle>Созданные курсы</SectionTitle>
                 {myCourses.length === 0 && ownCourses.length === 0 ? (
@@ -251,7 +252,7 @@ export default function MyCoursesPage({ user, userRole, onBack, onNavigate, onEd
             )}
 
             {/* ── Enrolled courses (where I'm a participant, not owner) ── */}
-            <SectionTitle>{isTrainerOrAdmin ? "Курсы, где я участник" : "Мои курсы"}</SectionTitle>
+            <SectionTitle>{isTrainerOrAdmin || myCourses.length > 0 ? "Курсы, где я участник" : "Мои курсы"}</SectionTitle>
             {enrolledCourses.length === 0 ? (
               <div style={{ ...glass, borderRadius: 16, padding: "24px 20px", textAlign: "center" }}>
                 <div style={{ fontSize: 14, color: "#aaa" }}>Вы пока не записаны ни на один курс</div>

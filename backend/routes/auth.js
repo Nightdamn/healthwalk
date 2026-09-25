@@ -381,11 +381,14 @@ async function applyPending(userId, email) {
     await queryOne('INSERT INTO user_roles (user_id, role, assigned_by) VALUES ($1,$2,$3) ON CONFLICT (user_id) DO UPDATE SET role=$2', [userId, pendingRole.role, pendingRole.assigned_by]);
     await query('DELETE FROM pending_roles WHERE email = $1', [email]);
   }
-  const invitations = await query('SELECT id, course_id, role, invited_by FROM pending_invitations WHERE email = $1', [email]);
+  const invitations = await query('SELECT id, course_id, role, invited_by, group_id FROM pending_invitations WHERE email = $1', [email]);
   for (const inv of invitations) {
+    // Группа обязательна: из приглашения, иначе скрытая группа-шаблон курса.
     await queryOne(
-      'INSERT INTO course_enrollments (course_id, user_id, role, invited_by) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING',
-      [inv.course_id, userId, inv.role, inv.invited_by]
+      `INSERT INTO course_enrollments (course_id, user_id, role, invited_by, group_id)
+       VALUES ($1,$2,$3,$4, COALESCE($5::uuid, (SELECT id FROM course_groups WHERE course_id = $1 AND is_default LIMIT 1)))
+       ON CONFLICT DO NOTHING`,
+      [inv.course_id, userId, inv.role, inv.invited_by, inv.group_id || null]
     );
   }
   if (invitations.length) await query('DELETE FROM pending_invitations WHERE email = $1', [email]);

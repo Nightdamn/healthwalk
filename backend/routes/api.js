@@ -1144,8 +1144,9 @@ router.post('/store/:id/enroll', async (req, res) => {
     }
     // TODO(v29): для price > 0 создать payment intent, enroll — по webhook.
     await query(
-      `INSERT INTO course_enrollments (course_id, user_id, role, invited_by)
-       VALUES ($1, $2, 'student', $3)
+      `INSERT INTO course_enrollments (course_id, user_id, role, invited_by, group_id)
+       VALUES ($1, $2, 'student', $3,
+               (SELECT id FROM course_groups WHERE course_id = $1 AND is_default LIMIT 1))
        ON CONFLICT (course_id, user_id) DO NOTHING`,
       [req.params.id, req.userId, course.owner_id]
     );
@@ -1187,8 +1188,10 @@ router.post('/courses/:id/invite', async (req, res) => {
     // Check if user exists → auto-enroll
     const user = await queryOne('SELECT id FROM users WHERE email = $1', [e]);
     if (user) {
+      // Группа не указана (курс без групп) — скрытая группа-шаблон курса.
       await query(
-        'INSERT INTO course_enrollments (course_id, user_id, role, invited_by, group_id) VALUES ($1,$2,$3,$4,$5)',
+        `INSERT INTO course_enrollments (course_id, user_id, role, invited_by, group_id)
+         VALUES ($1,$2,$3,$4, COALESCE($5::uuid, (SELECT id FROM course_groups WHERE course_id = $1 AND is_default LIMIT 1)))`,
         [courseId, user.id, role, req.userId, gid]
       );
       return res.json({ success: true });
@@ -1227,7 +1230,9 @@ router.post('/invitations/:id/accept', async (req, res) => {
     if (!user || inv.email !== user.email) return res.json({ success: false, error: 'Нет прав' });
 
     await query(
-      'INSERT INTO course_enrollments (course_id, user_id, role, invited_by, group_id) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (course_id, user_id) DO NOTHING',
+      `INSERT INTO course_enrollments (course_id, user_id, role, invited_by, group_id)
+       VALUES ($1,$2,$3,$4, COALESCE($5::uuid, (SELECT id FROM course_groups WHERE course_id = $1 AND is_default LIMIT 1)))
+       ON CONFLICT (course_id, user_id) DO NOTHING`,
       [inv.course_id, req.userId, inv.role, inv.invited_by, inv.group_id || null]
     );
     await query('DELETE FROM pending_invitations WHERE id = $1', [req.params.id]);
