@@ -84,6 +84,40 @@ async function getDefaultGroup(courseId) {
   return row?.id || null;
 }
 
+// Какие группы курса пользователь может открыть «как группа».
+// Владелец — все и с полными правами. Тренер/куратор курса — только свои:
+// группа его записи и группы, где он назначен тренером или куратором.
+// Ученик — только своя (её вернёт resolveEffectiveGroup).
+async function allowedViewGroups(userId, courseId) {
+  const c = await queryOne('SELECT owner_id FROM courses WHERE id = $1', [courseId]);
+  if (!c) return { isOwner: false, ids: [] };
+  if (c.owner_id === userId) {
+    const rows = await query('SELECT id FROM course_groups WHERE course_id = $1', [courseId]);
+    return { isOwner: true, ids: rows.map(r => r.id) };
+  }
+  const rows = await query(
+    `SELECT g.id FROM course_groups g
+      WHERE g.course_id = $2
+        AND (g.trainer_id = $1 OR g.curator_id = $1
+             OR g.id = (SELECT ce.group_id FROM course_enrollments ce
+                         WHERE ce.course_id = $2 AND ce.user_id = $1
+                           AND ce.role IN ('trainer','curator')))`,
+    [userId, courseId]
+  );
+  return { isOwner: false, ids: rows.map(r => r.id) };
+}
+
+// Группа для чтения/записи от имени пользователя. Без запроса или при
+// недоступной группе — его собственная (группа записи; у владельца без
+// записи — шаблон). Раньше без groupId сервер отдавал шаблон, и ученик
+// не-шаблонной группы получал чужие медиа и созвоны.
+async function resolveViewGroup(userId, courseId, requestedGid) {
+  const own = await resolveEffectiveGroup(userId, courseId);
+  if (!requestedGid || requestedGid === own) return own;
+  const { ids } = await allowedViewGroups(userId, courseId);
+  return ids.includes(requestedGid) ? requestedGid : own;
+}
+
 // ═══════════════════════════════════════════════════════════
 // AVAILABLE ITEMS (courses + trackers)
 // ═══════════════════════════════════════════════════════════
@@ -2300,14 +2334,15 @@ router.get('/custom-activities/:courseId', async (req, res) => {
 
 router.get('/media/:courseId', async (req, res) => {
   try {
-    // v30: медиа per-group. Клиент может передать ?groupId=; иначе — is_default.
-    let gid = req.query.groupId || null;
-    if (gid) {
-      const belongs = await queryOne('SELECT 1 FROM course_groups WHERE id = $1 AND course_id = $2', [gid, req.params.courseId]);
-      if (!belongs) return res.status(400).json({ error: 'Группа не из этого курса' });
-    } else {
-      gid = await getDefaultGroup(req.params.courseId);
+    // Только владелец или участник курса.
+    const course = await queryOne('SELECT owner_id FROM courses WHERE id = $1', [req.params.courseId]);
+    if (!course) return res.json([]);
+    if (course.owner_id !== req.userId) {
+      const enroll = await queryOne('SELECT 1 FROM course_enrollments WHERE course_id = $1 AND user_id = $2', [req.params.courseId, req.userId]);
+      if (!enroll) return res.json([]);
     }
+    // Медиа группы пользователя; ?groupId= — если эта группа ему доступна.
+    const gid = await resolveViewGroup(req.userId, req.params.courseId, req.query.groupId || null);
     if ((await getStudentAccess(req.userId, req.params.courseId)).accessExpired) return res.json([]);
     const rows = await query('SELECT * FROM activity_media WHERE group_id = $1 ORDER BY sort_order', [gid]);
     res.json(rows);
@@ -2498,14 +2533,8 @@ router.get('/calls/:courseId', async (req, res) => {
       const enroll = await queryOne('SELECT id FROM course_enrollments WHERE course_id = $1 AND user_id = $2', [req.params.courseId, req.userId]);
       if (!enroll) return res.json([]);
     }
-    // v30: звонки per-group. Клиент может передать ?groupId=; иначе — is_default.
-    let gid = req.query.groupId || null;
-    if (gid) {
-      const belongs = await queryOne('SELECT 1 FROM course_groups WHERE id = $1 AND course_id = $2', [gid, req.params.courseId]);
-      if (!belongs) return res.status(400).json({ error: 'Группа не из этого курса' });
-    } else {
-      gid = await getDefaultGroup(req.params.courseId);
-    }
+    // Созвоны группы пользователя; ?groupId= — если эта группа ему доступна.
+    const gid = await resolveViewGroup(req.userId, req.params.courseId, req.query.groupId || null);
     if ((await getStudentAccess(req.userId, req.params.courseId)).accessExpired) return res.json([]);
     const rows = await query(
       'SELECT * FROM activity_calls WHERE group_id = $1 ORDER BY scheduled_at',
