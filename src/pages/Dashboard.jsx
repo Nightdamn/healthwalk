@@ -111,6 +111,26 @@ export default function Dashboard({
   const isSelfPaced = progressionMode === 'self_paced';
   const closureSet = React.useMemo(() => new Set((closures || []).map(c => c.day)), [closures]);
 
+  // Дата дня. «По дням» — от сегодняшнего дня курса. В режимах по прохождению
+  // дни не привязаны к календарю: пройденный день — дата его закрытия (с учётом
+  // часа начала дня), текущий — сегодня, будущие — без даты.
+  const closedDateByDay = React.useMemo(() => {
+    const m = {};
+    for (const c of closures || []) {
+      if (!c.closedAt) continue;
+      const d = new Date(c.closedAt);
+      if (d.getHours() < dayStartHour) d.setDate(d.getDate() - 1);
+      m[c.day] = d;
+    }
+    return m;
+  }, [closures, dayStartHour]);
+  const dateForDay = (day) => {
+    if (!isProgressive) return getDateForDay(day, currentDay, dayStartHour);
+    if (closedDateByDay[day]) return closedDateByDay[day];
+    if (!isUpcoming && day === currentDay) return getCurrentDayDate(dayStartHour);
+    return null;
+  };
+
   // Dynamic activities from active course/tracker + custom student activities
   const allActivities = [...(activeItem?.activities || []), ...customActivities];
   const daysTotal = activeItem?.daysCount || 30;
@@ -181,7 +201,7 @@ export default function Dashboard({
     return sec / totalSec;
   };
 
-  const dayDate = getDateForDay(activeDay, currentDay, dayStartHour);
+  const dayDate = dateForDay(activeDay);
   const motto = MOTTOS[(activeDay - 1) % MOTTOS.length] || MOTTOS[0];
 
   const activeAvatarSrc = activeItem?.avatarCustom || (activeItem?.avatarIcon ? getIconPath(activeItem.avatarIcon) : null);
@@ -335,7 +355,7 @@ export default function Dashboard({
                 daysTotal={daysTotal}
                 isActivityOnDay={isActivityOnDay}
                 currentDay={currentDay}
-                dayStartHour={dayStartHour}
+                dateForDay={dateForDay}
                 getElapsedForDay={getElapsedForDay}
                 elapsedTime={elapsedTime}
                 onStartTimer={onStartTimer}
@@ -365,7 +385,7 @@ export default function Dashboard({
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
                       <div>
                         <div style={{ fontSize: 22, fontWeight: 800, color: '#1a1a2e' }}>День {activeDay}</div>
-                        <div style={{ fontSize: 13, color: '#999', fontWeight: 500, marginTop: 2 }}>{formatDayDate(dayDate)}</div>
+                        {dayDate && <div style={{ fontSize: 13, color: '#999', fontWeight: 500, marginTop: 2 }}>{formatDayDate(dayDate)}</div>}
                       </div>
                       <div style={{ fontSize: 13, color: '#888', fontWeight: 500, paddingTop: 4 }}>{completedCount} из {dayActivities.length}</div>
                     </div>
@@ -835,7 +855,7 @@ function CourseCompleteView({ progress, allActivities, daysTotal, exclusions, is
 }
 
 /* ── Course Map View ── */
-function CourseMapView({ progress, allActivities, daysTotal, isActivityOnDay, currentDay, dayStartHour, getElapsedForDay, elapsedTime, onStartTimer, enrollRole, userRole, onBackToDay, isUpcoming = false, courseMedia = [] }) {
+function CourseMapView({ progress, allActivities, daysTotal, isActivityOnDay, currentDay, dateForDay, getElapsedForDay, elapsedTime, onStartTimer, enrollRole, userRole, onBackToDay, isUpcoming = false, courseMedia = [] }) {
   const [expandedDay, setExpandedDay] = useState(null);
 
   return (
@@ -864,7 +884,7 @@ function CourseMapView({ progress, allActivities, daysTotal, isActivityOnDay, cu
         // Все дни «открыты»: можно развернуть, посмотреть теорию, открыть
         // карточку практики. Кнопка «Начать» рисуется только в isToday.
         const locked = false;
-        const dayDate = getDateForDay(day, currentDay, dayStartHour);
+        const dayDate = dateForDay(day);
         const dayEl = isToday ? elapsedTime : getElapsedForDay(day);
 
         return (
@@ -881,7 +901,7 @@ function CourseMapView({ progress, allActivities, daysTotal, isActivityOnDay, cu
                   <span style={{ fontSize: 15, fontWeight: 700, color: '#1a1a2e' }}>День {day}</span>
                   {isToday && <span style={{ fontSize: 10, fontWeight: 600, color: GREEN, background: 'rgba(39,174,96,0.1)', padding: '2px 8px', borderRadius: 6 }}>Сегодня</span>}
                 </div>
-                <div style={{ fontSize: 12, color: '#999', marginTop: 2 }}>{dayDate.getDate()} {MONTHS_G[dayDate.getMonth()]}</div>
+                {dayDate && <div style={{ fontSize: 12, color: '#999', marginTop: 2 }}>{dayDate.getDate()} {MONTHS_G[dayDate.getMonth()]}</div>}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 {locked ? (

@@ -21,7 +21,7 @@ import CourseStorePage from './pages/CourseStore';
 import Layout from './components/Layout';
 import { MenuProvider } from './components/MenuContext';
 import MenuDrawer from './components/MenuDrawer';
-import { DAY_START_HOUR, getCourseDay, getCourseDayInfo, isCourseFinished } from './data/constants';
+import { DAY_START_HOUR, getCourseDayInfo, isCourseFinished } from './data/constants';
 import { isAuthenticated, getMe, signOut as authSignOut, checkOAuthCallback, setToken } from './lib/api';
 import {
   loadUserSettings, saveUserSettings,
@@ -34,6 +34,41 @@ import {
   getActivityMedia, getMediaForDay, getMediaSignedUrl, updateMediaDuration,
   getActivityCalls, getCallToken,
 } from './lib/db';
+
+// День и статус курса/трекера. Единая логика для загрузки, переключения
+// контекста и периодического пересчёта — раньше при загрузке день всегда
+// считался как «По дням», и в режимах по прохождению экран до 30 секунд
+// показывал чужой день.
+//   daily      — день от даты старта (привязка к дате или дата записи);
+//   free / self_paced — первый не закрытый день; с привязкой к дате до старта
+//                       поток «ещё не начался».
+function computeDayState(item, { courseStartDate, tzOffsetMin, dayStartHour }) {
+  if (!item) return null;
+  const daysCount = item.daysCount || 30;
+  if ((item.progressionMode || 'daily') === 'daily') {
+    const startDate = item.startDate || courseStartDate;
+    if (!startDate) return null;
+    const info = getCourseDayInfo(startDate, daysCount, item.accessDaysAfter, tzOffsetMin, dayStartHour);
+    return { info, day: info.day };
+  }
+  if (item.boundToCalendar && item.startDate) {
+    const s = getCourseDayInfo(item.startDate, daysCount, null, tzOffsetMin, dayStartHour);
+    if (s.isUpcoming) {
+      return {
+        info: { day: 0, isUpcoming: true, isFinished: false, isAccessExpired: false, daysUntilStart: s.daysUntilStart, daysSinceFinish: 0 },
+        day: 1,
+      };
+    }
+  }
+  const closed = new Set((item.closures || []).map(c => c.day));
+  let day = 1;
+  while (closed.has(day) && day <= daysCount) day++;
+  const isFinished = closed.size >= daysCount;
+  return {
+    info: { day: isFinished ? daysCount : day, isUpcoming: false, isFinished, isAccessExpired: false, daysUntilStart: 0, daysSinceFinish: 0 },
+    day: Math.min(day, daysCount),
+  };
+}
 
 function extractUser(userData) {
   if (!userData) return null;
@@ -112,59 +147,25 @@ export default function App() {
     return { progress: p, elapsed: el };
   }, [activeItem?.daysCount]);
 
-  // ─── Recalculate current day ───
-  // v25: три режима.
-  //   daily      — как раньше, currentDay = getCourseDay(startDate).
-  //   free / self_paced — currentDay = min day не в closures[]; courseFinished
-  //                       = closures.length === daysCount. Дата старта / access
-  //                       игнорируются (курс не привязан к календарю).
+  // ─── Recalculate current day ─── (логика — computeDayState выше)
   const progressionMode = activeItem?.progressionMode || 'daily';
   const closureDays = React.useMemo(
     () => new Set((activeItem?.closures || []).map(c => c.day)),
     [activeItem?.closures]
   );
   const recalcDay = useCallback(() => {
-    if (!activeItem) return;
+    const st = computeDayState(activeItem, { courseStartDate, tzOffsetMin, dayStartHour });
+    if (!st) return;
+    setDayInfo(st.info);
     if (progressionMode === 'daily') {
-      const startDate = activeItem.startDate || courseStartDate;
-      if (!startDate) return;
-      const info = getCourseDayInfo(startDate, activeItem.daysCount,
-                                    activeItem.accessDaysAfter,
-                                    tzOffsetMin, dayStartHour);
-      setDayInfo(info);
-      const day = info.day;
       setCurrentDay(prev => {
-        if (prev !== day && user?.id) saveUserSettings(user.id, { current_day: day });
-        return day;
+        if (prev !== st.day && user?.id) saveUserSettings(user.id, { current_day: st.day });
+        return st.day;
       });
     } else {
-      // free / self_paced: currentDay = первый не-closed. Если все закрыты —
-      // isFinished=true (Dashboard покажет CourseCompleteView).
-      const daysCount = activeItem.daysCount || 30;
-      // С привязкой к дате поток стартует в общий день: до него — экран
-      // «до старта N дней», после — ученик идёт в своём темпе.
-      if (activeItem.boundToCalendar && activeItem.startDate) {
-        const startInfo = getCourseDayInfo(activeItem.startDate, daysCount, null, tzOffsetMin, dayStartHour);
-        if (startInfo.isUpcoming) {
-          setDayInfo({
-            day: 0, isUpcoming: true, isFinished: false, isAccessExpired: false,
-            daysUntilStart: startInfo.daysUntilStart, daysSinceFinish: 0,
-          });
-          setCurrentDay(1);
-          return;
-        }
-      }
-      let day = 1;
-      while (closureDays.has(day) && day <= daysCount) day++;
-      const isFinished = closureDays.size >= daysCount;
-      setDayInfo({
-        day: isFinished ? daysCount : day,
-        isUpcoming: false, isFinished, isAccessExpired: false,
-        daysUntilStart: 0, daysSinceFinish: 0,
-      });
-      setCurrentDay(day > daysCount ? daysCount : day);
+      setCurrentDay(st.day);
     }
-  }, [courseStartDate, tzOffsetMin, dayStartHour, user?.id, activeItem, progressionMode, closureDays]);
+  }, [courseStartDate, tzOffsetMin, dayStartHour, user?.id, activeItem, progressionMode]);
 
   useEffect(() => {
     recalcDay();
@@ -279,12 +280,12 @@ export default function App() {
             setCourseCalls([]);
           }
 
-          // Calculate current day from start date
-          const startDate = active.startDate || settings?.course_start_date;
+          // День — той же логикой, что и периодический пересчёт (с учётом режима).
           const dsh = settings?.day_start_hour ?? DAY_START_HOUR;
           const tz = settings?.tz_offset_min ?? -(new Date().getTimezoneOffset());
-          let day = startDate ? getCourseDay(startDate, tz, dsh, active.daysCount) : (settings?.current_day || 1);
-          day = Math.max(1, day);
+          const st = computeDayState(active, { courseStartDate: settings?.course_start_date, tzOffsetMin: tz, dayStartHour: dsh });
+          const day = Math.max(1, st ? st.day : (settings?.current_day || 1));
+          if (st) setDayInfo(st.info);
           setCurrentDay(day);
           const allActs = [...active.activities, ...(custom || [])];
           const { progress: p, elapsed: el } = buildFromRaw(raw, allActs, day);
@@ -337,11 +338,10 @@ export default function App() {
       setCourseCalls([]);
     }
 
-    // Calculate day based on item's own start date
-    const startDate = item.startDate || courseStartDate;
-    const day = startDate
-      ? getCourseDay(startDate, tzOffsetMin, dayStartHour, item.daysCount)
-      : 1;
+    // День — той же логикой, что и периодический пересчёт (с учётом режима).
+    const st = computeDayState(item, { courseStartDate, tzOffsetMin, dayStartHour });
+    const day = Math.max(1, st ? st.day : 1);
+    if (st) setDayInfo(st.info);
     setCurrentDay(day);
     const allActs = [...item.activities, ...(custom || [])];
     const p = {};
