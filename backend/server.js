@@ -50,6 +50,9 @@ const JITSI_HOST = process.env.JITSI_HOST || 'https://meet.instep.life';
 const JITSI_HOSTS = [JITSI_HOST, 'https://meet.instep.life', 'https://meet.instep.expert']
   .filter((v, i, a) => a.indexOf(v) === i);          // uniq
 const JITSI_WS = JITSI_HOSTS.map(u => u.replace(/^https/, 'wss'));
+// Записи звонков отдаёт сервер записи (Jibri). Прод — rec.instep.expert;
+// без него в CSP браузер блокировал «Смотреть запись» после переезда.
+const REC_HOSTS = ['https://rec.instep.expert', 'https://rec.instep.life'];
 
 app.use(helmet({
   hsts: {
@@ -74,11 +77,11 @@ app.use(helmet({
       connectSrc: [
         "'self'",
         ...JITSI_HOSTS, ...JITSI_WS,
-        "https://rec.instep.life",
+        ...REC_HOSTS,
       ],
       styleSrc: ["'self'", "'unsafe-inline'", ...JITSI_HOSTS],
       fontSrc: ["'self'", "data:", ...JITSI_HOSTS],
-      mediaSrc: ["'self'", "blob:", "https://rec.instep.life"],
+      mediaSrc: ["'self'", "blob:", ...REC_HOSTS],
       workerSrc: ["'self'", "blob:"],
       childSrc: ["'self'", "blob:", ...JITSI_HOSTS],
     },
