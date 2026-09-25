@@ -378,7 +378,7 @@ router.get('/google/callback', async (req, res) => {
 async function applyPending(userId, email) {
   const pendingRole = await queryOne('SELECT role, assigned_by FROM pending_roles WHERE email = $1', [email]);
   if (pendingRole) {
-    await queryOne('INSERT INTO user_roles (user_id, role, assigned_by) VALUES ($1,$2,$3) ON CONFLICT (user_id) DO UPDATE SET role=$2', [userId, pendingRole.role, pendingRole.assigned_by]);
+    await queryOne('INSERT INTO user_roles (user_id, role, assigned_by) VALUES ($1,$2,$3) ON CONFLICT (user_id) DO UPDATE SET role=$2, assigned_by=$3, updated_at=NOW()', [userId, pendingRole.role, pendingRole.assigned_by]);
     await query('DELETE FROM pending_roles WHERE email = $1', [email]);
   }
   const invitations = await query('SELECT id, course_id, role, invited_by, group_id FROM pending_invitations WHERE email = $1', [email]);

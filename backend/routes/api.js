@@ -584,11 +584,24 @@ router.post('/role/assign', async (req, res) => {
     if (!['student', 'curator', 'trainer', 'admin'].includes(role)) {
       return res.status(400).json({ success: false, error: 'Invalid role' });
     }
+    const em = String(email || '').toLowerCase().trim();
+    // Зарегистрированному — сразу. Раньше роль всегда уходила в pending_roles и
+    // незаметно применялась при следующем входе человека.
+    const target = await queryOne('SELECT id FROM users WHERE email = $1', [em]);
+    if (target) {
+      await query(
+        `INSERT INTO user_roles (user_id, role, assigned_by) VALUES ($1, $2, $3)
+         ON CONFLICT (user_id) DO UPDATE SET role = $2, assigned_by = $3, updated_at = NOW()`,
+        [target.id, role, req.userId]
+      );
+      await query('DELETE FROM pending_roles WHERE email = $1', [em]);
+      return res.json({ success: true, applied: 'now' });
+    }
     await query(
       'INSERT INTO pending_roles (email, role, assigned_by) VALUES ($1, $2, $3) ON CONFLICT (email) DO UPDATE SET role = $2',
-      [email.toLowerCase().trim(), role, req.userId]
+      [em, role, req.userId]
     );
-    res.json({ success: true });
+    res.json({ success: true, applied: 'on_signup' });
   } catch (err) { console.error(err); res.status(500).json({ success: false, error: err.message }); }
 });
 

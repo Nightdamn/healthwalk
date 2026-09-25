@@ -1,6 +1,7 @@
 import TopBar from '../components/TopBar';
 import React, { useState } from 'react';
 import Layout from '../components/Layout';
+import Dropdown from '../components/Dropdown';
 import { glass } from '../styles/shared';
 
 const ROLES = [
@@ -12,18 +13,25 @@ const ROLES = [
 
 export default function AssignRolePage({ onBack, onAssign }) {
   const [email, setEmail] = useState('');
-  const [role, setRole] = useState('student');
+  // Роль по умолчанию не выбрана: раньше стоял «Ученик», и «Назначить» без
+  // выбора молча понижало тренера.
+  const [role, setRole] = useState('');
   const [status, setStatus] = useState(null); // { type: 'ok'|'err', msg }
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async () => {
-    if (!email.trim()) { setStatus({ type: 'err', msg: 'Введите email' }); return; }
+    const missing = [!email.trim() && 'email', !role && 'роль'].filter(Boolean);
+    if (missing.length) { setStatus({ type: 'err', msg: `Заполните: ${missing.join(', ')}` }); return; }
     setLoading(true); setStatus(null);
     const result = await onAssign(email.trim(), role);
     setLoading(false);
     if (result.success) {
-      setStatus({ type: 'ok', msg: `Роль «${ROLES.find(r => r.value === role).label}» назначена для ${email}` });
+      const label = ROLES.find(r => r.value === role).label;
+      setStatus({ type: 'ok', msg: result.applied === 'now'
+        ? `Роль «${label}» назначена для ${email}`
+        : `Пользователь ${email} ещё не зарегистрирован — роль «${label}» применится при регистрации` });
       setEmail('');
+      setRole('');
     } else {
       setStatus({ type: 'err', msg: result.error || 'Ошибка назначения роли' });
     }
@@ -37,7 +45,7 @@ export default function AssignRolePage({ onBack, onAssign }) {
         <div style={{ ...glass, borderRadius: 18, padding: "24px 20px" }}>
           {/* Email */}
           <label style={{ fontSize: 13, fontWeight: 600, color: "#888", marginBottom: 6, display: "block" }}>
-            Email пользователя
+            Email пользователя *
           </label>
           <input
             type="email" value={email} onChange={(e) => setEmail(e.target.value)}
@@ -52,21 +60,12 @@ export default function AssignRolePage({ onBack, onAssign }) {
 
           {/* Role selector */}
           <label style={{ fontSize: 13, fontWeight: 600, color: "#888", marginBottom: 6, display: "block" }}>
-            Роль
+            Роль *
           </label>
-          <select
-            value={role} onChange={(e) => setRole(e.target.value)}
-            style={{
-              width: "100%", padding: "14px 16px", borderRadius: 12,
-              border: "1.5px solid rgba(0,0,0,0.08)", background: "rgba(255,255,255,0.7)",
-              fontSize: 15, color: "#1a1a2e", outline: "none", marginBottom: 24,
-              boxSizing: "border-box", appearance: "auto",
-            }}
-          >
-            {ROLES.map((r) => (
-              <option key={r.value} value={r.value}>{r.label}</option>
-            ))}
-          </select>
+          <div style={{ marginBottom: 24 }}>
+            <Dropdown value={role} onChange={setRole} fullWidth fontSize={15}
+              options={[{ value: '', label: 'Выберите роль' }, ...ROLES]} />
+          </div>
 
           {/* Submit */}
           <button
