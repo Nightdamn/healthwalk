@@ -501,7 +501,16 @@ export default function Dashboard({
                     const isStaff = activeItem?.enrollRole === 'trainer'
                       || activeItem?.enrollRole === 'curator'
                       || userRole === 'admin';
-                    const downloadUrl = (callRec && isStaff) ? callRec.recording_url : null;
+                    // Запись лежит на rec.instep.expert — чужой домен, атрибут
+                    // download браузер игнорирует и открывает видео. Скачивание
+                    // включает nginx записи по ?download=<имя> (Content-Disposition:
+                    // attachment), имя — «Курс — День N — Практика.mp4».
+                    const recFileName = `${activeItem?.title || 'Запись'} — День ${activeDay} — ${act.label || 'Онлайн-встреча'}.mp4`
+                      .replace(/[\\/:*?"<>|]+/g, ' ');
+                    const downloadUrl = (callRec && isStaff)
+                      ? `${callRec.recording_url}${callRec.recording_url.includes('?') ? '&' : '?'}download=${
+                          encodeURIComponent(recFileName).replace(/[!'()*]/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase())}`
+                      : null;
                     // «Начать»/«Продолжить» — под прогресс-баром вместо
                     // старой кнопки в правом верхнем углу. Показываем когда
                     // практика активна сегодня, ещё не сделана и это не эфир
