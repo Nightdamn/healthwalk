@@ -2,6 +2,7 @@
 // через shared-secret в заголовке X-Webhook-Secret.
 import { Router } from 'express';
 import { query, queryOne } from '../db.js';
+import { recordingPathForCall } from '../recordingName.js';
 
 const router = Router();
 
@@ -12,6 +13,28 @@ function checkSecret(req) {
   const got = req.get('X-Webhook-Secret') || '';
   return got === JIBRI_WEBHOOK_SECRET;
 }
+
+// finalize.sh спрашивает читаемое имя файла перед тем, как положить mp4
+// в /var/recordings. Query: roomName, durationSec (начало записи = сейчас −
+// длительность). Ответ: { segments: ['Курс', 'Группа', 'День 01 — ….mp4'] }.
+// Звонок не найден — 404, finalize тогда кладёт файл по имени комнаты.
+router.get('/jibri/recording-name', async (req, res) => {
+  if (!checkSecret(req)) return res.status(401).json({ error: 'unauthorized' });
+
+  const roomName = String(req.query.roomName || '');
+  if (!roomName) return res.status(400).json({ error: 'roomName_required' });
+  const durationSec = Math.max(0, parseInt(req.query.durationSec) || 0);
+
+  const call = await queryOne(
+    'SELECT id FROM activity_calls WHERE LOWER(room_name) = LOWER($1) ORDER BY created_at DESC LIMIT 1',
+    [roomName]
+  );
+  if (!call) return res.status(404).json({ error: 'call_not_found', roomName });
+
+  const segments = await recordingPathForCall(call.id, new Date(Date.now() - durationSec * 1000));
+  if (!segments) return res.status(404).json({ error: 'call_not_found', roomName });
+  res.json({ segments });
+});
 
 // Jibri finalize.sh вызывает этот эндпоинт когда запись готова и залита
 // в локальное хранилище на recorder-сервере (nginx стрим оттуда).
