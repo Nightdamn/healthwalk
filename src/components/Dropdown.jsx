@@ -1,22 +1,62 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useLayoutEffect } from 'react';
+import { createPortal } from 'react-dom';
 
 // Custom dropdown styled like the role selector in TrainerCabinet:
 // rounded button with chevron, popup with overlay close, current item highlighted.
 // option.icon (необязательный) — src картинки-аватара слева от подписи,
 // и в выбранном значении, и в списке.
+//
+// Список рендерится порталом в body с position: fixed. Плитки glass
+// (backdrop-filter) создают свой слой, и absolute-список внутри них
+// проваливался под следующую плитку. Позиция считается от кнопки и
+// пересчитывается при прокрутке/ресайзе; не влезает вниз — открывается вверх.
 const OptIcon = ({ src }) => src ? (
   <img src={src} alt="" style={{ width: 20, height: 20, borderRadius: 5, objectFit: 'contain', flexShrink: 0, background: '#fafafa' }} />
 ) : null;
 
+const GAP = 4;
+const EDGE = 8; // отступ от края экрана
+
 export default function Dropdown({ value, onChange, options, color = '#1a1a2e', disabled = false, fullWidth = false, fontSize = 13 }) {
   const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState(null);
+  const btnRef = useRef(null);
+  const listRef = useRef(null);
   const current = options.find(o => o.value === value) || options[0];
   const hasIcons = options.some(o => o.icon);
+
+  useLayoutEffect(() => {
+    if (!open) { setPos(null); return; }
+    const place = () => {
+      const btn = btnRef.current;
+      if (!btn) return;
+      const r = btn.getBoundingClientRect();
+      const listH = listRef.current?.scrollHeight || 0;
+      const below = window.innerHeight - r.bottom - GAP - EDGE;
+      const above = r.top - GAP - EDGE;
+      const up = listH > below && above > below;
+      setPos({
+        left: Math.max(EDGE, Math.min(r.left, window.innerWidth - EDGE - r.width)),
+        minWidth: r.width,
+        width: fullWidth ? r.width : undefined,
+        maxHeight: Math.max(120, up ? above : below),
+        ...(up ? { bottom: window.innerHeight - r.top + GAP } : { top: r.bottom + GAP }),
+      });
+    };
+    place();
+    window.addEventListener('scroll', place, true);
+    window.addEventListener('resize', place);
+    return () => {
+      window.removeEventListener('scroll', place, true);
+      window.removeEventListener('resize', place);
+    };
+  }, [open, fullWidth, options.length]);
 
   return (
     <div style={{ position: 'relative', display: fullWidth ? 'block' : 'inline-block' }}
          onClick={e => e.stopPropagation()}>
       <button
+        ref={btnRef}
         type="button"
         disabled={disabled}
         onClick={() => !disabled && setOpen(o => !o)}
@@ -43,15 +83,17 @@ export default function Dropdown({ value, onChange, options, color = '#1a1a2e', 
         }}>▼</span>
       </button>
 
-      {open && (
+      {open && createPortal(
         <>
           <div onClick={() => setOpen(false)}
-               style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 19 }} />
-          <div style={{
-            position: 'absolute', top: '100%', left: 0, right: fullWidth ? 0 : 'auto',
-            zIndex: 20, marginTop: 4, minWidth: '100%',
+               style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 10000 }} />
+          <div ref={listRef} style={{
+            position: 'fixed', zIndex: 10001,
+            ...(pos || { top: 0, left: 0 }),
+            visibility: pos ? 'visible' : 'hidden',
+            overflowY: 'auto',
             background: '#fff', borderRadius: 10, border: '1px solid rgba(0,0,0,0.08)',
-            boxShadow: '0 8px 24px rgba(0,0,0,0.12)', overflow: 'hidden',
+            boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
           }}>
             {options.map(opt => {
               const active = opt.value === value;
@@ -80,7 +122,8 @@ export default function Dropdown({ value, onChange, options, color = '#1a1a2e', 
               );
             })}
           </div>
-        </>
+        </>,
+        document.body
       )}
     </div>
   );
