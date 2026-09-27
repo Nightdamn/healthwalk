@@ -822,7 +822,7 @@ export default function TimerPage({ activity, timerSeconds, timerPaused, current
                               {p.displayName || p.email || 'Участник'}
                             </div>
                             <div style={{ fontSize: 11, color: '#999' }}>
-                              {isSelf ? 'Вы' : p.isOwner ? 'Мастер' : p.role === 'trainer' ? 'Тренер' : 'Ученик'}
+                              {isSelf ? 'Вы' : p.isOwner ? 'Мастер' : p.role === 'trainer' ? 'Тренер' : p.role === 'curator' ? 'Куратор' : 'Ученик'}
                               {p.joined && !isSelf ? ' · был(а) в звонке' : ''}
                             </div>
                           </div>
