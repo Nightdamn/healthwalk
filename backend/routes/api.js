@@ -2693,6 +2693,41 @@ router.post('/calls/:id/token', async (req, res) => {
   } catch (err) { console.error(err); res.status(500).json({ error: err.message }); }
 });
 
+// Журнал звонка: участники группы звонка + staff курса не из этой группы
+// (владелец, тренеры/кураторы курса, тренер/куратор группы), если заходили
+// в звонок или это сам отмечающий. Иначе ведущая эфира, записанная в другую
+// группу, не попадала в журнал и практика ей не засчитывалась (у курса с
+// «по прохождению» день так и не закрывался).
+async function callRoster(call, currentUserId) {
+  return query(
+    `WITH people AS (
+       SELECT ce.user_id, ce.role
+         FROM course_enrollments ce
+        WHERE ce.course_id = $2 AND ce.group_id = $3
+       UNION
+       SELECT u.id, COALESCE(ce.role, 'trainer')
+         FROM users u
+         JOIN courses c ON c.id = $2
+         JOIN course_groups g ON g.id = $3
+         LEFT JOIN course_enrollments ce ON ce.course_id = $2 AND ce.user_id = u.id
+        WHERE (c.owner_id = u.id OR ce.role IN ('trainer','curator') OR u.id IN (g.trainer_id, g.curator_id))
+          AND NOT EXISTS (SELECT 1 FROM course_enrollments x WHERE x.user_id = u.id AND x.group_id = $3)
+          AND (u.id = $4 OR EXISTS (SELECT 1 FROM call_attendance ca
+                                     WHERE ca.call_id = $1 AND ca.user_id = u.id AND ca.joined_at IS NOT NULL))
+     )
+     SELECT u.id AS user_id, u.email, u.display_name, p.role,
+            (c.owner_id = u.id) AS is_owner,
+            COALESCE(ca.attended, false) AS attended,
+            (ca.joined_at IS NOT NULL) AS joined
+       FROM people p
+       JOIN users u ON u.id = p.user_id
+       JOIN courses c ON c.id = $2
+       LEFT JOIN call_attendance ca ON ca.call_id = $1 AND ca.user_id = u.id
+      ORDER BY (c.owner_id = u.id) DESC, p.role, u.display_name`,
+    [call.id, call.course_id, call.group_id, currentUserId]
+  );
+}
+
 // Trainer-only: roster of everyone who could have been on the call,
 // with current attendance flags.
 router.get('/calls/:id/attendance', async (req, res) => {
@@ -2701,19 +2736,7 @@ router.get('/calls/:id/attendance', async (req, res) => {
     if (!call) return res.status(404).json({ error: 'Звонок не найден' });
     if (!await isTrainer(req.userId, call.course_id)) return res.status(403).json({ error: 'Нет прав' });
 
-    const rows = await query(
-      `SELECT u.id AS user_id, u.email, u.display_name, ce.role,
-              (c.owner_id = u.id) AS is_owner,
-              COALESCE(ca.attended, false) AS attended,
-              (ca.joined_at IS NOT NULL) AS joined
-       FROM course_enrollments ce
-       JOIN users u ON u.id = ce.user_id
-       JOIN courses c ON c.id = ce.course_id
-       LEFT JOIN call_attendance ca ON ca.call_id = $1 AND ca.user_id = u.id
-       WHERE ce.course_id = $2 AND ce.group_id = $3
-       ORDER BY (c.owner_id = u.id) DESC, ce.role, u.display_name`,
-      [call.id, call.course_id, call.group_id]
-    );
+    const rows = await callRoster(call, req.userId);
 
     res.json({
       call: { id: call.id, day: call.day, activityId: call.activity_id },
@@ -2750,14 +2773,8 @@ router.post('/calls/:id/attendance', async (req, res) => {
     const allAttended = new Set(attendedIds);
     allAttended.add(req.userId);
 
-    // Только участники группы звонка (у курса без групп — все, они в одной группе).
-    const enrollees = await query(
-      `SELECT u.id AS user_id
-       FROM course_enrollments ce
-       JOIN users u ON u.id = ce.user_id
-       WHERE ce.course_id = $1 AND ce.group_id = $2`,
-      [call.course_id, call.group_id]
-    );
+    // Тот же состав, что в журнале: группа звонка + staff, заходивший в звонок.
+    const enrollees = await callRoster(call, req.userId);
 
     for (const row of enrollees) {
       const attended = allAttended.has(row.user_id);
@@ -2776,6 +2793,9 @@ router.post('/calls/:id/attendance', async (req, res) => {
          DO UPDATE SET completed = $6, updated_at = NOW()`,
         [row.user_id, call.course_id, courseActivity.id, call.day, attended ? (call.duration_min || 30) * 60 : 0, attended, call.group_id]
       );
+      // Эфир мог быть последней практикой дня — закрываем день, как при
+      // обычном «Выполнено» (в режимах по прохождению).
+      if (attended) await maybeAutoCloseDay(row.user_id, call.course_id, call.day, call.group_id);
     }
 
     await query(`UPDATE activity_calls SET status = 'completed', updated_at = NOW() WHERE id = $1`, [call.id]);
