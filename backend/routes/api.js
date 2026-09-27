@@ -2305,6 +2305,9 @@ router.post('/trainer/toggle-completion', async (req, res) => {
        DO UPDATE SET completed = $6, elapsed_seconds = $5, updated_at = NOW()`,
       [userId, courseId, activityId, day, elapsed, newCompleted, gid]
     );
+    // Ручной зачёт мог быть последней практикой дня — закрываем день, как при
+    // «Выполнено» у самого ученика (иначе в «по прохождению» он стоит на месте).
+    if (newCompleted) await maybeAutoCloseDay(userId, courseId, day, gid);
 
     res.json({ success: true, completed: newCompleted, elapsed });
   } catch (err) { res.json({ success: false, error: err.message }); }
