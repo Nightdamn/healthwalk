@@ -3,6 +3,23 @@ import jwt from 'jsonwebtoken';
 import rateLimit from 'express-rate-limit';
 import { query, queryOne, execute, withTransaction } from '../db.js';
 import { accessWindow, localDate, getStudentAccess } from '../access.js';
+import { syncGroupCalls, syncCourseCalls, insertCall } from '../callSync.js';
+
+// Звонки повторяют дни онлайн-практик (см. callSync.js). Сбой синхронизации
+// не должен ломать само сохранение — только в лог.
+async function syncCallsSafe(fn, what) {
+  try {
+    const r = await fn();
+    const list = Array.isArray(r) ? r : [r];
+    const created = list.reduce((n, x) => n + (x?.created?.length || 0), 0);
+    const deleted = list.reduce((n, x) => n + (x?.deleted?.length || 0), 0);
+    if (created || deleted) console.log(`[calls sync] ${what}: +${created} -${deleted}`);
+    return created + deleted > 0;
+  } catch (err) {
+    console.error(`[calls sync] ${what}:`, err.message);
+    return false;
+  }
+}
 import { requireAuth } from '../middleware.js';
 
 const router = Router();
@@ -949,7 +966,13 @@ router.patch('/courses/:id/meta', async (req, res) => {
     if (startDate !== undefined && !before?.groups_enabled) {
       await shiftScheduledCalls(await getDefaultGroup(courseId), before?.start_date, startDate || null);
     }
-    res.json({ ok: true });
+    // Дни/привязка/старт/режим групп меняют расписание звонков потоков курса.
+    let callsChanged = false;
+    if (daysCount !== undefined || boundToCalendar !== undefined || startDate !== undefined
+        || typeof groupsEnabled === 'boolean') {
+      callsChanged = await syncCallsSafe(() => syncCourseCalls(courseId, { actorId: req.userId }), `course ${courseId}`);
+    }
+    res.json({ ok: true, callsChanged });
   } catch (err) { console.error(err); res.status(500).json({ error: err.message }); }
 });
 
@@ -994,7 +1017,10 @@ router.post('/courses/:id/activities', async (req, res) => {
       [courseId, gid, activityKey, label || '', dur, iconNum || 'health/1', pt,
        descriptionHtml || null, fd, ld, resolvedSortOrder, iv]
     );
-    res.json({ data: row });
+    const callsChanged = pt === 'call'
+      ? await syncCallsSafe(() => syncGroupCalls(gid, { actorId: req.userId }), `new activity ${row.id}`)
+      : false;
+    res.json({ data: row, callsChanged });
   } catch (err) { console.error(err); res.status(500).json({ error: err.message }); }
 });
 
@@ -1061,7 +1087,13 @@ router.patch('/activities/:id', async (req, res) => {
     if (sets.length === 0) return res.json({ ok: true });
     params.push(req.params.id);
     await query(`UPDATE course_activities SET ${sets.join(', ')} WHERE id=$${i}`, params);
-    res.json({ ok: true });
+    // Дни или тип практики поменялись — звонки группы под новое расписание.
+    const scheduleTouched = [practiceType, firstDay, lastDay, intervalDays, excludedDays, extraDays]
+      .some(v => v !== undefined);
+    const callsChanged = scheduleTouched
+      ? await syncCallsSafe(() => syncGroupCalls(act.group_id, { actorId: req.userId }), `activity ${act.id}`)
+      : false;
+    res.json({ ok: true, callsChanged });
   } catch (err) { console.error(err); res.status(500).json({ error: err.message }); }
 });
 
@@ -1685,6 +1717,8 @@ router.post('/courses/:id/groups', async (req, res) => {
         );
       }
     }
+    // Звонки не клонируются — у привязанной к дате группы их создаёт синхронизация.
+    await syncCallsSafe(() => syncGroupCalls(row.id, { actorId: req.userId }), `new group ${row.id}`);
 
     res.json({ data: row });
   } catch (err) {
@@ -1725,7 +1759,11 @@ router.patch('/groups/:id', async (req, res) => {
     if (startDate !== undefined) {
       await shiftScheduledCalls(req.params.id, before?.start_date, startDate || null);
     }
-    res.json({ ok: true });
+    // Включили привязку / поставили дату — у потока появляются звонки.
+    const callsChanged = (typeof boundToCalendar === 'boolean' || startDate !== undefined)
+      ? await syncCallsSafe(() => syncGroupCalls(req.params.id, { actorId: req.userId }), `group ${req.params.id}`)
+      : false;
+    res.json({ ok: true, callsChanged });
   } catch (err) {
     if (err.code === '23505') return res.status(409).json({ error: 'Группа с таким названием уже есть' });
     console.error('[Groups patch]', err); res.status(500).json({ error: err.message });
@@ -2685,15 +2723,8 @@ router.post('/calls', async (req, res) => {
     );
     if (existing) return res.json({ data: existing, existing: true });
 
-    const dur = durationMin || 30;
-    const roomName = generateJitsiRoomName(courseId, day);
-    const roomUrl = `${JITSI_HOST}/${roomName}`;
-
-    const call = await queryOne(
-      `INSERT INTO activity_calls (course_id, group_id, activity_id, day, scheduled_at, duration_min, room_url, room_name, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
-      [courseId, gid, activityId, day, scheduledAt, dur, roomUrl, roomName, req.userId]
-    );
+    const call = await insertCall({ courseId, groupId: gid, activityId, day, scheduledAt,
+                                    durationMin: durationMin || 30, createdBy: req.userId });
     res.json({ data: call });
   } catch (err) { console.error(err); res.json({ error: err.message }); }
 });

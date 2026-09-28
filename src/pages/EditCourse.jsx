@@ -10,7 +10,7 @@ import TopBar from '../components/TopBar';
 import {
   loadCourseForEdit, canDeleteCourse, deleteCourse,
   getActivityMedia, uploadActivityMedia, addMediaLink, addEmptyMedia, importDriveMedia, deleteActivityMedia,
-  getActivityCalls, createActivityCall, deleteActivityCall, patchActivityCall,
+  getActivityCalls, deleteActivityCall, patchActivityCall,
   updateActivityDuration, updateMediaDuration, patchMedia,
   patchCourseMeta, createActivity, patchActivity, deleteActivity,
   getCourseStudentsInfo,
@@ -174,13 +174,21 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
   // тогда бэк fallback на is_default. После — держим id выбранной группы,
   // селектор над блоком «Активности» позволяет переключаться.
   const [selectedGroupId, setSelectedGroupId] = useState(null);
-  // Для какой группы загружены activities/calls. Пока не совпадает с
-  // selectedGroupId (идёт загрузка после смены группы) — синхронизация
-  // расписания звонков выключена: иначе она видела звонки старой группы
-  // при настройках новой и создавала на все дни дубли в новую группу.
-  const [loadedGroupId, setLoadedGroupId] = useState(undefined);
+  // Актуальная выбранная группа для асинхронных ответов: ответ, пришедший
+  // после смены группы, устарел и не применяется.
   const selectedGroupRef = useRef(selectedGroupId);
   selectedGroupRef.current = selectedGroupId;
+  // Звонки создаёт/удаляет сервер при сохранении дней практики и настроек
+  // потока (backend/callSync.js). Ответ с callsChanged — перечитываем звонки.
+  const refreshCallsIfChanged = (res) => {
+    if (res?.callsChanged && courseId) {
+      const gid = selectedGroupRef.current;
+      getActivityCalls(courseId, gid).then(data => {
+        if (selectedGroupRef.current === gid) setCalls(data || []);
+      });
+    }
+    return res;
+  };
   // v28: витрина курсов — статус модерации, цена, блокировка.
   const [storeStatus, setStoreStatus] = useState('draft');
   const [storeRejectReason, setStoreRejectReason] = useState('');
@@ -325,7 +333,8 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
           || newExc.length !== (a.excluded_days || []).length
           || newExt.length !== (a.extra_days || []).length;
         if (drift) {
-          patchActivity(a.id, { firstDay: newFirst, lastDay: newLast, excludedDays: newExc, extraDays: newExt });
+          patchActivity(a.id, { firstDay: newFirst, lastDay: newLast, excludedDays: newExc, extraDays: newExt })
+            .then(refreshCallsIfChanged);
         }
         return {
           dbId: a.id,
@@ -345,7 +354,6 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
         };
       });
     setActivities(acts);
-    setLoadedGroupId(selectedGroupId);
     if (withSpinner) setLoading(false);
   }, [courseId, selectedGroupId]);
 
@@ -512,13 +520,6 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
     });
   };
 
-  const handleCreateCall = async (activityId, day, scheduledAt, durationMin) => {
-    const result = await createActivityCall(courseId, activityId, day, scheduledAt, durationMin, selectedGroupId);
-    if (result.error) { setError(`Ошибка: ${result.error}`); return; }
-    // Сервер отдаёт уже существующий звонок на этот день — не дублируем в списке.
-    if (result.data) setCalls(prev => prev.some(c => c.id === result.data.id) ? prev : [...prev, result.data]);
-  };
-
   const handleDeleteCall = async (callId) => {
     const result = await deleteActivityCall(callId);
     if (result.error) { setError(`Ошибка: ${result.error}`); return; }
@@ -541,7 +542,7 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
   // ── Activity field auto-save ──
   // Backend payload uses camelCase same as our state — pass through directly.
   const scheduleActivityPatch = (dbId, fields) => {
-    saverRef.current.schedule(`act-${dbId}`, () => patchActivity(dbId, fields));
+    saverRef.current.schedule(`act-${dbId}`, () => patchActivity(dbId, fields).then(refreshCallsIfChanged));
   };
 
   const updateActivity = (idx, field, val) => {
@@ -754,7 +755,7 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
       return merged;
     }));
     if (userEdits) {
-      saverRef.current.schedule(`act-${created.id}`, () => patchActivity(created.id, userEdits));
+      saverRef.current.schedule(`act-${created.id}`, () => patchActivity(created.id, userEdits).then(refreshCallsIfChanged));
     }
   };
 
@@ -762,8 +763,8 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
   // setLocal + schedule a debounced PATCH. Server clamps values, so empty
   // intermediate states (e.g., daysCount === '') are skipped.
   const scheduleMetaSave = useCallback((fields) => {
-    saverRef.current.schedule('meta', () => patchCourseMeta(courseId, fields));
-  }, [courseId]);
+    saverRef.current.schedule('meta', () => patchCourseMeta(courseId, fields).then(refreshCallsIfChanged));
+  }, [courseId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onTitleChange = (v) => { setTitle(v); scheduleMetaSave({ title: v }); };
   const onDescriptionChange = (v) => { setDescription(v); scheduleMetaSave({ description: v }); };
@@ -890,9 +891,6 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
   const streamStartDate = selectedGroup
     ? (selectedGroup.start_date ? String(selectedGroup.start_date).slice(0, 10) : '')
     : startDate;
-  // Звонки/активности на экране — именно выбранной группы (см. loadedGroupId).
-  const callsSyncReady = loadedGroupId === selectedGroupId && (!groupsEnabled || !!selectedGroup);
-
   if (loading) {
     return (
       <Layout>
@@ -1030,7 +1028,7 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
                       return next;
                     })}
                     onPickIcon={() => setGroupPickerId(g.id)}
-                    onSave={async (fields) => { await updateGroup(g.id, fields); await loadGroups(); }}
+                    onSave={async (fields) => { refreshCallsIfChanged(await updateGroup(g.id, fields)); await loadGroups(); }}
                     onApplyDefaults={async () => { await applyGroupDefaults(g.id); }}
                     onDelete={async () => {
                       await deleteGroup(g.id);
@@ -1169,13 +1167,11 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
             onDeleteVideo={handleDeleteVideo}
             onPatchVideo={handlePatchVideo}
             calls={calls}
-            onCreateCall={handleCreateCall}
             onDeleteCall={handleDeleteCall}
             onPatchCall={handlePatchCall}
             tzOffsetMin={tzOffsetMin}
             boundToCalendar={streamBound}
             courseStartDate={streamStartDate}
-            callsSyncReady={callsSyncReady}
             collapsed={collapsedKeys.has(a._key)}
             onToggleCollapsed={() => toggleCollapsed(a._key)}
             isDragging={dragKey === a._key}
@@ -1300,43 +1296,16 @@ function getActivityScheduledDays(activity, maxDay) {
 // синхронизацией (к нему привязаны запись и посещаемость; сервер тоже не даст).
 const callLocked = (c) => !!(c.recording_url || c.status === 'completed' || c.has_joins);
 
-function CallSchedule({ activity, maxDay, calls, courseId, tzMin, trainerTzLabel,
-                        boundToCalendar, courseStartDate, syncReady = false, onToggleDay,
-                        onCreateCall, onDeleteCall, onPatchCall }) {
+// Список звонков практики. Сами звонки создаёт и удаляет сервер под дни
+// практики (backend/callSync.js, при сохранении дней и настроек потока) —
+// раньше это делал браузер при открытии редактора и при смене группы плодил
+// дубли (28.09, Осознанная Походка, Группа 2). Здесь — только время и ✕.
+function CallSchedule({ activity, maxDay, calls, tzMin, trainerTzLabel,
+                        boundToCalendar, courseStartDate, onToggleDay,
+                        onDeleteCall, onPatchCall }) {
   const actId = activity.activityId || activity.dbId;
   const actCalls = (calls || []).filter(c => c.activity_id === actId);
   const scheduledDays = getActivityScheduledDays(activity, maxDay);
-
-  // Sync БД с расписанием активности: для каждого scheduled-дня без звонка
-  // создать звонок (10:00 default), для каждого звонка с днём вне расписания —
-  // удалить. Запускается на изменения scheduledDays и при каждом монтировании.
-  // Защита от race: используем ref-флаг чтобы не дёргать API параллельно.
-  // syncReady — звонки на экране загружены для выбранной группы; без этого
-  // при смене группы синхронизация видела звонки старой группы и создавала
-  // дубли в новую (28.09, Осознанная Походка, Группа 2).
-  const syncingRef = useRef(false);
-  useEffect(() => {
-    if (!syncReady || !boundToCalendar || !courseStartDate || !courseId) return;
-    if (syncingRef.current) return;
-    const dayToCall = new Map(actCalls.map(c => [c.day, c]));
-    const toCreate = scheduledDays.filter(d => !dayToCall.has(d));
-    const toDelete = actCalls.filter(c => !scheduledDays.includes(c.day) && !callLocked(c));
-    if (!toCreate.length && !toDelete.length) return;
-    syncingRef.current = true;
-    (async () => {
-      try {
-        for (const d of toCreate) {
-          const scheduledAt = combineDateTimeInTz(dayToISODate(courseStartDate, d), '10:00', tzMin);
-          await onCreateCall(actId, d, scheduledAt, null);
-        }
-        for (const c of toDelete) {
-          await onDeleteCall(c.id);
-        }
-      } finally {
-        syncingRef.current = false;
-      }
-    })();
-  }, [syncReady, boundToCalendar, courseStartDate, JSON.stringify(scheduledDays), actCalls.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Без bound_to_calendar: списка нет, показываем подсказку.
   if (!boundToCalendar || !courseStartDate) {
@@ -1469,7 +1438,7 @@ function CallRow({ call, courseStartDate, tzMin, onPatch, locked = false, onlyFo
   );
 }
 
-function ActivityCard({ activity, index, maxDay, onUpdate, onToggleDay, onRemove, onPickIcon, videos, courseId, videoUploadingId, uploadProgress, uploadPhase, activityId: propActivityId, onVideoUpload, onAddLink, onAddEmpty, onDeleteVideo, onPatchVideo, calls, onCreateCall, onDeleteCall, onPatchCall, tzOffsetMin, boundToCalendar, courseStartDate, callsSyncReady = false, collapsed = false, onToggleCollapsed, isDragging = false, isDragOver = false, onDragBegin, onDragOverKey, onDragEnd, onDropOn, onSaveToLibrary, onRefreshLibrary, onUnlinkLibrary, libraryBusy = false }) {
+function ActivityCard({ activity, index, maxDay, onUpdate, onToggleDay, onRemove, onPickIcon, videos, courseId, videoUploadingId, uploadProgress, uploadPhase, activityId: propActivityId, onVideoUpload, onAddLink, onAddEmpty, onDeleteVideo, onPatchVideo, calls, onDeleteCall, onPatchCall, tzOffsetMin, boundToCalendar, courseStartDate, collapsed = false, onToggleCollapsed, isDragging = false, isDragOver = false, onDragBegin, onDragOverKey, onDragEnd, onDropOn, onSaveToLibrary, onRefreshLibrary, onUnlinkLibrary, libraryBusy = false }) {
   // Trainer's timezone comes from THEIR profile (user_settings.tz_offset_min),
   // NOT from the browser — VPNs make browser tz unreliable; profile is the
   // single source of truth. Default fallback: Moscow (UTC+3, offset=180).
@@ -1799,23 +1768,19 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onToggleDay, onRemove
         );
       })()}
 
-      {/* Call scheduling — auto-synced со списком дней активности.
-          Звонки создаются автоматически для каждого scheduled дня курса
-          (только если курс bound_to_calendar + есть start_date). Тренер
-          меняет только время; день убран из расписания → звонок удаляется. */}
+      {/* Расписание звонков. Звонки на каждый отмеченный день создаёт сервер
+          при сохранении дней практики (только если поток привязан к дате и
+          есть дата старта). Тренер меняет время; день убран → звонок удаляется. */}
       {activity.practiceType === 'call' && courseId && activity.dbId && (
         <CallSchedule
           activity={activity}
           maxDay={maxDay}
           calls={calls}
-          courseId={courseId}
           tzMin={tzMin}
           trainerTzLabel={trainerTzLabel}
           boundToCalendar={boundToCalendar}
           courseStartDate={courseStartDate}
-          syncReady={callsSyncReady}
           onToggleDay={onToggleDay}
-          onCreateCall={onCreateCall}
           onDeleteCall={onDeleteCall}
           onPatchCall={onPatchCall}
         />
