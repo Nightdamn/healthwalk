@@ -457,7 +457,14 @@ async function maybeAutoCloseDay(userId, courseId, day, gid) {
   );
   if (existing) return;
   const acts = await query('SELECT * FROM course_activities WHERE group_id = $1', [gid]);
-  const dayActs = daysWithActivities(acts, day);
+  // Практики, которые тренер исключил ученику на этот день, не обязательны —
+  // ученик их и не видит. Без этого исключённая практика навсегда держала
+  // день открытым (bonnzufuss, Группа 2, день 2, 28.09).
+  const excluded = new Set((await query(
+    'SELECT activity_id FROM student_activity_exclusions WHERE user_id=$1 AND group_id=$2 AND day=$3',
+    [userId, gid, day]
+  )).map(e => e.activity_id));
+  const dayActs = daysWithActivities(acts, day).filter(a => !excluded.has(a.id));
   if (dayActs.length === 0) return;
   const progress = await query(
     'SELECT activity_id, completed FROM course_progress WHERE user_id=$1 AND group_id=$2 AND day=$3',
@@ -2320,6 +2327,9 @@ router.post('/trainer/toggle-exclusion', async (req, res) => {
         'INSERT INTO student_activity_exclusions (user_id, course_id, activity_id, day, group_id) VALUES ($1,$2,$3,$4,$5)',
         [userId, courseId, activityId, day, gid]
       );
+      // Исключили последнюю несделанную практику дня — день выполнен, закрываем
+      // (в режимах по прохождению), как при зачёте.
+      await maybeAutoCloseDay(userId, courseId, day, gid);
       res.json({ success: true, excluded: true });
     }
   } catch (err) { res.json({ success: false, error: err.message }); }
