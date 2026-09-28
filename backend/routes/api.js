@@ -2625,13 +2625,26 @@ router.get('/calls/:courseId', async (req, res) => {
     // Созвоны группы пользователя; ?groupId= — если эта группа ему доступна.
     const gid = await resolveViewGroup(req.userId, req.params.courseId, req.query.groupId || null);
     if ((await getStudentAccess(req.userId, req.params.courseId)).accessExpired) return res.json([]);
+    // has_joins — в звонок уже заходили: такой звонок не удаляется (запись
+    // и посещаемость привязаны к нему).
     const rows = await query(
-      'SELECT * FROM activity_calls WHERE group_id = $1 ORDER BY scheduled_at',
+      `SELECT ac.*, EXISTS (SELECT 1 FROM call_attendance ca
+                             WHERE ca.call_id = ac.id AND ca.joined_at IS NOT NULL) AS has_joins
+         FROM activity_calls ac WHERE ac.group_id = $1 ORDER BY ac.scheduled_at, ac.created_at`,
       [gid]
     );
     res.json(rows);
   } catch (err) { res.json([]); }
 });
+
+// Звонок проведён или в него заходили — удалять нельзя: к нему привязаны
+// запись (webhook Jibri ищет звонок по комнате) и посещаемость.
+async function callInUse(call) {
+  if (call.recording_url || call.status === 'completed') return 'Звонок уже проведён — удалить нельзя';
+  const joined = await queryOne(
+    'SELECT 1 FROM call_attendance WHERE call_id = $1 AND joined_at IS NOT NULL LIMIT 1', [call.id]);
+  return joined ? 'В этот звонок уже заходили — удалить нельзя' : null;
+}
 
 router.post('/calls', async (req, res) => {
   try {
@@ -2659,6 +2672,18 @@ router.post('/calls', async (req, res) => {
         error: 'Звонки можно планировать только при привязке к дате старта. Включите её в настройках курса или группы.',
       });
     }
+
+    // Один звонок на (группа, практика, день). Повторный запрос отдаёт
+    // существующий — иначе гонка в редакторе (синхронизация расписания при
+    // смене группы) плодила дубли на каждый день (Осознанная Походка, Группа 2,
+    // 28.09: две лишние пачки по 7 звонков).
+    const existing = await queryOne(
+      `SELECT * FROM activity_calls
+        WHERE group_id = $1 AND activity_id = $2 AND day = $3 AND status <> 'cancelled'
+        ORDER BY created_at LIMIT 1`,
+      [gid, activityId, day]
+    );
+    if (existing) return res.json({ data: existing, existing: true });
 
     const dur = durationMin || 30;
     const roomName = generateJitsiRoomName(courseId, day);
@@ -2691,6 +2716,8 @@ router.delete('/calls/:id', async (req, res) => {
   try {
     const call = await queryOne('SELECT * FROM activity_calls WHERE id = $1', [req.params.id]);
     if (!call || !await isTrainer(req.userId, call.course_id)) return res.status(403).json({ error: 'Нет прав' });
+    const inUse = await callInUse(call);
+    if (inUse) return res.status(409).json({ error: inUse });
     await query('DELETE FROM activity_calls WHERE id = $1', [req.params.id]);
     res.json({ success: true });
   } catch (err) { res.json({ error: err.message }); }

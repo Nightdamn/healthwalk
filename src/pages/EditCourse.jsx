@@ -174,6 +174,13 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
   // тогда бэк fallback на is_default. После — держим id выбранной группы,
   // селектор над блоком «Активности» позволяет переключаться.
   const [selectedGroupId, setSelectedGroupId] = useState(null);
+  // Для какой группы загружены activities/calls. Пока не совпадает с
+  // selectedGroupId (идёт загрузка после смены группы) — синхронизация
+  // расписания звонков выключена: иначе она видела звонки старой группы
+  // при настройках новой и создавала на все дни дубли в новую группу.
+  const [loadedGroupId, setLoadedGroupId] = useState(undefined);
+  const selectedGroupRef = useRef(selectedGroupId);
+  selectedGroupRef.current = selectedGroupId;
   // v28: витрина курсов — статус модерации, цена, блокировка.
   const [storeStatus, setStoreStatus] = useState('draft');
   const [storeRejectReason, setStoreRejectReason] = useState('');
@@ -259,6 +266,8 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
       getActivityMedia(courseId, selectedGroupId),
       getActivityCalls(courseId, selectedGroupId),
     ]);
+    // Пока грузилось, выбрали другую группу — ответ устарел, не применяем.
+    if (selectedGroupRef.current !== selectedGroupId) return;
     if (!course) { setError('Не удалось загрузить курс'); setLoading(false); return; }
 
     setTitle(course.title || '');
@@ -336,6 +345,7 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
         };
       });
     setActivities(acts);
+    setLoadedGroupId(selectedGroupId);
     if (withSpinner) setLoading(false);
   }, [courseId, selectedGroupId]);
 
@@ -505,7 +515,8 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
   const handleCreateCall = async (activityId, day, scheduledAt, durationMin) => {
     const result = await createActivityCall(courseId, activityId, day, scheduledAt, durationMin, selectedGroupId);
     if (result.error) { setError(`Ошибка: ${result.error}`); return; }
-    if (result.data) setCalls(prev => [...prev, result.data]);
+    // Сервер отдаёт уже существующий звонок на этот день — не дублируем в списке.
+    if (result.data) setCalls(prev => prev.some(c => c.id === result.data.id) ? prev : [...prev, result.data]);
   };
 
   const handleDeleteCall = async (callId) => {
@@ -879,6 +890,8 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
   const streamStartDate = selectedGroup
     ? (selectedGroup.start_date ? String(selectedGroup.start_date).slice(0, 10) : '')
     : startDate;
+  // Звонки/активности на экране — именно выбранной группы (см. loadedGroupId).
+  const callsSyncReady = loadedGroupId === selectedGroupId && (!groupsEnabled || !!selectedGroup);
 
   if (loading) {
     return (
@@ -1162,6 +1175,7 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
             tzOffsetMin={tzOffsetMin}
             boundToCalendar={streamBound}
             courseStartDate={streamStartDate}
+            callsSyncReady={callsSyncReady}
             collapsed={collapsedKeys.has(a._key)}
             onToggleCollapsed={() => toggleCollapsed(a._key)}
             isDragging={dragKey === a._key}
@@ -1282,8 +1296,12 @@ function getActivityScheduledDays(activity, maxDay) {
   return days;
 }
 
+// Звонок проведён или в него заходили — его не удаляем ни крестиком, ни
+// синхронизацией (к нему привязаны запись и посещаемость; сервер тоже не даст).
+const callLocked = (c) => !!(c.recording_url || c.status === 'completed' || c.has_joins);
+
 function CallSchedule({ activity, maxDay, calls, courseId, tzMin, trainerTzLabel,
-                        boundToCalendar, courseStartDate,
+                        boundToCalendar, courseStartDate, syncReady = false, onToggleDay,
                         onCreateCall, onDeleteCall, onPatchCall }) {
   const actId = activity.activityId || activity.dbId;
   const actCalls = (calls || []).filter(c => c.activity_id === actId);
@@ -1293,13 +1311,16 @@ function CallSchedule({ activity, maxDay, calls, courseId, tzMin, trainerTzLabel
   // создать звонок (10:00 default), для каждого звонка с днём вне расписания —
   // удалить. Запускается на изменения scheduledDays и при каждом монтировании.
   // Защита от race: используем ref-флаг чтобы не дёргать API параллельно.
+  // syncReady — звонки на экране загружены для выбранной группы; без этого
+  // при смене группы синхронизация видела звонки старой группы и создавала
+  // дубли в новую (28.09, Осознанная Походка, Группа 2).
   const syncingRef = useRef(false);
   useEffect(() => {
-    if (!boundToCalendar || !courseStartDate || !courseId) return;
+    if (!syncReady || !boundToCalendar || !courseStartDate || !courseId) return;
     if (syncingRef.current) return;
     const dayToCall = new Map(actCalls.map(c => [c.day, c]));
     const toCreate = scheduledDays.filter(d => !dayToCall.has(d));
-    const toDelete = actCalls.filter(c => !scheduledDays.includes(c.day));
+    const toDelete = actCalls.filter(c => !scheduledDays.includes(c.day) && !callLocked(c));
     if (!toCreate.length && !toDelete.length) return;
     syncingRef.current = true;
     (async () => {
@@ -1315,7 +1336,7 @@ function CallSchedule({ activity, maxDay, calls, courseId, tzMin, trainerTzLabel
         syncingRef.current = false;
       }
     })();
-  }, [boundToCalendar, courseStartDate, JSON.stringify(scheduledDays), actCalls.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [syncReady, boundToCalendar, courseStartDate, JSON.stringify(scheduledDays), actCalls.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Без bound_to_calendar: списка нет, показываем подсказку.
   if (!boundToCalendar || !courseStartDate) {
@@ -1344,7 +1365,11 @@ function CallSchedule({ activity, maxDay, calls, courseId, tzMin, trainerTzLabel
         </div>
       ) : sortedCalls.map(c => (
         <CallRow key={c.id} call={c} courseStartDate={courseStartDate} tzMin={tzMin}
-                 onPatch={(scheduledAt) => onPatchCall(c.id, { scheduledAt })} />
+                 onPatch={(scheduledAt) => onPatchCall(c.id, { scheduledAt })}
+                 locked={callLocked(c)}
+                 onlyForDay={!actCalls.some(o => o.id !== c.id && o.day === c.day)}
+                 onDelete={() => onDeleteCall(c.id)}
+                 onRemoveDay={onToggleDay && scheduledDays.includes(c.day) ? () => onToggleDay(c.day) : null} />
       ))}
       <div style={{ fontSize: 10, color: '#aaa', marginTop: 6 }}>
         Время указывается в вашем часовом поясе из Профиля ({trainerTzLabel}). У учеников отобразится в их собственном. Длительность учитывается по факту окончания.
@@ -1353,11 +1378,23 @@ function CallSchedule({ activity, maxDay, calls, courseId, tzMin, trainerTzLabel
   );
 }
 
-function CallRow({ call, courseStartDate, tzMin, onPatch }) {
+// ✕ у строки: лишний звонок на день (дубль) удаляется сразу. Если это
+// единственный звонок дня — синхронизация тут же создала бы его заново,
+// поэтому после подтверждения день убирается из расписания практики, а звонок
+// удаляет синхронизация. Проведённые звонки (locked) удалить нельзя.
+function CallRow({ call, courseStartDate, tzMin, onPatch, locked = false, onlyForDay = false, onDelete, onRemoveDay }) {
   const isoDate = dayToISODate(courseStartDate, call.day);
   const initialTime = call.scheduled_at ? isoToHHMM(call.scheduled_at, tzMin) : '10:00';
   const [time, setTime] = useState(initialTime);
   const savedRef = useRef(initialTime);
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const needsDayRemoval = onlyForDay && !!onRemoveDay;
+  const handleX = async () => {
+    if (needsDayRemoval) { setConfirming(true); return; }
+    setBusy(true);
+    try { await onDelete(); } finally { setBusy(false); }
+  };
 
   // Если бэкенд вернул обновлённое значение — обновим локально.
   useEffect(() => {
@@ -1380,21 +1417,59 @@ function CallRow({ call, courseStartDate, tzMin, onPatch }) {
 
   return (
     <div style={{
-      display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px',
-      marginBottom: 4, borderRadius: 8, background: 'rgba(155,89,182,0.06)', fontSize: 12,
+      padding: '6px 10px', marginBottom: 4, borderRadius: 8,
+      background: 'rgba(155,89,182,0.06)', fontSize: 12,
     }}>
-      <span style={{ fontSize: 14 }}>📞</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0, color: '#8e44ad' }}>
+        <path d="M5 4h4l2 5-2.5 1.5a11 11 0 005 5L15 13l5 2v4a2 2 0 01-2 2A16 16 0 013 6a2 2 0 012-2"
+          stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
       <span style={{ flex: 1, color: '#555' }}>
         День {call.day} — {formatDayDateLong(isoDate)}
       </span>
       <input type="time" value={time} onChange={e => setTime(e.target.value)}
         style={{ width: 84, padding: '3px 6px', fontSize: 11, borderRadius: 6,
                  border: '1px solid rgba(0,0,0,0.08)', background: '#fff' }} />
+      {!locked && (
+        <button type="button" onClick={handleX} disabled={busy}
+          title={needsDayRemoval ? 'Убрать день из расписания' : 'Удалить звонок'}
+          aria-label="Удалить звонок"
+          style={{
+            width: 26, height: 26, flexShrink: 0, padding: 0, borderRadius: 6,
+            border: '1px solid rgba(0,0,0,0.08)', background: '#fff',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: '#c0392b', cursor: busy ? 'wait' : 'pointer', opacity: busy ? 0.5 : 1,
+          }}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+            <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+          </svg>
+        </button>
+      )}
+      </div>
+      {confirming && (
+        <div style={{ width: '100%', marginTop: 6, fontSize: 11, color: '#555', lineHeight: 1.4 }}>
+          Это единственный звонок дня {call.day}. Убрать день {call.day} из расписания практики?
+          Звонок удалится.
+          <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+            <button type="button" onClick={() => { setConfirming(false); onRemoveDay(); }}
+              style={{ flex: 1, padding: '6px 0', borderRadius: 6, border: '1px solid rgba(192,57,43,0.3)',
+                       background: 'rgba(192,57,43,0.06)', color: '#c0392b', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
+              Убрать день
+            </button>
+            <button type="button" onClick={() => setConfirming(false)}
+              style={{ flex: 1, padding: '6px 0', borderRadius: 6, border: '1px solid rgba(0,0,0,0.08)',
+                       background: '#fff', color: '#555', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
+              Отмена
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-function ActivityCard({ activity, index, maxDay, onUpdate, onToggleDay, onRemove, onPickIcon, videos, courseId, videoUploadingId, uploadProgress, uploadPhase, activityId: propActivityId, onVideoUpload, onAddLink, onAddEmpty, onDeleteVideo, onPatchVideo, calls, onCreateCall, onDeleteCall, onPatchCall, tzOffsetMin, boundToCalendar, courseStartDate, collapsed = false, onToggleCollapsed, isDragging = false, isDragOver = false, onDragBegin, onDragOverKey, onDragEnd, onDropOn, onSaveToLibrary, onRefreshLibrary, onUnlinkLibrary, libraryBusy = false }) {
+function ActivityCard({ activity, index, maxDay, onUpdate, onToggleDay, onRemove, onPickIcon, videos, courseId, videoUploadingId, uploadProgress, uploadPhase, activityId: propActivityId, onVideoUpload, onAddLink, onAddEmpty, onDeleteVideo, onPatchVideo, calls, onCreateCall, onDeleteCall, onPatchCall, tzOffsetMin, boundToCalendar, courseStartDate, callsSyncReady = false, collapsed = false, onToggleCollapsed, isDragging = false, isDragOver = false, onDragBegin, onDragOverKey, onDragEnd, onDropOn, onSaveToLibrary, onRefreshLibrary, onUnlinkLibrary, libraryBusy = false }) {
   // Trainer's timezone comes from THEIR profile (user_settings.tz_offset_min),
   // NOT from the browser — VPNs make browser tz unreliable; profile is the
   // single source of truth. Default fallback: Moscow (UTC+3, offset=180).
@@ -1738,6 +1813,8 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onToggleDay, onRemove
           trainerTzLabel={trainerTzLabel}
           boundToCalendar={boundToCalendar}
           courseStartDate={courseStartDate}
+          syncReady={callsSyncReady}
+          onToggleDay={onToggleDay}
           onCreateCall={onCreateCall}
           onDeleteCall={onDeleteCall}
           onPatchCall={onPatchCall}
