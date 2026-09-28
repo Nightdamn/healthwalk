@@ -116,11 +116,19 @@ export default function Dashboard({
   // дня, до которого он сам «не дошёл».
   const isCourseOwner = activeItem?.type === 'course' && !!activeItem?.ownerId && activeItem.ownerId === user?.id;
   const canActOnDay = isToday || isCourseOwner;
-  const closureSet =React.useMemo(() => new Set((closures || []).map(c => c.day)), [closures]);
+  const closureSet = React.useMemo(() => new Set((closures || []).map(c => c.day)), [closures]);
 
-  // Дата дня. «По дням» — от сегодняшнего дня курса. В режимах по прохождению
-  // дни не привязаны к календарю: пройденный день — дата его закрытия (с учётом
-  // часа начала дня), текущий — сегодня, будущие — без даты.
+  // Дата дня. Поток привязан к дате старта (курс или группа) — день N всегда
+  // «старт + (N−1)» у всех учеников, в любом режиме, даже если ученик в эти
+  // дни ничего не делал: иначе даты у всех разные и ученики путаются.
+  // Без привязки: «По дням» — от сегодняшнего дня курса; в режимах по
+  // прохождению пройденный день — дата его закрытия (с учётом часа начала
+  // дня), текущий — сегодня, будущие — без даты.
+  const boundStartDate = React.useMemo(() => {
+    if (!activeItem?.boundToCalendar || !activeItem?.startDate) return null;
+    const [y, m, d] = String(activeItem.startDate).slice(0, 10).split('-').map(Number);
+    return y && m && d ? new Date(y, m - 1, d) : null;
+  }, [activeItem?.boundToCalendar, activeItem?.startDate]);
   const closedDateByDay = React.useMemo(() => {
     const m = {};
     for (const c of closures || []) {
@@ -132,6 +140,11 @@ export default function Dashboard({
     return m;
   }, [closures, dayStartHour]);
   const dateForDay = (day) => {
+    if (boundStartDate) {
+      const d = new Date(boundStartDate);
+      d.setDate(d.getDate() + day - 1);
+      return d;
+    }
     if (!isProgressive) return getDateForDay(day, currentDay, dayStartHour);
     if (closedDateByDay[day]) return closedDateByDay[day];
     if (!isUpcoming && day === currentDay) return getCurrentDayDate(dayStartHour);
