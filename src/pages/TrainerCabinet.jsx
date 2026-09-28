@@ -578,7 +578,7 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
                       exclusions={allExclusions[st.user_id] || {}}
                       customActivities={allCustomActivities.filter(ca => ca.user_id === st.user_id)}
                       onToggleExclusion={async (actId, day) => {
-                        const result = await trainerToggleExclusion(courseId, st.user_id, actId, day);
+                        const result = await trainerToggleExclusion(courseId, st.user_id, actId, day, st.group_id);
                         if (result.success) {
                           setAllExclusions(prev => {
                             const next = { ...prev };
@@ -616,7 +616,7 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
                         return result;
                       }}
                       onToggleCompletion={async (actId, day, completed) => {
-                        const result = await trainerToggleCompletion(courseId, st.user_id, actId, day, completed);
+                        const result = await trainerToggleCompletion(courseId, st.user_id, actId, day, completed, st.group_id);
                         if (result.success) {
                           setAllProgress(prev => {
                             const next = { ...prev };
@@ -748,8 +748,9 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
                       </div>
                     )}
 
-                    {/* Actions */}
-                    {(
+                    {/* Actions. У виртуальной строки создателя в чужой группе
+                        (virtual_owner) своей записи нет — пауза недоступна. */}
+                    {!st.virtual_owner && (
                       <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
                         <button onClick={() => handleTogglePause(st.enrollment_id)} disabled={isBusy}
                           style={{

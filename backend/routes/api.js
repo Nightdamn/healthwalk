@@ -2153,7 +2153,33 @@ router.get('/trainer/students/:courseId', async (req, res) => {
        ORDER BY (c.owner_id = u.id) DESC, g.sort_order NULLS LAST, g.name NULLS LAST, ce.role, ce.joined_at`,
       params
     );
-    res.json(rows);
+    // Создатель курса — участник каждого потока: в курсе по группам
+    // показываем его в каждой группе (кроме шаблона), где у него нет своей
+    // записи. Строка виртуальная (enrollment_id = 'owner:<group>'): прогресс и
+    // закрытые дни — его, в этой группе; действия с записью скрыты в UI.
+    const groupFilter = filter ? ' AND (g.trainer_id = $2 OR g.curator_id = $2)' : '';
+    const ownerRows = await query(
+      `SELECT 'owner:' || g.id AS enrollment_id, u.id AS user_id, u.email, u.display_name, 'trainer' AS role,
+              false AS paused, NULL::timestamptz AS joined_at,
+              NULL AS progression_mode_override, NULL::int AS access_days_after_override,
+              g.id AS group_id, g.name AS group_name, g.avatar_icon AS group_avatar_icon, g.avatar_custom AS group_avatar_custom,
+              g.progression_mode AS group_progression_mode, g.access_days_after AS group_access_days_after,
+              c.progression_mode AS course_progression_mode, c.access_days_after AS course_access_days_after,
+              c.groups_enabled, true AS is_owner, true AS virtual_owner,
+              COALESCE(g.progression_mode, c.progression_mode, 'daily') AS effective_mode,
+              COALESCE(g.bound_to_calendar, false) AS effective_bound,
+              g.start_date AS effective_start_date,
+              g.access_days_after AS stream_access_days_after,
+              (SELECT COUNT(*) FROM course_day_closures WHERE user_id = u.id AND group_id = g.id) AS closed_days
+         FROM courses c
+         JOIN users u ON u.id = c.owner_id
+         JOIN course_groups g ON g.course_id = c.id AND NOT g.is_default
+        WHERE c.id = $1 AND c.groups_enabled${groupFilter}
+          AND NOT EXISTS (SELECT 1 FROM course_enrollments x WHERE x.user_id = c.owner_id AND x.group_id = g.id)
+        ORDER BY g.sort_order, g.name`,
+      params
+    );
+    res.json([...rows, ...ownerRows]);
   } catch (err) { console.error(err); res.json([]); }
 });
 
@@ -2227,12 +2253,23 @@ router.post('/trainer/change-role', async (req, res) => {
   } catch (err) { res.json({ success: false, error: err.message }); }
 });
 
+// Группа, в которую тренер пишет зачёт/исключение ученика: переданная строкой
+// кабинета (если она из этого курса) — владелец курса показан в каждой группе
+// и проходит каждую отдельно, — иначе группа записи ученика.
+async function trainerTargetGroup(courseId, userId, groupId) {
+  if (groupId) {
+    const g = await queryOne('SELECT id FROM course_groups WHERE id = $1 AND course_id = $2', [groupId, courseId]);
+    if (g) return g.id;
+  }
+  return resolveEffectiveGroup(userId, courseId);
+}
+
 router.post('/trainer/toggle-exclusion', async (req, res) => {
   try {
-    const { courseId, userId, activityId, day } = req.body;
+    const { courseId, userId, activityId, day, groupId } = req.body;
     if (!await isTrainer(req.userId, courseId)) return res.json({ success: false, error: 'Нет прав' });
     // v30: exclusion per-group. Берём группу ученика.
-    const gid = await resolveEffectiveGroup(userId, courseId);
+    const gid = await trainerTargetGroup(courseId, userId, groupId);
     const existing = await queryOne(
       'SELECT id FROM student_activity_exclusions WHERE user_id = $1 AND group_id = $2 AND activity_id = $3 AND day = $4',
       [userId, gid, activityId, day]
@@ -2271,9 +2308,9 @@ router.post('/trainer/add-activity', async (req, res) => {
 // duration to set elapsed_seconds when toggling on (so progress bars look right).
 router.post('/trainer/toggle-completion', async (req, res) => {
   try {
-    const { courseId, userId, activityId, day, completed } = req.body;
+    const { courseId, userId, activityId, day, completed, groupId } = req.body;
     if (!await isTrainer(req.userId, courseId)) return res.json({ success: false, error: 'Нет прав' });
-    const gid = await resolveEffectiveGroup(userId, courseId);
+    const gid = await trainerTargetGroup(courseId, userId, groupId);
 
     const existing = await queryOne(
       'SELECT completed, elapsed_seconds FROM course_progress WHERE user_id = $1 AND group_id = $2 AND activity_id = $3 AND day = $4',

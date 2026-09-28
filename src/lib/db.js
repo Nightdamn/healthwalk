@@ -408,9 +408,10 @@ export async function changeStudentRole(enrollmentId, newRole) {
   }
 }
 
-export async function trainerToggleExclusion(courseId, userId, activityId, day) {
+// groupId — группа строки ученика в кабинете (владелец курса показан в каждой группе).
+export async function trainerToggleExclusion(courseId, userId, activityId, day, groupId) {
   try {
-    return await apiPost('/api/trainer/toggle-exclusion', { courseId, userId, activityId, day });
+    return await apiPost('/api/trainer/toggle-exclusion', { courseId, userId, activityId, day, groupId });
   } catch (err) {
     return { success: false, error: err.message };
   }
@@ -427,9 +428,9 @@ export async function trainerAddStudentActivity(courseId, userId, label, iconNum
   }
 }
 
-export async function trainerToggleCompletion(courseId, userId, activityId, day, completed) {
+export async function trainerToggleCompletion(courseId, userId, activityId, day, completed, groupId) {
   try {
-    return await apiPost('/api/trainer/toggle-completion', { courseId, userId, activityId, day, completed });
+    return await apiPost('/api/trainer/toggle-completion', { courseId, userId, activityId, day, completed, groupId });
   } catch (err) {
     return { success: false, error: err.message };
   }

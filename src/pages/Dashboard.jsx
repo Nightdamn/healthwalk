@@ -111,7 +111,12 @@ export default function Dashboard({
   // v25: three progression modes.
   const isProgressive = progressionMode === 'free' || progressionMode === 'self_paced';
   const isSelfPaced = progressionMode === 'self_paced';
-  const closureSet = React.useMemo(() => new Set((closures || []).map(c => c.day)), [closures]);
+  // Создатель курса ведёт все потоки: у него открыты все дни (будущие и до
+  // старта потока тоже) — иначе в режиме «по прохождению» не войти в эфир
+  // дня, до которого он сам «не дошёл».
+  const isCourseOwner = activeItem?.type === 'course' && !!activeItem?.ownerId && activeItem.ownerId === user?.id;
+  const canActOnDay = isToday || isCourseOwner;
+  const closureSet =React.useMemo(() => new Set((closures || []).map(c => c.day)), [closures]);
 
   // Дата дня. «По дням» — от сегодняшнего дня курса. В режимах по прохождению
   // дни не привязаны к календарю: пройденный день — дата его закрытия (с учётом
@@ -293,11 +298,11 @@ export default function Dashboard({
                       {showLine && <div style={{ width: 12, minWidth: 12, height: 2.5, background: lineGreen ? GREEN : 'rgba(0,0,0,0.06)', marginLeft: -3, marginRight: -3, zIndex: 0, flexShrink: 0 }} />}
                       <div data-day={day} onClick={() => {
                           // В progressive режимах future — заблокирован.
-                          if (isFuture && isSelfPaced) return;
+                          if (isFuture && isSelfPaced && !isCourseOwner) return;
                           setViewingDay(day);
                           setDashView('day');
                         }}
-                        style={{ cursor: (isFuture && isSelfPaced) ? 'default' : 'pointer', flexShrink: 0, zIndex: 1, position: 'relative', opacity: (isFuture && isSelfPaced) ? 0.5 : 1 }}>
+                        style={{ cursor: (isFuture && isSelfPaced && !isCourseOwner) ? 'default' : 'pointer', flexShrink: 0, zIndex: 1, position: 'relative', opacity: (isFuture && isSelfPaced && !isCourseOwner) ? 0.5 : 1 }}>
                         <DayCircle day={day} uid={uidRef.current} timePct={isCurrent ? timePct : (isPast ? 100 : 0)}
                           allDone={allDone} practicePct={practiceFrac} isPast={isPast} isCurrent={isCurrent} isFuture={isFuture}
                           progressive={isProgressive} />
@@ -463,10 +468,10 @@ export default function Dashboard({
                     //   «Смотреть запись» — см. ниже).
                     const cardClickable =
                       act.practiceType === 'theory' ||
-                      (act.practiceType === 'media' && (!isToday || done));
+                      (act.practiceType === 'media' && (!canActOnDay || done));
                     const viewOnly =
                       (act.practiceType === 'theory' && done) ||
-                      (act.practiceType === 'media' && (!isToday || done));
+                      (act.practiceType === 'media' && (!canActOnDay || done));
                     // Кнопка «Просмотр» под прогресс-баром — общая для
                     // view-only media/theory и для call с recording_url.
                     // Собираем payload здесь (nullable), а рендерим ниже.
@@ -515,7 +520,7 @@ export default function Dashboard({
                     // старой кнопки в правом верхнем углу. Показываем когда
                     // практика активна сегодня, ещё не сделана и это не эфир
                     // с готовой записью (там виден «Просмотр»).
-                    const canStartNow = !done && isToday && !viewOnly && !(act.practiceType === 'call' && callRec);
+                    const canStartNow = !done && canActOnDay && !viewOnly && !(act.practiceType === 'call' && callRec);
                     const startPayload = canStartNow ? {
                       id: act.id, activityId: act.activityId, label: act.label,
                       duration: act.durationMin, iconNum: act.iconNum,
