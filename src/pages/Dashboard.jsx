@@ -63,6 +63,11 @@ function DayCircle({ day, timePct, allDone, practicePct, isPast, isCurrent, isFu
 
   // Solid fill when all practices are done
   const fillOpacity = allDone ? 0.85 : 0.25;
+  // Белая цифра — только если заливка закрывает её целиком (≈65% высоты круга:
+  // глиф 11px по центру). Закрытый день с невыполненными практиками (закрыт
+  // вручную, «Завершить день», летнее пакетное закрытие Группы 1) заливается
+  // частично или никак — там белая цифра пропадала на белом фоне.
+  const textOnFill = allDone && frac >= 0.65;
 
   return (
     <svg width={SZ} height={SZ} style={{ display: 'block', overflow: 'visible', flexShrink: 0 }}>
@@ -70,7 +75,7 @@ function DayCircle({ day, timePct, allDone, practicePct, isPast, isCurrent, isFu
       {frac > 0 && <rect x={CX - IR} y={fillY} width={diam} height={fillH} fill={GREEN} opacity={fillOpacity} clipPath={`url(#${clipId})`} style={{ transition: 'y 0.5s ease, height 0.5s ease' }} />}
       <circle cx={CX} cy={CY} r={R} fill="none" stroke={isFuture ? 'rgba(0,0,0,0.05)' : GREEN} strokeWidth={2} opacity={isFuture ? 1 : 0.35} />
       {arcPct > 0 && <circle cx={CX} cy={CY} r={R} fill="none" stroke={GREEN} strokeWidth={2.5} strokeLinecap="round" strokeDasharray={CIRC} strokeDashoffset={offset} style={{ transform: 'rotate(180deg)', transformOrigin: `${CX}px ${CY}px`, transition: 'stroke-dashoffset 1s ease' }} />}
-      <text x={CX} y={CY + 1} textAnchor="middle" dominantBaseline="middle" fill={allDone ? '#fff' : isFuture ? '#ccc' : '#1a1a2e'} fontSize={11} fontWeight={isCurrent ? 700 : 500}>{day}</text>
+      <text x={CX} y={CY + 1} textAnchor="middle" dominantBaseline="middle" fill={textOnFill ? '#fff' : isFuture ? '#ccc' : '#1a1a2e'} fontSize={11} fontWeight={isCurrent ? 700 : 500}>{day}</text>
     </svg>
   );
 }
