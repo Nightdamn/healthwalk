@@ -5,6 +5,36 @@ import { query, queryOne, execute, withTransaction } from '../db.js';
 import { accessWindow, localDate, getStudentAccess } from '../access.js';
 import { syncGroupCalls, syncCourseCalls, insertCall } from '../callSync.js';
 
+// ── v31: практика «Задание» (practice_type='task') ──
+const PRACTICE_TYPES = ['media', 'theory', 'call', 'task'];
+
+// Настройки задания для клиента (у остальных типов — значения по умолчанию).
+function taskFields(a) {
+  return {
+    taskBound: a.task_bound !== false,
+    taskRequired: !!a.task_required,
+    taskReview: !!a.task_review,
+    taskReminder: a.task_reminder || null,
+  };
+}
+
+// Дни напоминаний в том же виде, что дни практики. Клиент присылает объект
+// или null (без напоминаний); чистим до целых дней в пределах курса.
+function sanitizeReminder(r, daysCount) {
+  if (!r || typeof r !== 'object') return null;
+  const clampDay = (x, def) => Math.max(1, Math.min(parseInt(x) || def, daysCount));
+  const days = (arr) => Array.from(new Set((Array.isArray(arr) ? arr : [])
+    .map(x => parseInt(x)).filter(n => Number.isFinite(n) && n >= 1 && n <= daysCount))).sort((a, b) => a - b);
+  const firstDay = clampDay(r.firstDay, 1);
+  return {
+    firstDay,
+    lastDay: Math.max(firstDay, clampDay(r.lastDay, daysCount)),
+    intervalDays: Math.max(1, parseInt(r.intervalDays) || 1),
+    excludedDays: days(r.excludedDays),
+    extraDays: days(r.extraDays),
+  };
+}
+
 // Звонки повторяют дни онлайн-практик (см. callSync.js). Сбой синхронизации
 // не должен ломать само сохранение — только в лог.
 async function syncCallsSafe(fn, what) {
@@ -256,6 +286,7 @@ async function buildCourseItem(e, userId) {
           lastDay: a.last_day || e.days_count, intervalDays: a.interval_days || 1,
           createdAt: a.created_at,
           excludedDays: a.excluded_days || [], extraDays: a.extra_days || [],
+          ...taskFields(a),
         })),
   };
 }
@@ -317,6 +348,7 @@ router.get('/items', async (req, res) => {
           lastDay: a.last_day || c.days_count, intervalDays: a.interval_days || 1,
           createdAt: a.created_at,
           excludedDays: a.excluded_days || [], extraDays: a.extra_days || [],
+          ...taskFields(a),
         })),
       });
     }
@@ -464,7 +496,11 @@ async function maybeAutoCloseDay(userId, courseId, day, gid) {
     'SELECT activity_id FROM student_activity_exclusions WHERE user_id=$1 AND group_id=$2 AND day=$3',
     [userId, gid, day]
   )).map(e => e.activity_id));
-  const dayActs = daysWithActivities(acts, day).filter(a => !excluded.has(a.id));
+  // Задание держит день, только если оно обязательное и привязано к дате;
+  // необязательное и «без даты» (висит до выполнения) на закрытие не влияют.
+  const dayActs = daysWithActivities(acts, day)
+    .filter(a => !excluded.has(a.id))
+    .filter(a => a.practice_type !== 'task' || (a.task_bound !== false && a.task_required));
   if (dayActs.length === 0) return;
   const progress = await query(
     'SELECT activity_id, completed FROM course_progress WHERE user_id=$1 AND group_id=$2 AND day=$3',
@@ -1002,7 +1038,7 @@ router.post('/courses/:id/activities', async (req, res) => {
     }
     const days = await queryOne('SELECT days_count FROM courses WHERE id = $1', [courseId]);
     const daysCount = days?.days_count || 30;
-    const pt = ['media', 'theory', 'call'].includes(practiceType) ? practiceType : 'media';
+    const pt = PRACTICE_TYPES.includes(practiceType) ? practiceType : 'media';
     const fd = Math.max(1, Math.min(parseInt(firstDay) || 1, daysCount));
     const ld = Math.max(fd, Math.min(parseInt(lastDay) || daysCount, daysCount));
     const dur = Math.max(1, Math.min(parseInt(durationMin) || 10, 1200));
@@ -1042,15 +1078,23 @@ router.patch('/activities/:id', async (req, res) => {
     const days = await queryOne('SELECT days_count FROM courses WHERE id = $1', [act.course_id]);
     const daysCount = days?.days_count || 30;
 
-    const { label, iconNum, practiceType, descriptionHtml, firstDay, lastDay, durationMin, intervalDays, sortOrder, excludedDays, extraDays, libraryPracticeId } = req.body || {};
+    const { label, iconNum, practiceType, descriptionHtml, firstDay, lastDay, durationMin, intervalDays, sortOrder, excludedDays, extraDays, libraryPracticeId,
+            taskBound, taskRequired, taskReview, taskReminder } = req.body || {};
     const sets = [];
     const params = [];
     let i = 1;
 
     if (typeof label === 'string') { sets.push(`label=$${i++}`); params.push(label); }
     if (typeof iconNum === 'string' && iconNum) { sets.push(`icon_num=$${i++}`); params.push(iconNum); }
-    if (typeof practiceType === 'string' && ['media', 'theory', 'call'].includes(practiceType)) {
+    if (typeof practiceType === 'string' && PRACTICE_TYPES.includes(practiceType)) {
       sets.push(`practice_type=$${i++}`); params.push(practiceType);
+    }
+    // v31: настройки задания.
+    if (typeof taskBound === 'boolean') { sets.push(`task_bound=$${i++}`); params.push(taskBound); }
+    if (typeof taskRequired === 'boolean') { sets.push(`task_required=$${i++}`); params.push(taskRequired); }
+    if (typeof taskReview === 'boolean') { sets.push(`task_review=$${i++}`); params.push(taskReview); }
+    if (taskReminder !== undefined) {
+      sets.push(`task_reminder=$${i++}`); params.push(sanitizeReminder(taskReminder, daysCount));
     }
     if (descriptionHtml !== undefined) {
       sets.push(`description_html=$${i++}`); params.push(descriptionHtml || null);
@@ -1691,12 +1735,14 @@ router.post('/courses/:id/groups', async (req, res) => {
           `INSERT INTO course_activities (
              course_id, group_id, activity_id, label, duration_min, icon_num,
              practice_type, description_html, first_day, last_day,
-             interval_days, sort_order, excluded_days, extra_days, library_practice_id
-           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id`,
+             interval_days, sort_order, excluded_days, extra_days, library_practice_id,
+             task_bound, task_required, task_review, task_reminder
+           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) RETURNING id`,
           [req.params.id, row.id, a.activity_id, a.label, a.duration_min, a.icon_num,
            a.practice_type, a.description_html, a.first_day, a.last_day,
            a.interval_days, a.sort_order, a.excluded_days || [], a.extra_days || [],
-           a.library_practice_id]
+           a.library_practice_id,
+           a.task_bound !== false, !!a.task_required, !!a.task_review, a.task_reminder || null]
         );
         idMap.set(a.id, newRow.id);
       }
@@ -1983,11 +2029,13 @@ router.post('/library', async (req, res) => {
       `INSERT INTO practice_library
          (owner_id, label, icon_num, practice_type, description_html,
           duration_min, first_day, last_day, interval_days,
-          excluded_days, extra_days)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
+          excluded_days, extra_days,
+          task_bound, task_required, task_review, task_reminder)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
       [req.userId, act.label || '', act.icon_num || 'health/1', act.practice_type || 'media',
        act.description_html, act.duration_min, act.first_day || 1, act.last_day || 30,
-       act.interval_days || 1, act.excluded_days || [], act.extra_days || []]
+       act.interval_days || 1, act.excluded_days || [], act.extra_days || [],
+       act.task_bound !== false, !!act.task_required, !!act.task_review, act.task_reminder || null]
     );
     // NB: activity_media.activity_id — TEXT, но хранит UUID row course_activities
     // (клиент пишет туда a.dbId = row.id, не текстовый ключ activity_id).
@@ -2030,11 +2078,14 @@ router.patch('/library/:id', async (req, res) => {
       `UPDATE practice_library SET
          label=$1, icon_num=$2, practice_type=$3, description_html=$4,
          duration_min=$5, first_day=$6, last_day=$7, interval_days=$8,
-         excluded_days=$9, extra_days=$10, updated_at=NOW()
+         excluded_days=$9, extra_days=$10,
+         task_bound=$12, task_required=$13, task_review=$14, task_reminder=$15,
+         updated_at=NOW()
        WHERE id=$11`,
       [act.label, act.icon_num, act.practice_type, act.description_html,
        act.duration_min, act.first_day, act.last_day, act.interval_days,
-       act.excluded_days || [], act.extra_days || [], lib.id]
+       act.excluded_days || [], act.extra_days || [], lib.id,
+       act.task_bound !== false, !!act.task_required, !!act.task_review, act.task_reminder || null]
     );
     // Полностью пересобираем медиа: DELETE + INSERT из свежего snapshot.
     await query('DELETE FROM practice_library_media WHERE practice_id = $1', [lib.id]);
@@ -2108,12 +2159,15 @@ router.post('/courses/:courseId/activities/from-library', async (req, res) => {
         `INSERT INTO course_activities
            (course_id, group_id, activity_id, label, duration_min, icon_num, practice_type,
             description_html, first_day, last_day, interval_days, sort_order,
-            excluded_days, extra_days, library_practice_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
+            excluded_days, extra_days, library_practice_id,
+            task_bound, task_required, task_review, task_reminder)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) RETURNING *`,
         [courseId, gid, activityKey, lib.label, lib.duration_min, lib.icon_num, lib.practice_type,
          lib.description_html, clampDay(lib.first_day), clampDay(lib.last_day),
          lib.interval_days || 1, nextSort++, clampDays(lib.excluded_days),
-         clampDays(lib.extra_days), lib.id]
+         clampDays(lib.extra_days), lib.id,
+         lib.task_bound !== false, !!lib.task_required, !!lib.task_review,
+         lib.task_reminder ? sanitizeReminder(lib.task_reminder, daysCount) : null]
       );
       // Копируем media. NB: activity_media.activity_id — TEXT, но клиент
       // читает медиа по row.id (UUID), не по текстовому ключу.
@@ -2136,7 +2190,11 @@ router.post('/courses/:courseId/activities/from-library', async (req, res) => {
       }
       created.push(row);
     }
-    res.json({ data: created, count: created.length });
+    // Скопировали онлайн-практику — у привязанного к дате потока появляются её звонки.
+    const callsChanged = created.some(r => r.practice_type === 'call')
+      ? await syncCallsSafe(() => syncGroupCalls(gid, { actorId: req.userId }), `from library ${gid}`)
+      : false;
+    res.json({ data: created, count: created.length, callsChanged });
   } catch (err) { console.error('[Library] copy-to-course:', err); res.status(500).json({ error: err.message }); }
 });
 

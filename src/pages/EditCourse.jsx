@@ -98,6 +98,126 @@ const PRACTICE_TYPE_OPTIONS = [
   { value: 'theory', label: 'Теория' },
   { value: 'call', label: 'Онлайн с мастером' },
 ];
+// v31: «Задание». Пока экраны ученика и тренера в работе — выбрать тип может
+// только администратор платформы (allowTask); у уже созданного задания тип
+// виден всем.
+const TASK_TYPE_OPTION = { value: 'task', label: 'Задание' };
+
+// Флажок в стиле «Сохранить в Банк практик»: квадрат 20px, зелёный с галочкой.
+function CheckRow({ checked, onChange, label, hint, disabled = false }) {
+  return (
+    <div style={{ marginBottom: 8, opacity: disabled ? 0.5 : 1 }}>
+      <div onClick={() => !disabled && onChange(!checked)}
+        role="checkbox" aria-checked={checked} tabIndex={disabled ? -1 : 0}
+        onKeyDown={e => { if (!disabled && (e.key === ' ' || e.key === 'Enter')) { e.preventDefault(); onChange(!checked); } }}
+        style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: disabled ? 'default' : 'pointer' }}>
+        <div style={{
+          width: 20, height: 20, borderRadius: 6, flexShrink: 0,
+          border: `2px solid ${checked ? GREEN : 'rgba(0,0,0,0.15)'}`,
+          background: checked ? GREEN : '#fff',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          {checked && (
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+              <path d="M2 6L5 9L10 3" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          )}
+        </div>
+        <span style={{ fontSize: 13, color: '#1a1a2e', fontWeight: 500 }}>{label}</span>
+      </div>
+      {hint && <div style={{ fontSize: 11, color: '#888', marginTop: 4, marginLeft: 28, lineHeight: 1.4 }}>{hint}</div>}
+    </div>
+  );
+}
+
+// Настройки задания: привязка к дате, обязательность, способ выполнения и
+// дни напоминаний (тот же календарь, что у дней практики).
+function TaskSettings({ activity, maxDay, onUpdate }) {
+  const bound = activity.taskBound !== false;
+  const reminder = activity.taskReminder || null;
+  const numStyle = { ...inputStyle, padding: '8px 10px', fontSize: 14 };
+  const setReminder = (patch) => onUpdate('taskReminder', { ...reminder, ...patch });
+  const numField = (key, def) => (e) => {
+    const v = e.target.value === '' ? '' : parseInt(e.target.value);
+    setReminder({ [key]: Number.isFinite(v) ? v : def });
+  };
+  return (
+    <div style={{
+      marginBottom: 10, padding: '10px 12px', borderRadius: 10,
+      background: 'rgba(0,0,0,0.02)', border: '1px solid rgba(0,0,0,0.05)',
+    }}>
+      <div style={{ ...labelStyle, fontSize: 11, marginBottom: 8 }}>Настройки задания</div>
+
+      <CheckRow checked={bound} label="Привязать к дате"
+        onChange={(v) => onUpdate('taskBound', v)}
+        hint={bound
+          ? 'Задание своего дня. Не выполнено вовремя — попадёт в «Невыполненные задания» в дни напоминаний.'
+          : 'Появится в свой день и будет висеть у ученика, пока не выполнит. Дни не держит.'} />
+
+      {bound && (
+        <CheckRow checked={!!activity.taskRequired} label="Обязательное"
+          onChange={(v) => onUpdate('taskRequired', v)}
+          hint="День не засчитывается, пока задание не выполнено." />
+      )}
+
+      <div style={{ marginBottom: 8 }}>
+        <label style={{ ...labelStyle, fontSize: 11 }}>Выполнение</label>
+        <Dropdown
+          value={activity.taskReview ? 'review' : 'self'}
+          onChange={(v) => onUpdate('taskReview', v === 'review')}
+          options={[
+            { value: 'self', label: 'Самостоятельно' },
+            { value: 'review', label: 'С проверкой тренера' },
+          ]}
+          fullWidth
+        />
+        <div style={{ fontSize: 11, color: '#888', marginTop: 4, lineHeight: 1.4 }}>
+          {activity.taskReview
+            ? 'Ученик отправляет ответ, вы ставите зачёт или возвращаете на доработку. День засчитывается по отправке.'
+            : 'Ученик сам нажимает «Выполнено». Ответ и файлы можно приложить по желанию.'}
+        </div>
+      </div>
+
+      {bound && (<>
+        <CheckRow checked={!!reminder} label="Напоминать о невыполненном"
+          onChange={(v) => onUpdate('taskReminder', v
+            ? { firstDay: Math.min((parseInt(activity.firstDay) || 1) + 1, maxDay), lastDay: maxDay,
+                intervalDays: 1, excludedDays: [], extraDays: [] }
+            : null)}
+          hint="В отмеченные дни у ученика будет раздел «Невыполненные задания» с последним пропущенным днём этого задания." />
+        {reminder && (<>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
+            <div style={{ flex: 1 }}>
+              <label style={{ ...labelStyle, fontSize: 11 }}>Напоминать с дня</label>
+              <input type="number" value={reminder.firstDay ?? ''} onChange={numField('firstDay', 1)} style={numStyle} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label style={{ ...labelStyle, fontSize: 11 }}>По день</label>
+              <input type="number" value={reminder.lastDay ?? ''} onChange={numField('lastDay', maxDay)} style={numStyle} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label style={{ ...labelStyle, fontSize: 11 }}>Интервал</label>
+              <input type="number" value={reminder.intervalDays ?? 1} onChange={numField('intervalDays', 1)} style={numStyle} />
+            </div>
+          </div>
+          <ScheduleCalendar
+            daysCount={maxDay}
+            firstDay={reminder.firstDay}
+            lastDay={reminder.lastDay}
+            intervalDays={reminder.intervalDays}
+            excludedDays={reminder.excludedDays || []}
+            extraDays={reminder.extraDays || []}
+            onToggle={(day) => {
+              const next = toggleDayInActivity(reminder, day);
+              const normalized = normalizeSchedule({ ...reminder, ...next }, maxDay) || next;
+              setReminder(normalized);
+            }}
+          />
+        </>)}
+      </>)}
+    </div>
+  );
+}
 
 // Тип медиа выбирается per-media внутри practice=media.
 const MEDIA_TYPE_OPTIONS = [
@@ -145,7 +265,7 @@ function emptyActivity(daysCount) {
   return { dbId: null, label: '', iconNum: 'health/1', practiceType: 'media', descriptionHtml: '', firstDay: 1, lastDay: daysCount, durationMin: 10, intervalDays: 1, excludedDays: [], extraDays: [], _key: Date.now() + Math.random() };
 }
 
-export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, tzOffsetMin, onOpenLibrary }) {
+export default function EditCoursePage({ courseId, userRole, onBack, onSaved, onDeleted, tzOffsetMin, onOpenLibrary }) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [daysCount, setDaysCount] = useState(30);
@@ -353,6 +473,11 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
           excludedDays: newExc,
           extraDays: newExt,
           libraryPracticeId: a.library_practice_id || null,
+          // v31: настройки задания (practice_type='task').
+          taskBound: a.task_bound !== false,
+          taskRequired: !!a.task_required,
+          taskReview: !!a.task_review,
+          taskReminder: a.task_reminder || null,
           _key: a.id,
         };
       });
@@ -517,9 +642,10 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
       return next;
     }));
 
-    saverRef.current.schedule(`media-${videoId}`, async () => {
-      const result = await patchMedia(videoId, toSave);
+    scheduleMergedSave(`media-${videoId}`, toSave, async (body) => {
+      const result = await patchMedia(videoId, body);
       if (result?.error) setError(`Ошибка сохранения: ${result.error}`);
+      return result;
     });
   };
 
@@ -544,8 +670,21 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
 
   // ── Activity field auto-save ──
   // Backend payload uses camelCase same as our state — pass through directly.
+  // Автосохранитель по ключу оставляет только последнюю отложенную функцию,
+  // поэтому поля, изменённые подряд (название, потом день в календаре), копим
+  // здесь и отправляем одним PATCH — иначе раньше уходило только последнее.
+  const pendingFieldsRef = useRef(new Map());
+  const scheduleMergedSave = (key, fields, send) => {
+    const merged = { ...(pendingFieldsRef.current.get(key) || {}), ...fields };
+    pendingFieldsRef.current.set(key, merged);
+    saverRef.current.schedule(key, () => {
+      const body = pendingFieldsRef.current.get(key) || merged;
+      pendingFieldsRef.current.delete(key);
+      return send(body).then(refreshCallsIfChanged);
+    });
+  };
   const scheduleActivityPatch = (dbId, fields) => {
-    saverRef.current.schedule(`act-${dbId}`, () => patchActivity(dbId, fields).then(refreshCallsIfChanged));
+    scheduleMergedSave(`act-${dbId}`, fields, (body) => patchActivity(dbId, body));
   };
 
   const updateActivity = (idx, field, val) => {
@@ -614,6 +753,7 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
     setActivities(prev => prev.filter((_, i) => i !== idx));
     if (act?.dbId) {
       saverRef.current.cancel(`act-${act.dbId}`);
+      pendingFieldsRef.current.delete(`act-${act.dbId}`);
       // delete is fire-and-forget; if it errors, user can hit refresh
       const result = await deleteActivity(act.dbId);
       if (result?.error) setError(`Ошибка удаления активности: ${result.error}`);
@@ -760,7 +900,7 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
       return merged;
     }));
     if (userEdits) {
-      saverRef.current.schedule(`act-${created.id}`, () => patchActivity(created.id, userEdits).then(refreshCallsIfChanged));
+      scheduleActivityPatch(created.id, userEdits);
     }
   };
 
@@ -768,7 +908,7 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
   // setLocal + schedule a debounced PATCH. Server clamps values, so empty
   // intermediate states (e.g., daysCount === '') are skipped.
   const scheduleMetaSave = useCallback((fields) => {
-    saverRef.current.schedule('meta', () => patchCourseMeta(courseId, fields).then(refreshCallsIfChanged));
+    scheduleMergedSave('meta', fields, (body) => patchCourseMeta(courseId, body));
   }, [courseId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onTitleChange = (v) => { setTitle(v); scheduleMetaSave({ title: v }); };
@@ -838,10 +978,10 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
       const changed = newFirst !== oldFirst || newLast !== oldLast
         || newExc.length !== oldExc.length || newExt.length !== oldExt.length;
       if (!changed) return v;
-      saverRef.current.schedule(`media-${v.id}`, () => patchMedia(v.id, {
+      scheduleMergedSave(`media-${v.id}`, {
         firstDay: newFirst, lastDay: newLast,
         excludedDays: newExc, extraDays: newExt,
-      }));
+      }, (body) => patchMedia(v.id, body));
       return { ...v, first_day: newFirst, last_day: newLast, excluded_days: newExc, extra_days: newExt };
     }));
   };
@@ -1177,6 +1317,7 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
             tzOffsetMin={tzOffsetMin}
             boundToCalendar={streamBound}
             courseStartDate={streamStartDate}
+            allowTask={userRole === 'admin'}
             collapsed={!expandedKeys.has(a._key)}
             onToggleCollapsed={() => toggleCollapsed(a._key)}
             isDragging={dragKey === a._key}
@@ -1443,7 +1584,7 @@ function CallRow({ call, courseStartDate, tzMin, onPatch, locked = false, onlyFo
   );
 }
 
-function ActivityCard({ activity, index, maxDay, onUpdate, onToggleDay, onRemove, onPickIcon, videos, courseId, videoUploadingId, uploadProgress, uploadPhase, activityId: propActivityId, onVideoUpload, onAddLink, onAddEmpty, onDeleteVideo, onPatchVideo, calls, onDeleteCall, onPatchCall, tzOffsetMin, boundToCalendar, courseStartDate, collapsed = false, onToggleCollapsed, isDragging = false, isDragOver = false, onDragBegin, onDragOverKey, onDragEnd, onDropOn, onSaveToLibrary, onRefreshLibrary, onUnlinkLibrary, libraryBusy = false }) {
+function ActivityCard({ activity, index, maxDay, onUpdate, onToggleDay, onRemove, onPickIcon, videos, courseId, videoUploadingId, uploadProgress, uploadPhase, activityId: propActivityId, onVideoUpload, onAddLink, onAddEmpty, onDeleteVideo, onPatchVideo, calls, onDeleteCall, onPatchCall, tzOffsetMin, boundToCalendar, courseStartDate, allowTask = false, collapsed = false, onToggleCollapsed, isDragging = false, isDragOver = false, onDragBegin, onDragOverKey, onDragEnd, onDropOn, onSaveToLibrary, onRefreshLibrary, onUnlinkLibrary, libraryBusy = false }) {
   // Trainer's timezone comes from THEIR profile (user_settings.tz_offset_min),
   // NOT from the browser — VPNs make browser tz unreliable; profile is the
   // single source of truth. Default fallback: Moscow (UTC+3, offset=180).
@@ -1678,27 +1819,36 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onToggleDay, onRemove
         <Dropdown
           value={activity.practiceType || 'media'}
           onChange={(v) => onUpdate('practiceType', v)}
-          options={PRACTICE_TYPE_OPTIONS}
+          options={allowTask || activity.practiceType === 'task'
+            ? [...PRACTICE_TYPE_OPTIONS, TASK_TYPE_OPTION]
+            : PRACTICE_TYPE_OPTIONS}
           fullWidth
         />
       </div>
 
-      {/* Описание — для call (описание онлайн-практики) и theory (текст теории —
+      {/* Описание — для call (описание онлайн-практики), theory (текст теории —
           shortcut для тренеров которым не удобно вручную создавать media/text
-          через MediaSection). Для media описание живёт per-media внутри
-          MediaSection на каждом медиа. */}
-      {(activity.practiceType === 'call' || activity.practiceType === 'theory') && (
+          через MediaSection) и task (текст задания). Для media описание живёт
+          per-media внутри MediaSection на каждом медиа. */}
+      {['call', 'theory', 'task'].includes(activity.practiceType) && (
         <div style={{ marginBottom: 8 }}>
           <label style={{ ...labelStyle, fontSize: 11 }}>
-            {activity.practiceType === 'theory' ? 'Текст теории' : 'Описание'}
+            {activity.practiceType === 'theory' ? 'Текст теории'
+              : activity.practiceType === 'task' ? 'Текст задания' : 'Описание'}
           </label>
           <RichTextEditor
             content={activity.descriptionHtml || ''}
             onChange={val => onUpdate('descriptionHtml', val)}
             placeholder={activity.practiceType === 'theory'
               ? 'Содержание теоретического материала...'
-              : 'Описание онлайн-практики...'} />
+              : activity.practiceType === 'task'
+                ? 'Что нужно сделать ученику, что прислать в ответ...'
+                : 'Описание онлайн-практики...'} />
         </div>
+      )}
+
+      {activity.practiceType === 'task' && (
+        <TaskSettings activity={activity} maxDay={maxDay} onUpdate={onUpdate} />
       )}
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>

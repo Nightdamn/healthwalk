@@ -147,7 +147,7 @@ CREATE TABLE IF NOT EXISTS course_activities (
   label TEXT NOT NULL,
   duration_min INTEGER NOT NULL DEFAULT 10 CHECK (duration_min > 0),
   icon_num TEXT DEFAULT 'health/1',
-  practice_type TEXT NOT NULL DEFAULT 'media' CHECK (practice_type IN ('media', 'theory', 'call')),
+  practice_type TEXT NOT NULL DEFAULT 'media' CHECK (practice_type IN ('media', 'theory', 'call', 'task')),
   description_html TEXT,
   first_day INTEGER DEFAULT 1,
   last_day INTEGER,
@@ -156,6 +156,11 @@ CREATE TABLE IF NOT EXISTS course_activities (
   extra_days INTEGER[] NOT NULL DEFAULT '{}',
   sort_order INTEGER NOT NULL DEFAULT 0,
   library_practice_id UUID,  -- v27 FK на practice_library, добавляется через ALTER после её создания
+  -- v31: настройки задания (practice_type='task'), см. migration_v31_tasks.sql
+  task_bound BOOLEAN NOT NULL DEFAULT true,
+  task_required BOOLEAN NOT NULL DEFAULT false,
+  task_review BOOLEAN NOT NULL DEFAULT false,
+  task_reminder JSONB,
   created_at TIMESTAMPTZ DEFAULT NOW()
   -- v30-2b: UNIQUE перенесён на (group_id, activity_id), см. блок в конце файла.
 );
@@ -353,7 +358,7 @@ CREATE TABLE IF NOT EXISTS student_custom_activities (
   first_day INTEGER NOT NULL DEFAULT 1 CHECK (first_day >= 1),
   last_day INTEGER NOT NULL DEFAULT 30 CHECK (last_day >= 1),
   interval_days INTEGER NOT NULL DEFAULT 1 CHECK (interval_days >= 1),
-  practice_type TEXT NOT NULL DEFAULT 'media' CHECK (practice_type IN ('media', 'theory', 'call')),
+  practice_type TEXT NOT NULL DEFAULT 'media' CHECK (practice_type IN ('media', 'theory', 'call', 'task')),
   description_html TEXT,
   sort_order INTEGER DEFAULT 0,
   created_at TIMESTAMPTZ DEFAULT NOW()
@@ -405,7 +410,7 @@ CREATE TABLE IF NOT EXISTS practice_library (
   owner_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   label TEXT NOT NULL,
   icon_num TEXT DEFAULT 'health/1',
-  practice_type TEXT NOT NULL DEFAULT 'media' CHECK (practice_type IN ('media', 'theory', 'call')),
+  practice_type TEXT NOT NULL DEFAULT 'media' CHECK (practice_type IN ('media', 'theory', 'call', 'task')),
   description_html TEXT,
   duration_min INTEGER NOT NULL DEFAULT 10 CHECK (duration_min > 0),
   first_day INT DEFAULT 1,
@@ -413,6 +418,10 @@ CREATE TABLE IF NOT EXISTS practice_library (
   interval_days INT NOT NULL DEFAULT 1 CHECK (interval_days >= 1),
   excluded_days INT[] NOT NULL DEFAULT '{}',
   extra_days INT[] NOT NULL DEFAULT '{}',
+  task_bound BOOLEAN NOT NULL DEFAULT true,       -- v31: настройки задания
+  task_required BOOLEAN NOT NULL DEFAULT false,
+  task_review BOOLEAN NOT NULL DEFAULT false,
+  task_reminder JSONB,
   is_public BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -549,6 +558,43 @@ CREATE TABLE IF NOT EXISTS activity_progress (
   updated_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(user_id, day, activity_id)
 );
+
+-- ═══════════════════════════════════════════════════════════
+-- TASKS (v31) — ответы учеников на практику «Задание»
+-- См. supabase/migration_v31_tasks.sql.
+-- ═══════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS task_submissions (
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  course_id      UUID NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+  group_id       UUID NOT NULL REFERENCES course_groups(id) ON DELETE CASCADE,
+  activity_id    UUID NOT NULL REFERENCES course_activities(id) ON DELETE CASCADE,
+  user_id        UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  day            INTEGER NOT NULL CHECK (day >= 1),
+  answer_text    TEXT,
+  status         TEXT NOT NULL DEFAULT 'draft'
+                 CHECK (status IN ('draft', 'submitted', 'approved', 'returned')),
+  submitted_at   TIMESTAMPTZ,
+  reviewed_by    UUID REFERENCES users(id) ON DELETE SET NULL,
+  reviewed_at    TIMESTAMPTZ,
+  review_comment TEXT,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (user_id, activity_id, day)
+);
+CREATE INDEX IF NOT EXISTS idx_task_submissions_course_status ON task_submissions (course_id, status);
+CREATE INDEX IF NOT EXISTS idx_task_submissions_group ON task_submissions (group_id);
+
+CREATE TABLE IF NOT EXISTS task_submission_files (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  submission_id UUID NOT NULL REFERENCES task_submissions(id) ON DELETE CASCADE,
+  kind          TEXT NOT NULL CHECK (kind IN ('image', 'video', 'document')),
+  original_name TEXT NOT NULL,
+  mime          TEXT NOT NULL,
+  size_bytes    BIGINT NOT NULL,
+  storage_path  TEXT NOT NULL,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_task_submission_files_submission ON task_submission_files (submission_id);
 
 -- ═══════════════════════════════════════════════════════════
 -- DONE
