@@ -211,10 +211,13 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
   const [uploadPhase, setUploadPhase] = useState('downloading'); // 'downloading' | 'processing' | 'done'
   const [saveStatus, setSaveStatus] = useState('saved'); // 'saving' | 'saved' | 'error'
   const fileRef = useRef();
-  // Свёрнутые активности (по _key, стабильный per-сессия). Drag/drop
-  // работает только когда карточка свёрнута — маленькая цель, не будет
-  // конфликта с обычными взаимодействиями внутри развёрнутой карточки.
-  const [collapsedKeys, setCollapsedKeys] = useState(() => new Set());
+  // Развёрнутые активности (по _key = id строки). По умолчанию все свёрнуты —
+  // при открытии редактора и при смене группы; разворачивает тренер, а только
+  // что добавленная практика открывается сама. Drag/drop работает только
+  // когда карточка свёрнута — маленькая цель, не будет конфликта с обычными
+  // взаимодействиями внутри развёрнутой карточки.
+  const [expandedKeys, setExpandedKeys] = useState(() => new Set());
+  const expandKey = (key) => setExpandedKeys(prev => new Set(prev).add(key));
   const [dragKey, setDragKey] = useState(null);
   const [dragOverKey, setDragOverKey] = useState(null);
   // FLIP-анимация reorder карточек. Перед setActivities снимаем rects
@@ -568,7 +571,7 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
   };
 
   const toggleCollapsed = (key) => {
-    setCollapsedKeys(prev => {
+    setExpandedKeys(prev => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key); else next.add(key);
       return next;
@@ -717,6 +720,7 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
     const tempKey = `tmp-${Date.now()}`;
     const placeholder = { ...emptyActivity(daysCount), _key: tempKey, _creating: true };
     setActivities(prev => [...prev, placeholder]);
+    expandKey(tempKey); // новую практику сразу заполняют — открыта
     const days = parseInt(daysCount) || 30;
     const created = await createActivity(courseId, {
       label: '', iconNum: 'health/1', practiceType: 'media',
@@ -729,6 +733,7 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
       return;
     }
     let userEdits = null;
+    expandKey(created.id); // ключ карточки сменится tempKey → id, остаётся открытой
     setActivities(prev => prev.map(a => {
       if (a._key !== tempKey) return a;
       // Merge: user-edited fields take precedence over server defaults.
@@ -1172,7 +1177,7 @@ export default function EditCoursePage({ courseId, onBack, onSaved, onDeleted, t
             tzOffsetMin={tzOffsetMin}
             boundToCalendar={streamBound}
             courseStartDate={streamStartDate}
-            collapsed={collapsedKeys.has(a._key)}
+            collapsed={!expandedKeys.has(a._key)}
             onToggleCollapsed={() => toggleCollapsed(a._key)}
             isDragging={dragKey === a._key}
             isDragOver={dragOverKey === a._key && dragKey && dragKey !== a._key}
