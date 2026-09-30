@@ -1,9 +1,27 @@
 import React, { useState } from 'react';
+import {
+  User, BookOpen, ShoppingBag, Library, Target, Lightbulb, MessageCircle, Shield, KeyRound,
+} from 'lucide-react';
 import { LogoFull } from './Icons';
 import { getIconPath } from '../data/iconCatalog';
 import { useMenu } from './MenuContext';
 
 const GREEN = '#27ae60';
+
+// Иконка пункта меню — линейная Lucide в светло-зелёной плашке (вместо эмодзи,
+// которые на компьютере рисуются шрифтом системы и выглядят по-разному).
+// Прежнее оформление с эмодзи — в ветке design/emoji-menu.
+function MenuIcon({ icon: Icon, size = 32, iconSize = 18 }) {
+  return (
+    <span style={{
+      width: size, height: size, borderRadius: 9, flexShrink: 0,
+      background: 'rgba(39,174,96,0.08)', color: GREEN,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+    }}>
+      <Icon size={iconSize} strokeWidth={2} />
+    </span>
+  );
+}
 
 export default function MenuDrawer({
   user, userRole, availableItems = [], activeItem,
@@ -16,18 +34,18 @@ export default function MenuDrawer({
 
   const nav = (target) => { closeMenu(); onNavigate(target); };
 
-  const items = [{ label: 'Профиль', icon: '👤', target: 'profile' }];
+  const items = [{ label: 'Профиль', icon: User, target: 'profile' }];
   items.push(
-    { label: 'Мои курсы', icon: '📚', target: 'my_courses' },
-    { label: 'Магазин курсов', icon: '🛍', target: 'store' },
-    { label: 'Банк практик', icon: '🗂', target: 'library' },
-    { label: 'Мои трекеры', icon: '🎯', target: 'my_trackers' },
-    { label: 'Рекомендации', icon: '💡', target: 'recommendations' },
-    { label: 'Вопрос тренеру', icon: '💬', target: 'ask' },
+    { label: 'Мои курсы', icon: BookOpen, target: 'my_courses' },
+    { label: 'Магазин курсов', icon: ShoppingBag, target: 'store' },
+    { label: 'Банк практик', icon: Library, target: 'library' },
+    { label: 'Мои трекеры', icon: Target, target: 'my_trackers' },
+    { label: 'Рекомендации', icon: Lightbulb, target: 'recommendations' },
+    { label: 'Вопрос тренеру', icon: MessageCircle, target: 'ask' },
   );
   if (userRole === 'admin') {
-    items.push({ label: 'Админ-панель', icon: '🛡', target: 'admin' });
-    items.push({ label: 'Назначить роль', icon: '🔑', target: 'assign_role' });
+    items.push({ label: 'Админ-панель', icon: Shield, target: 'admin', adminFirst: true });
+    items.push({ label: 'Назначить роль', icon: KeyRound, target: 'assign_role' });
   }
 
   return (
@@ -97,7 +115,9 @@ export default function MenuDrawer({
                         padding: 2,
                       }}>
                         {src ? <img src={src} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
-                          : <span style={{ fontSize: 14 }}>{item.type === 'tracker' ? '🎯' : '📚'}</span>}
+                          : (item.type === 'tracker'
+                              ? <Target size={16} strokeWidth={2} color={GREEN} />
+                              : <BookOpen size={16} strokeWidth={2} color={GREEN} />)}
                       </div>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 13, fontWeight: isActive ? 700 : 500, color: '#1a1a2e', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -117,15 +137,18 @@ export default function MenuDrawer({
         )}
 
         {items.map(item => (
-          <button key={item.target} onClick={() => nav(item.target)}
-            style={{ display: 'flex', alignItems: 'center', gap: 14, width: '100%', padding: '14px 16px', border: 'none', background: 'transparent', borderRadius: 12, fontSize: 15, fontWeight: 500, color: '#1a1a2e', cursor: 'pointer', textAlign: 'left', marginBottom: 4, position: 'relative' }}>
-            <span style={{ fontSize: 20 }}>{item.icon}</span>{item.label}
-            {item.target === 'ask' && unreadCount > 0 && (
-              <div style={{
-                width: 8, height: 8, borderRadius: '50%', background: '#e67e22', marginLeft: 'auto',
-              }} />
-            )}
-          </button>
+          <React.Fragment key={item.target}>
+            {item.adminFirst && <div style={{ height: 1, background: 'rgba(0,0,0,0.05)', margin: '6px 16px' }} />}
+            <button onClick={() => nav(item.target)}
+              style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', padding: '9px 14px', border: 'none', background: 'transparent', borderRadius: 12, fontSize: 15, fontWeight: 500, color: '#1a1a2e', cursor: 'pointer', textAlign: 'left', marginBottom: 4, position: 'relative' }}>
+              <MenuIcon icon={item.icon} />{item.label}
+              {item.target === 'ask' && unreadCount > 0 && (
+                <div style={{
+                  width: 8, height: 8, borderRadius: '50%', background: '#e67e22', marginLeft: 'auto',
+                }} />
+              )}
+            </button>
+          </React.Fragment>
         ))}
 
         <div style={{ flex: 1 }} />
