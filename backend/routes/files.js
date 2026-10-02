@@ -6,7 +6,7 @@ import fs from 'fs/promises';
 import { createWriteStream } from 'fs';
 import { randomUUID } from 'crypto';
 import { fileURLToPath } from 'url';
-import { queryOne } from '../db.js';
+import { query, queryOne } from '../db.js';
 import { getStudentAccess } from '../access.js';
 import { requireAuth, verifyToken } from '../middleware.js';
 import { normalizeVideoFile, probeDuration } from '../videoProcess.js';
@@ -45,10 +45,13 @@ function requireAuthOrQueryToken(req, res, next) {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const UPLOADS_DIR = path.join(__dirname, '..', 'uploads', 'course-videos');
 const MEDIA_DIR = path.join(__dirname, '..', 'uploads', 'theory-media');
+// v31: файлы ответов на задания — <course>/<user>/<submission>/<файл>.
+const TASK_DIR = path.join(__dirname, '..', 'uploads', 'task-files');
 
 // Ensure uploads directories exist
 await fs.mkdir(UPLOADS_DIR, { recursive: true });
 await fs.mkdir(MEDIA_DIR, { recursive: true });
+await fs.mkdir(TASK_DIR, { recursive: true });
 
 const storage = multer.diskStorage({
   destination: async (req, file, cb) => {
@@ -411,6 +414,141 @@ router.get('/media/:userId/:filename', requireAuthOrQueryToken, async (req, res)
     res.sendFile(filePath);
   } catch (err) {
     console.error('[Files] Serve media:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── v31: файлы ответов на задания ────────────────────────────────────────
+// Ученик прикладывает к ответу фото, видео и документы (до 200 МБ каждый).
+// Видео не перекодируем: на 2 vCPU перекодировка 200 МБ — минуты под нагрузкой;
+// отдаём как есть с правильным типом (не воспроизводится — можно скачать).
+const TASK_MAX_BYTES = 200 * 1024 * 1024;
+const TASK_MIME = {
+  image: ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'image/heif'],
+  video: ['video/mp4', 'video/quicktime', 'video/webm', 'video/3gpp', 'video/x-m4v'],
+  document: [
+    'application/pdf', 'text/plain', 'application/rtf',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.oasis.opendocument.text',
+  ],
+};
+const taskKind = (mime) => Object.keys(TASK_MIME).find(k => TASK_MIME[k].includes(mime)) || null;
+const isUuid = (s) => /^[0-9a-f-]{36}$/i.test(String(s || ''));
+// busboy читает имя файла как latin1, а браузер шлёт UTF-8 — без перекодировки
+// кириллица превращается в «Ð¤Ð¾Ñ‚Ð¾».
+const fixName = (n) => {
+  try { const d = Buffer.from(n, 'latin1').toString('utf8'); return d.includes('�') ? n : d; }
+  catch { return n; }
+};
+
+// Свой ответ, который ещё можно править (черновик или возвращён на доработку).
+async function loadEditableSubmission(req, res, next) {
+  if (!isUuid(req.params.submissionId)) return res.status(404).json({ error: 'Ответ не найден' });
+  const sub = await queryOne('SELECT * FROM task_submissions WHERE id = $1', [req.params.submissionId]);
+  if (!sub || sub.user_id !== req.userId) return res.status(404).json({ error: 'Ответ не найден' });
+  if (!['draft', 'returned'].includes(sub.status)) return res.status(409).json({ error: 'Ответ уже отправлен' });
+  req.taskSub = sub;
+  next();
+}
+
+const taskUpload = multer({
+  storage: multer.diskStorage({
+    destination: async (req, file, cb) => {
+      const s = req.taskSub;
+      const dir = path.join(TASK_DIR, s.course_id, s.user_id, s.id);
+      await fs.mkdir(dir, { recursive: true });
+      cb(null, dir);
+    },
+    filename: (req, file, cb) => {
+      const ext = path.extname(file.originalname).toLowerCase().replace(/[^.a-z0-9]/g, '').slice(0, 10);
+      cb(null, `${Date.now()}_${Math.random().toString(36).slice(2, 8)}${ext}`);
+    },
+  }),
+  limits: { fileSize: TASK_MAX_BYTES, files: 1 },
+  fileFilter: (req, file, cb) => cb(null, !!taskKind(file.mimetype)),
+});
+
+// ── POST /api/files/task/:submissionId — приложить файл к ответу ──
+router.post('/task/:submissionId', requireAuth, loadEditableSubmission, (req, res, next) => {
+  taskUpload.single('file')(req, res, (err) => {
+    if (err?.code === 'LIMIT_FILE_SIZE') return res.status(413).json({ error: 'Файл больше 200 МБ' });
+    if (err) return res.status(400).json({ error: err.message });
+    next();
+  });
+}, async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'Этот тип файла не подходит. Можно фото, видео, PDF, Word или текст.' });
+    }
+    const row = await queryOne(
+      `INSERT INTO task_submission_files (submission_id, kind, original_name, mime, size_bytes, storage_path)
+       VALUES ($1,$2,$3,$4,$5,$6)
+       RETURNING id, kind, original_name, mime, size_bytes, created_at`,
+      [req.taskSub.id, taskKind(req.file.mimetype), fixName(req.file.originalname).slice(0, 200),
+       req.file.mimetype, req.file.size, path.relative(TASK_DIR, req.file.path)]
+    );
+    await query('UPDATE task_submissions SET updated_at = NOW() WHERE id = $1', [req.taskSub.id]);
+    res.json({ data: { id: row.id, kind: row.kind, originalName: row.original_name, mime: row.mime, sizeBytes: Number(row.size_bytes) } });
+  } catch (err) {
+    console.error('[Files] Task upload:', err);
+    if (req.file?.path) { try { await fs.unlink(req.file.path); } catch {} }
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/files/task-file/:fileId — файл ответа: автору и staff курса ──
+// ?download=1 — скачать с исходным именем.
+router.get('/task-file/:fileId', requireAuthOrQueryToken, async (req, res) => {
+  try {
+    if (!isUuid(req.params.fileId)) return res.status(404).json({ error: 'Файл не найден' });
+    const f = await queryOne(
+      `SELECT f.*, s.user_id, s.course_id FROM task_submission_files f
+         JOIN task_submissions s ON s.id = f.submission_id WHERE f.id = $1`,
+      [req.params.fileId]
+    );
+    if (!f) return res.status(404).json({ error: 'Файл не найден' });
+    if (f.user_id !== req.userId) {
+      const c = await queryOne('SELECT owner_id FROM courses WHERE id = $1', [f.course_id]);
+      const staff = c?.owner_id === req.userId || await queryOne(
+        "SELECT 1 FROM course_enrollments WHERE course_id = $1 AND user_id = $2 AND role IN ('trainer','curator')",
+        [f.course_id, req.userId]
+      ) || await queryOne(
+        'SELECT 1 FROM course_groups WHERE course_id = $1 AND (trainer_id = $2 OR curator_id = $2)',
+        [f.course_id, req.userId]
+      );
+      if (!staff) return res.status(403).json({ error: 'Нет доступа' });
+    }
+    const full = path.join(TASK_DIR, f.storage_path);
+    if (!full.startsWith(TASK_DIR + path.sep)) return res.status(400).json({ error: 'Bad path' });
+    try { await fs.access(full); } catch { return res.status(404).json({ error: 'Файл не найден' }); }
+    res.type(f.mime);
+    if (req.query.download) res.attachment(f.original_name);
+    res.setHeader('Cache-Control', 'private, max-age=86400');
+    res.sendFile(full);
+  } catch (err) {
+    console.error('[Files] Task file:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── DELETE /api/files/task-file/:fileId — убрать файл из ответа (пока можно править) ──
+router.delete('/task-file/:fileId', requireAuth, async (req, res) => {
+  try {
+    if (!isUuid(req.params.fileId)) return res.status(404).json({ error: 'Файл не найден' });
+    const f = await queryOne(
+      `SELECT f.*, s.user_id, s.status FROM task_submission_files f
+         JOIN task_submissions s ON s.id = f.submission_id WHERE f.id = $1`,
+      [req.params.fileId]
+    );
+    if (!f || f.user_id !== req.userId) return res.status(404).json({ error: 'Файл не найден' });
+    if (!['draft', 'returned'].includes(f.status)) return res.status(409).json({ error: 'Ответ уже отправлен' });
+    await query('DELETE FROM task_submission_files WHERE id = $1', [f.id]);
+    const full = path.join(TASK_DIR, f.storage_path);
+    if (full.startsWith(TASK_DIR + path.sep)) { try { await fs.unlink(full); } catch {} }
+    res.json({ deleted: true });
+  } catch (err) {
+    console.error('[Files] Task file delete:', err);
     res.status(500).json({ error: err.message });
   }
 });

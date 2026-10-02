@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import LoginPage from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import TimerPage from './pages/Timer';
+import TaskPage from './pages/TaskPage';
 import DetailsPage from './pages/Details';
 import ProfilePage from './pages/Profile';
 import RecommendationsPage from './pages/Recommendations';
@@ -33,6 +34,7 @@ import {
   getUnreadCount,
   getActivityMedia, getMediaForDay, getMediaSignedUrl, updateMediaDuration,
   getActivityCalls, getCallToken,
+  getMyTaskSubmissions,
 } from './lib/db';
 
 // День и статус курса/трекера. Единая логика для загрузки, переключения
@@ -124,6 +126,9 @@ export default function App() {
   const [activeVideo, setActiveVideo] = useState(null);
   const [activeVideoUrl, setActiveVideoUrl] = useState(null);
   const [activeCall, setActiveCall] = useState(null);
+  // v31: задания — мои ответы в текущем потоке и открытое задание { activity, day }.
+  const [taskSubs, setTaskSubs] = useState([]);
+  const [activeTask, setActiveTask] = useState(null);
 
   // Timer
   const [activeActivity, setActiveActivity] = useState(null);
@@ -267,20 +272,23 @@ export default function App() {
               loadStudentCustomActivities(user.id, active.id),
               getActivityMedia(active.id, gid),
               getActivityCalls(active.id, gid),
+              getMyTaskSubmissions(active.id, gid),
             );
           }
-          const [raw, excl, custom, vids, calls] = await Promise.all(loadPromises);
+          const [raw, excl, custom, vids, calls, tasks] = await Promise.all(loadPromises);
           setRawProgress(raw);
           if (active.type === 'course') {
             setExclusions(excl || {});
             setCustomActivities(custom || []);
             setCourseMedia(vids || []);
             setCourseCalls(calls || []);
+            setTaskSubs(tasks || []);
           } else {
             setExclusions({});
             setCustomActivities([]);
             setCourseMedia([]);
             setCourseCalls([]);
+            setTaskSubs([]);
           }
 
           // День — той же логикой, что и периодический пересчёт (с учётом режима).
@@ -334,20 +342,23 @@ export default function App() {
         loadStudentCustomActivities(user.id, item.id),
         getActivityMedia(item.id, gid),
         getActivityCalls(item.id, gid),
+        getMyTaskSubmissions(item.id, gid),
       );
     }
-    const [raw, excl, custom, vids, calls] = await Promise.all(loadPromises);
+    const [raw, excl, custom, vids, calls, tasks] = await Promise.all(loadPromises);
     setRawProgress(raw);
     if (item.type === 'course') {
       setExclusions(excl || {});
       setCustomActivities(custom || []);
       setCourseMedia(vids || []);
       setCourseCalls(calls || []);
+      setTaskSubs(tasks || []);
     } else {
       setExclusions({});
       setCustomActivities([]);
       setCourseMedia([]);
       setCourseCalls([]);
+      setTaskSubs([]);
     }
 
     // День — той же логикой, что и периодический пересчёт (с учётом режима).
@@ -478,6 +489,15 @@ export default function App() {
     activity = { ...activity, practiceType: activity.practiceType || 'media', descriptionHtml: activity.descriptionHtml || null };
     const dayForLookup = activity.day ?? currentDay;
 
+    // v31: задание — свой экран (ответ, файлы, отправка), не таймер.
+    // Настройки задания берём из активности курса (в payload карточки их нет).
+    if (activity.practiceType === 'task') {
+      const full = activeItem?.activities?.find(a => a.id === activity.id) || {};
+      setActiveTask({ activity: { ...full, ...activity }, day: dayForLookup });
+      setScreen('task');
+      return;
+    }
+
     // Find call for call-type activities
     if (activity.practiceType === 'call') {
       const call = courseCalls.find(c => c.activity_id === activity.activityId && c.day === dayForLookup && c.status !== 'cancelled');
@@ -575,6 +595,21 @@ export default function App() {
   };
 
   const goMain = () => setScreen('main');
+
+  // v31: ответ на задание изменился (черновик, файлы, отправка) — держим список в актуальном виде.
+  const handleTaskChanged = (sub) => {
+    if (!sub) return;
+    setTaskSubs(prev => [...prev.filter(s => s.id !== sub.id), sub]);
+  };
+  // Отправлен ответ: практика дня выполнена (сервер уже записал прогресс и
+  // проверил закрытие дня) — отмечаем локально и перечитываем курс за закрытиями.
+  const handleTaskSubmitted = async (sub) => {
+    handleTaskChanged(sub);
+    const t = (activeTask?.activity?.durationMin || activeTask?.activity?.duration || 10) * 60;
+    setProgress(p => ({ ...p, [sub.day]: { ...p[sub.day], [sub.activityId]: true } }));
+    setRawProgress(p => ({ ...p, [sub.day]: { ...p[sub.day], [sub.activityId]: { elapsed: t, completed: true } } }));
+    await refreshItems();
+  };
 
   const handleSetTimezone = (v) => { setTzOffsetMin(v); if (user?.id) saveUserSettings(user.id, { tz_offset_min: v }); };
   const handleSetDayStartHour = (h) => { setDayStartHour(h); if (user?.id) saveUserSettings(user.id, { day_start_hour: h }); };
@@ -769,6 +804,13 @@ export default function App() {
         video={activeVideo} videoUrl={activeVideoUrl} onDurationDetected={handleDurationDetected}
         activeCall={activeCall} getCallToken={getCallToken} tzOffsetMin={tzOffsetMin} />
     );
+    case 'task': return activeTask ? (
+      <TaskPage key={`${activeTask.activity.id}-${activeTask.day}`}
+        activity={activeTask.activity} day={activeTask.day}
+        courseId={activeItem?.id} groupId={activeItem?.viewGroupId || null}
+        submission={taskSubs.find(s => s.activityId === activeTask.activity.id && s.day === activeTask.day) || null}
+        onBack={goMain} onChange={handleTaskChanged} onSubmitted={handleTaskSubmitted} />
+    ) : null;
     case 'details': return <DetailsPage progress={progress} currentDay={currentDay} elapsedTime={elapsedTime} getElapsedForDay={getElapsedForDay} onBack={goMain} activeItem={activeItem} exclusions={exclusions} customActivities={customActivities} />;
     case 'profile': return (
       <ProfilePage user={user} currentDay={currentDay} progress={progress}
@@ -799,6 +841,7 @@ export default function App() {
         exclusions={exclusions} customActivities={customActivities}
         unreadCount={unreadCount} courseFinished={courseFinished} dayInfo={dayInfo}
         courseCalls={courseCalls} courseMedia={courseMedia}
+        taskSubs={taskSubs}
         progressionMode={progressionMode}
         closures={activeItem?.closures || []}
         onCloseDay={handleCloseDay}

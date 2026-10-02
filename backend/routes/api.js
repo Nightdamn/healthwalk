@@ -516,6 +516,131 @@ async function maybeAutoCloseDay(userId, courseId, day, gid) {
   );
 }
 
+// ═══════════════════════════════════════════════════════════
+// v31: ЗАДАНИЯ — ответы ученика (файлы — в routes/files.js)
+// ═══════════════════════════════════════════════════════════
+
+const TASK_SUB_SQL = `
+  SELECT s.*, COALESCE(json_agg(json_build_object(
+           'id', f.id, 'kind', f.kind, 'originalName', f.original_name,
+           'mime', f.mime, 'sizeBytes', f.size_bytes) ORDER BY f.created_at)
+         FILTER (WHERE f.id IS NOT NULL), '[]') AS files
+    FROM task_submissions s
+    LEFT JOIN task_submission_files f ON f.submission_id = s.id`;
+
+function mapTaskSub(s) {
+  return {
+    id: s.id, activityId: s.activity_id, day: s.day, groupId: s.group_id,
+    answerText: s.answer_text || '', status: s.status,
+    submittedAt: s.submitted_at, reviewedAt: s.reviewed_at, reviewComment: s.review_comment || '',
+    files: (s.files || []).map(f => ({ ...f, sizeBytes: Number(f.sizeBytes) })),
+  };
+}
+
+async function loadTaskSub(id) {
+  const s = await queryOne(`${TASK_SUB_SQL} WHERE s.id = $1 GROUP BY s.id`, [id]);
+  return s ? mapTaskSub(s) : null;
+}
+
+// Задание дня, на которое отвечает пользователь: он владелец или записан в курс,
+// доступ к материалам не закрыт, задание — из его потока (или группы, выбранной
+// создателем курса в селекторе), день в пределах курса.
+async function taskContext(userId, { courseId, groupId, activityId, day }) {
+  const uuid = /^[0-9a-f-]{36}$/i;
+  if (!uuid.test(String(courseId)) || !uuid.test(String(activityId)) || (groupId && !uuid.test(String(groupId)))) {
+    return { status: 404, error: 'Задание не найдено' };
+  }
+  const course = await queryOne('SELECT owner_id, days_count FROM courses WHERE id = $1', [courseId]);
+  if (!course) return { status: 404, error: 'Курс не найден' };
+  if (course.owner_id !== userId) {
+    const enr = await queryOne('SELECT 1 FROM course_enrollments WHERE course_id = $1 AND user_id = $2', [courseId, userId]);
+    if (!enr) return { status: 403, error: 'Нет доступа к курсу' };
+  }
+  if ((await getStudentAccess(userId, courseId)).accessExpired) {
+    return { status: 403, error: 'Доступ к материалам курса закрыт' };
+  }
+  const gid = await resolveViewGroup(userId, courseId, groupId || null);
+  const act = await queryOne(
+    "SELECT * FROM course_activities WHERE id = $1 AND group_id = $2 AND practice_type = 'task'",
+    [activityId, gid]
+  );
+  if (!act) return { status: 404, error: 'Задание не найдено' };
+  const d = parseInt(day);
+  if (!Number.isFinite(d) || d < 1 || d > (course.days_count || 30)) return { status: 400, error: 'Неверный день' };
+  return { gid, act, day: d };
+}
+
+// GET /tasks/:courseId?groupId= — мои ответы на задания потока, с файлами.
+router.get('/tasks/:courseId', async (req, res) => {
+  try {
+    const gid = await resolveViewGroup(req.userId, req.params.courseId, req.query.groupId || null);
+    if (!gid) return res.json([]);
+    const rows = await query(
+      `${TASK_SUB_SQL} WHERE s.user_id = $1 AND s.group_id = $2 GROUP BY s.id ORDER BY s.day`,
+      [req.userId, gid]
+    );
+    res.json(rows.map(mapTaskSub));
+  } catch (err) { console.error('[Tasks] list:', err); res.status(500).json({ error: err.message }); }
+});
+
+// PUT /tasks/draft — создать или обновить черновик ответа (текст). Файлы
+// прикладываются к черновику через POST /api/files/task/:submissionId.
+// body: { courseId, groupId?, activityId, day, answerText? }
+router.put('/tasks/draft', async (req, res) => {
+  try {
+    const ctx = await taskContext(req.userId, req.body || {});
+    if (ctx.error) return res.status(ctx.status).json({ error: ctx.error });
+    const { courseId } = req.body;
+    const text = typeof req.body.answerText === 'string' ? req.body.answerText.slice(0, 20000) : null;
+    const existing = await queryOne(
+      'SELECT id, status FROM task_submissions WHERE user_id = $1 AND activity_id = $2 AND day = $3',
+      [req.userId, ctx.act.id, ctx.day]
+    );
+    if (existing) {
+      if (!['draft', 'returned'].includes(existing.status)) return res.status(409).json({ error: 'Ответ уже отправлен' });
+      if (text !== null) {
+        await query('UPDATE task_submissions SET answer_text = $1, updated_at = NOW() WHERE id = $2', [text, existing.id]);
+      }
+      return res.json({ data: await loadTaskSub(existing.id) });
+    }
+    const row = await queryOne(
+      `INSERT INTO task_submissions (course_id, group_id, activity_id, user_id, day, answer_text)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
+      [courseId, ctx.gid, ctx.act.id, req.userId, ctx.day, text]
+    );
+    res.json({ data: await loadTaskSub(row.id) });
+  } catch (err) { console.error('[Tasks] draft:', err); res.status(500).json({ error: err.message }); }
+});
+
+// POST /tasks/:id/submit — «Выполнено» (самостоятельно) или «Отправить на
+// проверку». День засчитывается уже по отправке, в том числе «С проверкой»:
+// практика в course_progress выполнена, дальше — автозакрытие дня.
+router.post('/tasks/:id/submit', async (req, res) => {
+  try {
+    const sub = await queryOne(`${TASK_SUB_SQL} WHERE s.id = $1 GROUP BY s.id`, [req.params.id]);
+    if (!sub || sub.user_id !== req.userId) return res.status(404).json({ error: 'Ответ не найден' });
+    if (!['draft', 'returned'].includes(sub.status)) return res.status(409).json({ error: 'Ответ уже отправлен' });
+    const act = await queryOne('SELECT * FROM course_activities WHERE id = $1', [sub.activity_id]);
+    if (!act) return res.status(404).json({ error: 'Задание не найдено' });
+    if (act.task_review && !(sub.answer_text || '').trim() && !(sub.files || []).length) {
+      return res.status(400).json({ error: 'Напишите ответ или приложите файл — тренеру нечего проверить.' });
+    }
+    await query(
+      `UPDATE task_submissions SET status = 'submitted', submitted_at = NOW(), updated_at = NOW() WHERE id = $1`,
+      [sub.id]
+    );
+    await query(
+      `INSERT INTO course_progress (user_id, course_id, activity_id, day, elapsed_seconds, completed, group_id, updated_at)
+       VALUES ($1, $2, $3, $4, $5, true, $6, NOW())
+       ON CONFLICT (user_id, group_id, activity_id, day)
+       DO UPDATE SET completed = true, updated_at = NOW()`,
+      [req.userId, sub.course_id, act.id, sub.day, (act.duration_min || 10) * 60, sub.group_id]
+    );
+    await maybeAutoCloseDay(req.userId, sub.course_id, sub.day, sub.group_id);
+    res.json({ data: await loadTaskSub(sub.id) });
+  } catch (err) { console.error('[Tasks] submit:', err); res.status(500).json({ error: err.message }); }
+});
+
 // POST /courses/:id/close-day — «Завершить день» в self_paced.
 // Разрешено только для currentDay (первый не-closed) и если есть хоть какой-то прогресс.
 router.post('/courses/:id/close-day', async (req, res) => {

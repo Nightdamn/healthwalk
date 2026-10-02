@@ -8,6 +8,7 @@ import { glass } from '../styles/shared';
 import Dropdown from '../components/Dropdown';
 import { useMenu } from '../components/MenuContext';
 import { MenuButton } from '../components/TopBar';
+import { taskStatusInfo } from './TaskPage';
 
 // Русский плюрализатор: 1 день, 2 дня, 5 дней.
 function plural(n, one, few, many) {
@@ -93,6 +94,7 @@ export default function Dashboard({
   dayInfo = { isUpcoming: false, daysUntilStart: 0 },
   courseCalls = [],
   courseMedia = [],
+  taskSubs = [],
   progressionMode = 'daily',
   closures = [],
   onCloseDay,
@@ -174,6 +176,46 @@ export default function Dashboard({
 
   // Activities active on the viewed day
   const dayActivities = allActivities.filter(a => isActivityOnDay(a, activeDay));
+
+  // v31: «Невыполненные задания» — на сегодняшнем дне ученика.
+  // • привязанное к дате: последний прошедший день задания, если он не
+  //   выполнен и сегодня день напоминания (task_reminder);
+  // • без привязки: каждый прошедший день, где задание не выполнено (висит);
+  // • возвращённые тренером на доработку — всегда.
+  const taskSubFor = (actId, day) => (taskSubs || []).find(s => s.activityId === actId && s.day === day) || null;
+  const taskDone = (s) => !!s && (s.status === 'submitted' || s.status === 'approved');
+  const overdueTasks = React.useMemo(() => {
+    if (isUpcoming) return [];
+    const onReminder = (r, d) => {
+      if (!r) return false;
+      if ((r.excludedDays || []).includes(d)) return false;
+      if ((r.extraDays || []).includes(d)) return true;
+      const fd = r.firstDay || 1, ld = r.lastDay || fd, iv = Math.max(1, r.intervalDays || 1);
+      return d >= fd && d <= ld && (d - fd) % iv === 0;
+    };
+    const out = [];
+    for (const a of allActivities) {
+      if (a.practiceType !== 'task') continue;
+      const days = [];
+      for (let d = 1; d < currentDay; d++) if (isActivityOnDay(a, d)) days.push(d);
+      if (!days.length) continue;
+      if (a.taskBound === false) {
+        for (const d of days) if (!taskDone(taskSubFor(a.id, d))) out.push({ a, day: d });
+        continue;
+      }
+      for (const d of days) if (taskSubFor(a.id, d)?.status === 'returned') out.push({ a, day: d });
+      const last = days[days.length - 1];
+      const lastSub = taskSubFor(a.id, last);
+      if (!taskDone(lastSub) && lastSub?.status !== 'returned' && onReminder(a.taskReminder, currentDay)) {
+        out.push({ a, day: last });
+      }
+    }
+    return out.sort((x, y) => x.day - y.day);
+  }, [allActivities, taskSubs, currentDay, isUpcoming, exclusions]); // eslint-disable-line react-hooks/exhaustive-deps
+  const openTask = (a, day) => onStartTimer({
+    id: a.id, activityId: a.activityId, label: a.label, duration: a.durationMin,
+    iconNum: a.iconNum, practiceType: 'task', descriptionHtml: a.descriptionHtml, day,
+  });
 
   const dayElapsed = isToday ? elapsedTime : getElapsedForDay(activeDay);
 
@@ -443,7 +485,7 @@ export default function Dashboard({
                       }} />
                     </div>
                     <div style={{ fontSize: 12, color: '#aaa', fontWeight: 500 }}>
-                      {dayPct >= 100 ? 'Все практики выполнены ✨' : `${Math.floor(elapsedSecDay / 60)} из ${Math.floor(totalSecDay / 60)} минут`}
+                      {dayPct >= 100 ? 'Все практики выполнены' : `${Math.floor(elapsedSecDay / 60)} из ${Math.floor(totalSecDay / 60)} минут`}
                     </div>
                   </div>
                 )}
@@ -452,6 +494,37 @@ export default function Dashboard({
                 <div style={{ ...glass, background: 'rgba(255,255,255,0.5)', borderRadius: 14, padding: '14px 20px', marginBottom: 20, textAlign: 'center' }}>
                   <span style={{ fontSize: 13, color: '#888', fontWeight: 500, fontStyle: 'italic' }}>«{motto}»</span>
                 </div>
+
+                {/* ── v31. Невыполненные задания (на сегодняшнем дне) ── */}
+                {activeDay === currentDay && overdueTasks.length > 0 && (
+                  <div style={{ ...glass, borderRadius: 18, padding: '16px 18px', marginBottom: 16, border: '1px solid rgba(230,126,34,0.25)', background: 'rgba(230,126,34,0.05)' }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: '#e67e22', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10 }}>
+                      Невыполненные задания
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {overdueTasks.map(({ a, day }) => {
+                        const info = taskStatusInfo(taskSubFor(a.id, day), a.taskReview);
+                        return (
+                          <button key={`${a.id}-${day}`} type="button" onClick={() => openTask(a, day)}
+                            style={{
+                              display: 'flex', alignItems: 'center', gap: 12, width: '100%', textAlign: 'left',
+                              padding: '10px 12px', borderRadius: 12, border: '1px solid rgba(0,0,0,0.05)',
+                              background: 'rgba(255,255,255,0.75)', cursor: 'pointer',
+                            }}>
+                            <img src={getIconPath(a.iconNum)} alt="" style={{ width: 32, height: 32, objectFit: 'contain', flexShrink: 0 }} />
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 14, fontWeight: 600, color: '#1a1a2e', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.label}</div>
+                              <div style={{ fontSize: 12, color: '#999' }}>Задание дня {day}</div>
+                            </div>
+                            <span style={{ fontSize: 11, fontWeight: 600, color: info.color, background: `${info.color}14`, padding: '3px 8px', borderRadius: 7, flexShrink: 0 }}>
+                              {info.label}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
 
                 {/* ── 4. Activity cards (dynamic) ── */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -484,8 +557,13 @@ export default function Dashboard({
                     //   флоу через кнопку «Начать» справа.
                     // • call через карточку не открывается (отдельная кнопка
                     //   «Смотреть запись» — см. ниже).
+                    // • task (v31) открывается всегда в прошедших и сегодняшнем
+                    //   дне (у создателя — в любом): там ответ, файлы, статус.
+                    const isTask = act.practiceType === 'task';
+                    const taskInfo = isTask ? taskStatusInfo(taskSubFor(act.id, activeDay), act.taskReview) : null;
+                    const taskOpenable = isTask && (canActOnDay || (!isUpcoming && activeDay <= currentDay));
                     const cardClickable =
-                      act.practiceType === 'theory' ||
+                      act.practiceType === 'theory' || taskOpenable ||
                       (act.practiceType === 'media' && (!canActOnDay || done));
                     const viewOnly =
                       (act.practiceType === 'theory' && done) ||
@@ -538,7 +616,7 @@ export default function Dashboard({
                     // старой кнопки в правом верхнем углу. Показываем когда
                     // практика активна сегодня, ещё не сделана и это не эфир
                     // с готовой записью (там виден «Просмотр»).
-                    const canStartNow = !done && canActOnDay && !viewOnly && !(act.practiceType === 'call' && callRec);
+                    const canStartNow = !isTask && !done && canActOnDay && !viewOnly && !(act.practiceType === 'call' && callRec);
                     const startPayload = canStartNow ? {
                       id: act.id, activityId: act.activityId, label: act.label,
                       duration: act.durationMin, iconNum: act.iconNum,
@@ -578,7 +656,9 @@ export default function Dashboard({
                             </div>
                             <div style={{ minWidth: 0, flex: 1 }}>
                               <div style={{ fontSize: 16, fontWeight: 600, color: '#1a1a2e', overflow: 'hidden', textOverflow: 'ellipsis' }}>{act.label}</div>
-                              <div style={{ fontSize: 12, color: '#999', fontWeight: 500, marginTop: 2 }}>{act.practiceType === 'theory' ? 'Теория' : act.practiceType === 'call' ? 'Онлайн' : `${totalMin} минут`}</div>
+                              <div style={{ fontSize: 12, color: '#999', fontWeight: 500, marginTop: 2 }}>{act.practiceType === 'theory' ? 'Теория' : act.practiceType === 'call' ? 'Онлайн'
+                                : isTask ? `Задание${act.taskRequired && act.taskBound !== false ? ' · обязательное' : ''}`
+                                : `${totalMin} минут`}</div>
                             </div>
                           </div>
                           {done ? (
@@ -612,8 +692,9 @@ export default function Dashboard({
                             Текст статуса выровнен по нижней границе кнопки
                             (alignItems: 'flex-end'). */}
                         <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12, marginTop: 6 }}>
-                          <div style={{ fontSize: 11, color: '#bbb', fontWeight: 500, paddingBottom: 8 }}>
-                            {act.practiceType === 'theory' ? (done ? 'Выполнено' : 'Не выполнено')
+                          <div style={{ fontSize: 11, color: isTask ? taskInfo.color : '#bbb', fontWeight: isTask ? 600 : 500, paddingBottom: 8 }}>
+                            {isTask ? taskInfo.label
+                              : act.practiceType === 'theory' ? (done ? 'Выполнено' : 'Не выполнено')
                               : act.practiceType === 'call' ? (done ? 'Выполнено' : 'Запланировано')
                               : done ? `${totalMin} из ${totalMin} мин • Выполнено`
                               : elapsedSec > 0 ? `${elapsedMin}:${String(elapsedRemSec).padStart(2, '0')} из ${totalMin} мин`
@@ -639,6 +720,17 @@ export default function Dashboard({
                                   <path d="M12 4v12m0 0l-5-5m5 5l5-5M4 20h16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                                 </svg>
                               </a>
+                            )}
+                            {taskOpenable && (
+                              <button onClick={(e) => { e.stopPropagation(); openTask(act, activeDay); }}
+                                style={{
+                                  padding: '10px 22px', background: '#1a1a2e', color: '#fff', border: 'none',
+                                  borderRadius: 12, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                                  boxShadow: '0 3px 10px rgba(26,26,46,0.15)',
+                                  whiteSpace: 'nowrap',
+                                }}>
+                                {taskInfo.done ? 'Открыть' : 'Выполнить'}
+                              </button>
                             )}
                             {(viewPayload || startPayload) && (
                               <button onClick={(e) => { e.stopPropagation(); onStartTimer(viewPayload || startPayload); }}
@@ -1013,6 +1105,7 @@ function CourseMapView({ progress, allActivities, daysTotal, isActivityOnDay, cu
                   // • call через карточку не открываем (отдельная кнопка записи).
                   const cardClickable =
                     act.practiceType === 'theory' ||
+                    (act.practiceType === 'task' && !isUpcoming && day <= currentDay) ||
                     (act.practiceType === 'media' && (!isToday || done));
                   const activeStart = isToday && !done && act.practiceType === 'media';
                   const clickable = cardClickable || activeStart;
@@ -1035,6 +1128,7 @@ function CourseMapView({ progress, allActivities, daysTotal, isActivityOnDay, cu
                         <span style={{ fontSize: 12, color: '#aaa', flexShrink: 0 }}>
                           {act.practiceType === 'theory' ? 'Теория'
                             : act.practiceType === 'call' ? 'Онлайн'
+                            : act.practiceType === 'task' ? 'Задание'
                             : `${totalMin} мин`}
                         </span>
                         {done && (

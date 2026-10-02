@@ -726,3 +726,72 @@ export async function saveCallAttendance(callId, attendedUserIds) {
     return { success: false, error: err.message };
   }
 }
+
+// ═══════════════════════════════════════════════════════════
+// v31: ЗАДАНИЯ — ответы ученика
+// ═══════════════════════════════════════════════════════════
+
+// Мои ответы на задания потока (с файлами).
+export async function getMyTaskSubmissions(courseId, groupId) {
+  try {
+    const r = await apiGet(`/api/tasks/${courseId}${gq(groupId)}`);
+    return Array.isArray(r) ? r : [];
+  } catch (err) {
+    console.error('[DB] Task submissions:', err);
+    return [];
+  }
+}
+
+// Создать/обновить черновик ответа. { courseId, groupId, activityId, day, answerText? }
+export async function saveTaskDraft(body) {
+  try { return await apiPut('/api/tasks/draft', body); }
+  catch (err) { return { error: err.message }; }
+}
+
+// «Выполнено» / «Отправить на проверку».
+export async function submitTask(submissionId) {
+  try { return await apiPost(`/api/tasks/${submissionId}/submit`); }
+  catch (err) { return { error: err.message }; }
+}
+
+export async function deleteTaskFile(fileId) {
+  try { return await apiDelete(`/api/files/task-file/${fileId}`); }
+  catch (err) { return { error: err.message }; }
+}
+
+// Ссылка на файл ответа для <img>/<video>/скачивания (токен в query — у тегов
+// нет заголовка Authorization).
+export function taskFileUrl(fileId, { download = false } = {}) {
+  const token = localStorage.getItem('is_token');
+  const apiUrl = import.meta.env.VITE_API_URL || '';
+  return `${apiUrl}/api/files/task-file/${fileId}?token=${encodeURIComponent(token || '')}${download ? '&download=1' : ''}`;
+}
+
+// Приложить файл к ответу (с прогрессом загрузки).
+export function uploadTaskFile(submissionId, file, onProgress) {
+  const token = localStorage.getItem('is_token');
+  const apiUrl = import.meta.env.VITE_API_URL || '';
+  return new Promise((resolve) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${apiUrl}/api/files/task/${submissionId}`);
+    xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    if (onProgress) {
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+      };
+    }
+    xhr.onload = () => {
+      try {
+        const result = JSON.parse(xhr.responseText);
+        if (xhr.status >= 200 && xhr.status < 300) resolve(result);
+        else resolve({ error: result.error || `HTTP ${xhr.status}` });
+      } catch {
+        resolve({ error: xhr.status === 413 ? 'Файл больше 200 МБ' : `HTTP ${xhr.status}` });
+      }
+    };
+    xhr.onerror = () => resolve({ error: 'Ошибка сети' });
+    xhr.send(formData);
+  });
+}
