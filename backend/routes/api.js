@@ -1291,6 +1291,12 @@ router.delete('/activities/:id', async (req, res) => {
     }
     await query(`DELETE FROM activity_media WHERE activity_id = $1`, [req.params.id]);
     await deleteActivityDir(act.course_id, req.params.id);
+    // v31: ответы на задание удалятся каскадом, их файлы на диске — здесь.
+    if (act.practice_type === 'task') {
+      const { deleteTaskSubmissionDir } = await import('../storage.js');
+      const subs = await query('SELECT id, course_id, user_id FROM task_submissions WHERE activity_id = $1', [req.params.id]);
+      for (const s of subs) await deleteTaskSubmissionDir(s.course_id, s.user_id, s.id);
+    }
     await query('DELETE FROM course_activities WHERE id = $1', [req.params.id]);
     res.json({ deleted: true });
   } catch (err) { console.error(err); res.status(500).json({ error: err.message }); }

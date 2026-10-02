@@ -14,6 +14,16 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const UPLOADS_ROOT = path.join(__dirname, 'uploads');
 export const VIDEOS_DIR = path.join(UPLOADS_ROOT, 'course-videos');
 export const MEDIA_DIR = path.join(UPLOADS_ROOT, 'theory-media');
+// v31: файлы ответов на задания — <courseId>/<userId>/<submissionId>/<файл>.
+export const TASK_FILES_DIR = path.join(UPLOADS_ROOT, 'task-files');
+
+// rm -rf папки ответа на задание (при удалении задания; строки в БД уходят каскадом).
+export async function deleteTaskSubmissionDir(courseId, userId, submissionId) {
+  if (!courseId || !userId || !submissionId) return;
+  const dir = path.join(TASK_FILES_DIR, String(courseId), String(userId), String(submissionId));
+  try { await fs.rm(dir, { recursive: true, force: true }); }
+  catch (err) { if (err?.code !== 'ENOENT') console.warn('[storage] rm task submission failed:', dir, err.message); }
+}
 
 // video_url is stored as `<courseId>/<activityId>/<filename>` (forward slashes).
 export function videoFilePath(videoUrl) {
