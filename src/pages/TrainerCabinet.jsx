@@ -914,11 +914,17 @@ function StudentDetails({
     })),
   ];
 
-  // Build day data accounting for exclusions
+  // Build day data accounting for exclusions. Пустой у ученика день (все
+  // практики исключены или их нет по расписанию) тоже показываем — серым, —
+  // иначе, исключив единственную практику дня, тренер терял день из календаря
+  // и не мог вернуть практику (Осознанная Походка, Группа 2, день 12).
   const days = [];
   for (let d = 1; d <= daysCount; d++) {
     const dayActivities = allActs.filter(a => isActOnDay(a, d) && !exclusions[`${a.id}_${d}`]);
-    if (dayActivities.length === 0) continue;
+    if (dayActivities.length === 0) {
+      days.push({ day: d, total: 0, completed: 0, allDone: false, frac: 0, empty: true });
+      continue;
+    }
     const completed = dayActivities.filter(a => progress[d]?.[a.id]?.completed).length;
     const allDone = completed === dayActivities.length;
     const totalSec = dayActivities.reduce((s, a) => s + (a.duration_min || 10) * 60, 0);
@@ -995,7 +1001,8 @@ function StudentDetails({
               allDone={d.allDone}
               isFuture={isFuture}
               isSelected={isSelected}
-              title={`День ${d.day}: ${d.completed}/${d.total}`}
+              empty={d.empty}
+              title={d.empty ? `День ${d.day}: нет практик` : `День ${d.day}: ${d.completed}/${d.total}`}
               onClick={() => setSelectedDay(d.day)}
             />
           );
@@ -1328,7 +1335,9 @@ function StudentDetails({
 }
 
 /* ── Day square with proportional fill (like DayCircle in Dashboard) ── */
-function DaySquare({ day, frac, allDone, isFuture, isSelected, title, onClick }) {
+// empty — у ученика в этот день нет практик: светло-серый квадрат без рамки
+// прогресса, день всё равно кликабелен (можно вернуть исключённую практику).
+function DaySquare({ day, frac, allDone, isFuture, isSelected, title, onClick, empty = false }) {
   const SZ = 26, R = 5, PAD = 1;
   const innerH = SZ - PAD * 2;
   const fillH = Math.min(frac, 1) * innerH;
@@ -1355,7 +1364,7 @@ function DaySquare({ day, frac, allDone, isFuture, isSelected, title, onClick })
       </defs>
       {/* Background */}
       <rect x={0} y={0} width={SZ} height={SZ} rx={R}
-        fill={isFuture ? 'rgba(0,0,0,0.02)' : 'rgba(0,0,0,0.04)'} />
+        fill={empty ? 'rgba(0,0,0,0.015)' : isFuture ? 'rgba(0,0,0,0.02)' : 'rgba(0,0,0,0.04)'} />
       {/* Proportional fill from bottom */}
       {frac > 0 && (
         <rect x={PAD} y={fillY} width={SZ - PAD * 2} height={fillH}
@@ -1363,11 +1372,11 @@ function DaySquare({ day, frac, allDone, isFuture, isSelected, title, onClick })
       )}
       {/* Border */}
       <rect x={0.5} y={0.5} width={SZ - 1} height={SZ - 1} rx={R}
-        fill="none" stroke={isFuture ? 'rgba(0,0,0,0.06)' : GREEN} strokeWidth={0.8}
-        opacity={isFuture ? 0.5 : allDone ? 0.6 : 0.3} />
+        fill="none" stroke={empty || isFuture ? 'rgba(0,0,0,0.06)' : GREEN} strokeWidth={0.8}
+        opacity={empty || isFuture ? 0.5 : allDone ? 0.6 : 0.3} />
       {/* Day number */}
       <text x={SZ / 2} y={SZ / 2 + 1} textAnchor="middle" dominantBaseline="middle"
-        fill={allDone ? '#fff' : frac > 0.5 ? '#fff' : isFuture ? '#ddd' : '#999'}
+        fill={empty ? '#ccc' : allDone ? '#fff' : frac > 0.5 ? '#fff' : isFuture ? '#ddd' : '#999'}
         fontSize={9} fontWeight={600}>
         {day}
       </text>

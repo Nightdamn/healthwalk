@@ -480,14 +480,22 @@ function daysWithActivities(activities, day) {
 
 // Если mode ∈ {free, self_paced} и все активности этого дня done — INSERT closure.
 // Активности / прогресс / closure — в группе gid (своя или выбранная мастером).
-async function maybeAutoCloseDay(userId, courseId, day, gid) {
+// День, где у ученика нет ни одной обязательной практики (тренер исключил
+// единственную, только необязательные задания, пусто по расписанию), держать
+// нечем — закрываем, когда ученик до него дошёл (все предыдущие закрыты).
+// Иначе ученик навсегда стоял на пустом дне (Осознанная Походка, Группа 2,
+// день 12, 06.10). После закрытия проверяем следующий день — цепочкой.
+async function maybeAutoCloseDay(userId, courseId, day, gid, depth = 0) {
   const mode = await getModeForGroup(userId, courseId, gid);
   if (mode === 'daily') return;
-  const existing = await queryOne(
-    'SELECT day FROM course_day_closures WHERE user_id=$1 AND group_id=$2 AND day=$3',
-    [userId, gid, day]
-  );
-  if (existing) return;
+  const course = await queryOne('SELECT days_count FROM courses WHERE id = $1', [courseId]);
+  const daysCount = course?.days_count || 30;
+  if (day < 1 || day > daysCount) return;
+  const closed = new Set((await query(
+    'SELECT day FROM course_day_closures WHERE user_id=$1 AND group_id=$2',
+    [userId, gid]
+  )).map(r => r.day));
+  if (closed.has(day)) return;
   const acts = await query('SELECT * FROM course_activities WHERE group_id = $1', [gid]);
   // Практики, которые тренер исключил ученику на этот день, не обязательны —
   // ученик их и не видит. Без этого исключённая практика навсегда держала
@@ -501,19 +509,33 @@ async function maybeAutoCloseDay(userId, courseId, day, gid) {
   const dayActs = daysWithActivities(acts, day)
     .filter(a => !excluded.has(a.id))
     .filter(a => a.practice_type !== 'task' || (a.task_bound !== false && a.task_required));
-  if (dayActs.length === 0) return;
-  const progress = await query(
-    'SELECT activity_id, completed FROM course_progress WHERE user_id=$1 AND group_id=$2 AND day=$3',
-    [userId, gid, day]
-  );
-  const doneIds = new Set(progress.filter(p => p.completed).map(p => p.activity_id));
-  const allDone = dayActs.every(a => doneIds.has(a.id));
-  if (!allDone) return;
+  if (dayActs.length === 0) {
+    // Личная практика ученика в этот день (добавил тренер) — день не пустой,
+    // ведём себя как раньше (не закрываем сами).
+    const custom = await query(
+      'SELECT * FROM student_custom_activities WHERE course_id = $1 AND user_id = $2',
+      [courseId, userId]
+    );
+    if (daysWithActivities(custom, day).some(a => !excluded.has(a.id))) return;
+    for (let d = 1; d < day; d++) if (!closed.has(d)) return; // ещё не дошёл
+  } else {
+    const progress = await query(
+      'SELECT activity_id, completed FROM course_progress WHERE user_id=$1 AND group_id=$2 AND day=$3',
+      [userId, gid, day]
+    );
+    const doneIds = new Set(progress.filter(p => p.completed).map(p => p.activity_id));
+    const allDone = dayActs.every(a => doneIds.has(a.id));
+    if (!allDone) return;
+  }
   await query(
     `INSERT INTO course_day_closures (user_id, course_id, day, closure_type, group_id)
      VALUES ($1, $2, $3, 'auto', $4) ON CONFLICT DO NOTHING`,
     [userId, courseId, day, gid]
   );
+  // Следующий день может оказаться пустым (или уже выполненным) — закрываем цепочкой.
+  if (day < daysCount && depth < daysCount) {
+    await maybeAutoCloseDay(userId, courseId, day + 1, gid, depth + 1);
+  }
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -670,6 +692,8 @@ router.post('/courses/:id/close-day', async (req, res) => {
        VALUES ($1, $2, $3, 'forced', $4) ON CONFLICT DO NOTHING`,
       [req.userId, courseId, currentDay, gid]
     );
+    // Следующий день пустой у ученика — закрывается сразу (см. maybeAutoCloseDay).
+    await maybeAutoCloseDay(req.userId, courseId, currentDay + 1, gid);
     res.json({ ok: true, closedDay: currentDay });
   } catch (err) { console.error(err); res.status(500).json({ error: err.message }); }
 });
