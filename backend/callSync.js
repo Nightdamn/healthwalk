@@ -60,6 +60,20 @@ function defaultCallTime(startDate, day, tzMin) {
 
 const isLocked = (c) => !!(c.recording_url || c.status === 'completed' || c.has_joins);
 
+// Звонок прошлого запуска потока: прошёл раньше текущей даты старта (поток
+// перезапустили с новой даты). Такие звонки — история: не показываются в
+// расписании и на днях курса и не мешают создать новый звонок на тот же день.
+// Запас 36 часов — чтобы разница часовых поясов не сделала историей звонок
+// первого дня. Правило только для потоков с привязкой к дате (у остальных
+// звонки не привязаны к календарю — их записи смотрят ученики без даты).
+export const RUN_START_TOLERANCE_SQL = "INTERVAL '36 hours'";
+const RUN_START_TOLERANCE_MS = 36 * 3600 * 1000;
+export function isPreviousRunCall(call, startDate) {
+  if (!startDate) return false;
+  const start = Date.parse(`${String(startDate).slice(0, 10)}T00:00:00Z`);
+  return new Date(call.scheduled_at).getTime() < start - RUN_START_TOLERANCE_MS;
+}
+
 // Синхронизации одной группы идут строго по очереди: автосохранение редактора
 // шлёт несколько PATCH подряд, параллельные прогоны создали бы дубли.
 // Процесс бэкенда один (systemd instep), поэтому очереди в памяти достаточно.
@@ -104,12 +118,13 @@ async function syncGroupCallsNow(groupId, { actorId = null, dryRun = false } = {
     `SELECT * FROM course_activities WHERE group_id = $1 AND practice_type = 'call'`,
     [groupId]
   );
-  const calls = await query(
+  // Звонки прошлого запуска (до текущей даты старта) не в счёт — см. isPreviousRunCall.
+  const calls = (await query(
     `SELECT ac.*, EXISTS (SELECT 1 FROM call_attendance ca
                            WHERE ca.call_id = ac.id AND ca.joined_at IS NOT NULL) AS has_joins
        FROM activity_calls ac WHERE ac.group_id = $1`,
     [groupId]
-  );
+  )).filter(c => !isPreviousRunCall(c, g.start_date));
 
   for (const a of acts) {
     const days = callDaysForActivity(a, daysCount);

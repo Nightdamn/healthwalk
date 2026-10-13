@@ -3,7 +3,7 @@ import jwt from 'jsonwebtoken';
 import rateLimit from 'express-rate-limit';
 import { query, queryOne, execute, withTransaction } from '../db.js';
 import { accessWindow, localDate, getStudentAccess } from '../access.js';
-import { syncGroupCalls, syncCourseCalls, insertCall } from '../callSync.js';
+import { syncGroupCalls, syncCourseCalls, insertCall, RUN_START_TOLERANCE_SQL } from '../callSync.js';
 
 // ── v32: длительность потока ──
 // Своя у группы (курс по группам и у группы задана) или длительность курса.
@@ -3031,10 +3031,22 @@ router.get('/calls/:courseId', async (req, res) => {
     if ((await getStudentAccess(req.userId, req.params.courseId)).accessExpired) return res.json([]);
     // has_joins — в звонок уже заходили: такой звонок не удаляется (запись
     // и посещаемость привязаны к нему).
+    // Звонки прошлого запуска потока (раньше текущей даты старта при привязке
+    // к дате) — история: в расписании и на днях курса их нет, на их день
+    // ставится новый звонок (см. isPreviousRunCall в callSync.js).
     const rows = await query(
       `SELECT ac.*, EXISTS (SELECT 1 FROM call_attendance ca
                              WHERE ca.call_id = ac.id AND ca.joined_at IS NOT NULL) AS has_joins
-         FROM activity_calls ac WHERE ac.group_id = $1 ORDER BY ac.scheduled_at, ac.created_at`,
+         FROM activity_calls ac
+         JOIN course_groups g ON g.id = ac.group_id
+         JOIN courses c ON c.id = ac.course_id
+        WHERE ac.group_id = $1
+          AND NOT (
+            COALESCE(CASE WHEN c.groups_enabled THEN g.bound_to_calendar ELSE c.bound_to_calendar END, false)
+            AND (CASE WHEN c.groups_enabled THEN g.start_date ELSE c.start_date END) IS NOT NULL
+            AND ac.scheduled_at < (CASE WHEN c.groups_enabled THEN g.start_date ELSE c.start_date END)::timestamp AT TIME ZONE 'UTC' - ${RUN_START_TOLERANCE_SQL}
+          )
+        ORDER BY ac.scheduled_at, ac.created_at`,
       [gid]
     );
     res.json(rows);
