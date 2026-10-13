@@ -403,8 +403,12 @@ export default function EditCoursePage({ courseId, userRole, onBack, onSaved, on
 
     setTitle(course.title || '');
     setDescription(course.description || '');
-    const dc = course.days_count || 30;
-    setDaysCount(dc);
+    const courseDc = course.days_count || 30;
+    setDaysCount(courseDc);
+    // v32: обрезка расписаний ниже — по длительности потока загруженной группы
+    // (своя у группы или курса). По длительности курса нельзя: у группы с
+    // более длинным потоком практики молча урезались бы до курса.
+    const dc = course.stream_days_count || courseDc;
     setBoundToCalendar(!!course.bound_to_calendar);
     // Date input wants YYYY-MM-DD; trim ISO timestamp if backend ever returns full.
     setStartDate((course.start_date || '').slice(0, 10));
@@ -623,7 +627,7 @@ export default function EditCoursePage({ courseId, userRole, onBack, onSaved, on
         excludedDays: current.excluded_days || [], extraDays: current.extra_days || [],
         ...fields,
       };
-      const normalized = normalizeSchedule(merged, daysCount) || merged;
+      const normalized = normalizeSchedule(merged, streamDays) || merged;
       toSave = { ...fields, ...normalized };
     }
 
@@ -704,7 +708,7 @@ export default function EditCoursePage({ courseId, userRole, onBack, onSaved, on
     const act = activities[idx];
     if (!act) return;
     const next = toggleDayInActivity(act, day);
-    const normalized = normalizeSchedule({ ...act, ...next }, daysCount) || next;
+    const normalized = normalizeSchedule({ ...act, ...next }, streamDays) || next;
     setActivities(prev => prev.map((a, i) => (i === idx ? { ...a, ...normalized } : a)));
     if (act.dbId) scheduleActivityPatch(act.dbId, normalized);
   };
@@ -858,10 +862,10 @@ export default function EditCoursePage({ courseId, userRole, onBack, onSaved, on
   // response lands and pushed via a follow-up patch.
   const addActivity = async () => {
     const tempKey = `tmp-${Date.now()}`;
-    const placeholder = { ...emptyActivity(daysCount), _key: tempKey, _creating: true };
+    const placeholder = { ...emptyActivity(streamDays), _key: tempKey, _creating: true };
     setActivities(prev => [...prev, placeholder]);
     expandKey(tempKey); // новую практику сразу заполняют — открыта
-    const days = parseInt(daysCount) || 30;
+    const days = streamDays;
     const created = await createActivity(courseId, {
       label: '', iconNum: 'health/1', practiceType: 'media',
       firstDay: 1, lastDay: days, durationMin: 10, intervalDays: 1,
@@ -1036,6 +1040,9 @@ export default function EditCoursePage({ courseId, userRole, onBack, onSaved, on
   const streamStartDate = selectedGroup
     ? (selectedGroup.start_date ? String(selectedGroup.start_date).slice(0, 10) : '')
     : startDate;
+  // v32: длительность потока выбранной группы (своя или курса) — по ней
+  // календари практик, обрезка расписаний и дни новых практик.
+  const streamDays = (selectedGroup && selectedGroup.days_count) || parseInt(daysCount) || 30;
   if (loading) {
     return (
       <Layout>
@@ -1072,7 +1079,12 @@ export default function EditCoursePage({ courseId, userRole, onBack, onSaved, on
             placeholder="Краткое описание курса..." rows={2}
             style={{ ...inputStyle, resize: 'vertical', fontFamily: 'inherit', marginBottom: 12 }} />
 
-          <label style={labelStyle}>Длительность (дней)</label>
+          <label style={labelStyle}>{groupsEnabled ? 'Длительность по умолчанию (дней)' : 'Длительность (дней)'}</label>
+          {groupsEnabled && (
+            <div style={{ fontSize: 12, color: '#888', marginBottom: 6, marginTop: -2 }}>
+              Для потоков, у которых в карточке группы не задана своя длительность.
+            </div>
+          )}
           <input type="number" value={daysCount} min={1} max={365}
             onChange={e => {
               const raw = e.target.value;
@@ -1087,7 +1099,9 @@ export default function EditCoursePage({ courseId, userRole, onBack, onSaved, on
               // Apply destructive clamping (activity/video lastDay trim) only
               // after the trainer commits — typing "12" passes through "1"
               // and an immediate clamp would collapse everything to day 1.
-              commitDaysCount(clamped);
+              // v32: только если загруженный поток живёт по длительности курса
+              // (у группы не задана своя) — иначе его расписание не трогаем.
+              if (!(selectedGroup && selectedGroup.days_count)) commitDaysCount(clamped);
             }}
             style={{ ...inputStyle, width: 100 }} />
 
@@ -1165,7 +1179,7 @@ export default function EditCoursePage({ courseId, userRole, onBack, onSaved, on
               )}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {groups.map(g => (
-                  <GroupCard key={g.id} group={g}
+                  <GroupCard key={g.id} group={g} courseDays={parseInt(daysCount) || 30}
                     collapsed={groupCollapsedIds ? groupCollapsedIds.has(g.id) : false}
                     onToggleCollapsed={() => setGroupCollapsedIds(prev => {
                       const next = new Set(prev || []);
@@ -1173,7 +1187,15 @@ export default function EditCoursePage({ courseId, userRole, onBack, onSaved, on
                       return next;
                     })}
                     onPickIcon={() => setGroupPickerId(g.id)}
-                    onSave={async (fields) => { refreshCallsIfChanged(await updateGroup(g.id, fields)); await loadGroups(); }}
+                    onSave={async (fields) => {
+                      refreshCallsIfChanged(await updateGroup(g.id, fields));
+                      await loadGroups();
+                      // v32: поток стал короче — обрезаем расписания его практик, если
+                      // эта группа сейчас открыта в редакторе (другие обрежутся при открытии).
+                      if (fields.daysCount !== undefined && g.id === selectedGroupId) {
+                        commitDaysCount(fields.daysCount ?? (parseInt(daysCount) || 30));
+                      }
+                    }}
                     onApplyDefaults={async () => { await applyGroupDefaults(g.id); }}
                     onDelete={async () => {
                       await deleteGroup(g.id);
@@ -1222,7 +1244,10 @@ export default function EditCoursePage({ courseId, userRole, onBack, onSaved, on
 
           {/* Окно доступа после окончания — работает во всех режимах.
               daily: считается от start_date + days_count.
-              free/self_paced: от момента когда курс завершён (все дни закрыты). */}
+              free/self_paced: от момента когда курс завершён (все дни закрыты).
+              При «По группам» прячем: действует значение в карточке группы,
+              общее поле путало тренеров (как и общая привязка к дате). */}
+          {!groupsEnabled && (
           <div style={{ marginTop: 12, padding: 12, borderRadius: 12, background: 'rgba(0,0,0,0.02)' }}>
             <label style={{ ...labelStyle, fontSize: 13 }}>
               Материалы доступны после окончания (дней)
@@ -1230,13 +1255,13 @@ export default function EditCoursePage({ courseId, userRole, onBack, onSaved, on
             <div style={{ fontSize: 12, color: '#888', marginBottom: 6 }}>
               Сколько дней после окончания курса ученик ещё видит материалы и практики.
               Пусто = бессрочно, 0 = только в день окончания.
-              {groupsEnabled && ' При режиме «По группам» действует значение группы, это поле — только для новых групп.'}
             </div>
             <input type="number" min={0} max={3650} placeholder="бессрочно"
               value={accessDaysAfter}
               onChange={e => onAccessDaysAfterChange(e.target.value)}
               style={{ ...inputStyle, width: 140 }} />
           </div>
+          )}
         </div>
 
         {/* v28: Магазин курсов — статус + кнопка submit/withdraw + цена */}
@@ -1296,7 +1321,7 @@ export default function EditCoursePage({ courseId, userRole, onBack, onSaved, on
         })()}
 
         {activities.map((a, idx) => (
-          <ActivityCard key={a._key} activity={a} index={idx} maxDay={daysCount}
+          <ActivityCard key={a._key} activity={a} index={idx} maxDay={streamDays}
             onUpdate={(f, v) => updateActivity(idx, f, v)}
             onToggleDay={(day) => toggleActivityDay(idx, day)}
             onRemove={() => removeActivity(idx)}
@@ -1955,9 +1980,11 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onToggleDay, onRemove
 // v29: редактор одной группы.
 // Все поля с debounce-save (аналогично carе editor). apply-defaults сбрасывает
 // enrollment-override'ы, чтобы новое значение действительно применилось.
-function GroupCard({ group, onSave, onApplyDefaults, onDelete, collapsed = false, onToggleCollapsed, onPickIcon }) {
+function GroupCard({ group, courseDays = 30, onSave, onApplyDefaults, onDelete, collapsed = false, onToggleCollapsed, onPickIcon }) {
   const [name, setName] = useState(group.name || '');
   const [mode, setMode] = useState(group.progression_mode || 'daily');
+  // v32: своя длительность потока; пусто — как у курса (courseDays).
+  const [days, setDays] = useState(group.days_count ?? '');
   const [boundCal, setBoundCal] = useState(!!group.bound_to_calendar);
   const [startDate, setStartDate] = useState(group.start_date ? String(group.start_date).slice(0, 10) : '');
   const [accessDays, setAccessDays] = useState(group.access_days_after ?? '');
@@ -2072,6 +2099,22 @@ function GroupCard({ group, onSave, onApplyDefaults, onDelete, collapsed = false
         <Dropdown value={mode}
           onChange={v => { setMode(v); saveField({ progressionMode: v }); }}
           options={MODE_OPTS} fullWidth />
+      </div>
+
+      {/* v32: длительность потока. Пусто — как у курса. */}
+      <div style={{ marginBottom: 10 }}>
+        <label style={{ fontSize: 11, color: '#666', display: 'block' }}>
+          Длительность курса, дней (пусто = как у курса, {courseDays})
+        </label>
+        <input type="number" min={1} max={365} placeholder={String(courseDays)} value={days}
+          onChange={e => setDays(e.target.value)}
+          onBlur={() => {
+            const v = days === '' ? null : Math.max(1, Math.min(parseInt(days) || 1, 365));
+            if (v !== null && String(v) !== String(days)) setDays(v);
+            if (v !== (group.days_count ?? null)) saveField({ daysCount: v });
+          }}
+          style={{ width: 160, padding: '6px 8px', borderRadius: 8, fontSize: 13,
+            border: '1px solid rgba(0,0,0,0.1)', background: '#fff' }} />
       </div>
 
       {/* Календарная привязка — во всех режимах. В free/self_paced дни у

@@ -5,6 +5,26 @@ import { query, queryOne, execute, withTransaction } from '../db.js';
 import { accessWindow, localDate, getStudentAccess } from '../access.js';
 import { syncGroupCalls, syncCourseCalls, insertCall } from '../callSync.js';
 
+// ── v32: длительность потока ──
+// Своя у группы (курс по группам и у группы задана) или длительность курса.
+// Все проверки «день в пределах курса» и обрезка расписаний — по ней.
+async function streamDays(groupId, courseId = null) {
+  if (groupId) {
+    const r = await queryOne(
+      `SELECT CASE WHEN c.groups_enabled AND g.days_count IS NOT NULL THEN g.days_count
+                   ELSE c.days_count END AS d
+         FROM course_groups g JOIN courses c ON c.id = g.course_id WHERE g.id = $1`,
+      [groupId]
+    );
+    if (r) return r.d || 30;
+  }
+  if (courseId) {
+    const c = await queryOne('SELECT days_count FROM courses WHERE id = $1', [courseId]);
+    return c?.days_count || 30;
+  }
+  return 30;
+}
+
 // ── v31: практика «Задание» (practice_type='task') ──
 const PRACTICE_TYPES = ['media', 'theory', 'call', 'task'];
 
@@ -185,6 +205,7 @@ const ENROLLED_COURSES_SQL = (oneCourse) => `
          g.bound_to_calendar AS group_bound_to_calendar,
          g.start_date AS group_start_date,
          g.access_days_after AS group_access_days_after,
+         g.days_count AS group_days_count,
          g.trainer_id AS group_trainer_id, g.curator_id AS group_curator_id,
          c.id, c.title, c.description, c.days_count, c.avatar_icon, c.avatar_custom, c.owner_id, c.created_at,
          c.bound_to_calendar, c.start_date, c.access_days_after, c.progression_mode,
@@ -231,6 +252,8 @@ async function buildCourseItem(e, userId) {
     ? e.access_days_after_override
     : (useGroup ? e.group_access_days_after : e.access_days_after);
   const effMode = pick(e.progression_mode_override, useGroup ? e.group_progression_mode : null, e.progression_mode) || 'daily';
+  // v32: длительность потока — своя у группы (если задана) или курса.
+  const effDays = (useGroup && e.group_days_count) || e.days_count || 30;
   const startDate = (effBound && effStart)
     ? toISODate(effStart)
     : toISODate(e.joined_at || e.created_at);
@@ -242,13 +265,13 @@ async function buildCourseItem(e, userId) {
   const access = isStaff
     ? { accessExpiresOn: null, accessExpired: false }
     : accessWindow({
-        mode: effMode, startDate, daysCount: e.days_count || 30,
+        mode: effMode, startDate, daysCount: effDays,
         closedDates: closures.map(c => localDate(c.closed_at)), accessDays: effAccess,
       });
   const viewGroups = isStaff ? await viewGroupsFor(userId, e.id, e.groups_enabled) : [];
   return {
         type: 'course', id: e.id, title: e.title, description: e.description || '',
-        daysCount: e.days_count, avatarIcon: e.avatar_icon, avatarCustom: e.avatar_custom,
+        daysCount: effDays, avatarIcon: e.avatar_icon, avatarCustom: e.avatar_custom,
         ownerId: e.owner_id, enrollRole: e.role, enrollmentId: e.enrollment_id,
         startDate,
         boundToCalendar: !!effBound,
@@ -283,7 +306,7 @@ async function buildCourseItem(e, userId) {
           id: a.id, activityId: a.activity_id, label: a.label, durationMin: a.duration_min,
           iconNum: a.icon_num || 'health/1', practiceType: a.practice_type || 'media',
           descriptionHtml: access.accessExpired ? null : (a.description_html || null), firstDay: a.first_day || 1,
-          lastDay: a.last_day || e.days_count, intervalDays: a.interval_days || 1,
+          lastDay: a.last_day || effDays, intervalDays: a.interval_days || 1,
           createdAt: a.created_at,
           excludedDays: a.excluded_days || [], extraDays: a.extra_days || [],
           ...taskFields(a),
@@ -489,8 +512,7 @@ function daysWithActivities(activities, day) {
 async function maybeAutoCloseDay(userId, courseId, day, gid, depth = 0) {
   const mode = await getModeForGroup(userId, courseId, gid);
   if (mode === 'daily') return;
-  const course = await queryOne('SELECT days_count FROM courses WHERE id = $1', [courseId]);
-  const daysCount = course?.days_count || 30;
+  const daysCount = await streamDays(gid, courseId);
   if (day < 1 || day > daysCount) return;
   const closed = new Set((await query(
     'SELECT day FROM course_day_closures WHERE user_id=$1 AND group_id=$2',
@@ -596,7 +618,7 @@ async function taskContext(userId, { courseId, groupId, activityId, day }) {
   );
   if (!act) return { status: 404, error: 'Задание не найдено' };
   const d = parseInt(day);
-  if (!Number.isFinite(d) || d < 1 || d > (course.days_count || 30)) return { status: 400, error: 'Неверный день' };
+  if (!Number.isFinite(d) || d < 1 || d > await streamDays(gid, courseId)) return { status: 400, error: 'Неверный день' };
   return { gid, act, day: d };
 }
 
@@ -679,8 +701,9 @@ router.post('/courses/:id/close-day', async (req, res) => {
     const gid = await resolveViewGroup(req.userId, courseId, req.body?.groupId || null);
     const mode = await getModeForGroup(req.userId, courseId, gid);
     if (mode !== 'self_paced') return res.status(400).json({ error: 'Только для режима «Свободно»' });
-    const course = await queryOne('SELECT days_count FROM courses WHERE id=$1', [courseId]);
-    if (!course) return res.status(404).json({ error: 'Курс не найден' });
+    const exists = await queryOne('SELECT 1 FROM courses WHERE id=$1', [courseId]);
+    if (!exists) return res.status(404).json({ error: 'Курс не найден' });
+    const course = { days_count: await streamDays(gid, courseId) }; // v32: длительность потока
     const closures = await query(
       'SELECT day FROM course_day_closures WHERE user_id=$1 AND group_id=$2',
       [req.userId, gid]
@@ -754,8 +777,7 @@ router.patch('/trainer/enrollments/:enrollmentId/mode', async (req, res) => {
     const enroll = await queryOne('SELECT * FROM course_enrollments WHERE id=$1', [req.params.enrollmentId]);
     if (!enroll) return res.status(404).json({ error: 'Не найден' });
     if (!await isTrainer(req.userId, enroll.course_id)) return res.status(403).json({ error: 'Нет прав' });
-    const course = await queryOne('SELECT days_count FROM courses WHERE id=$1', [enroll.course_id]);
-    const daysCount = course?.days_count || 30;
+    const daysCount = await streamDays(enroll.group_id, enroll.course_id); // v32: длительность потока
     const cal = await getEffectiveCalendar(enroll.user_id, enroll.course_id);
     if (mode !== undefined) {
       await query('UPDATE course_enrollments SET progression_mode_override=$1 WHERE id=$2',
@@ -987,7 +1009,8 @@ router.get('/courses/:id', async (req, res) => {
       gid = await getDefaultGroup(req.params.id);
     }
     const acts = await query('SELECT * FROM course_activities WHERE group_id = $1 ORDER BY sort_order', [gid]);
-    res.json({ ...course, course_activities: acts, group_id: gid });
+    // v32: длительность потока этой группы — редактор обрезает расписания по ней.
+    res.json({ ...course, course_activities: acts, group_id: gid, stream_days_count: await streamDays(gid, req.params.id) });
   } catch (err) { console.error(err); res.status(500).json({ error: err.message }); }
 });
 
@@ -1193,8 +1216,7 @@ router.post('/courses/:id/activities', async (req, res) => {
     } else {
       gid = await getDefaultGroup(courseId);
     }
-    const days = await queryOne('SELECT days_count FROM courses WHERE id = $1', [courseId]);
-    const daysCount = days?.days_count || 30;
+    const daysCount = await streamDays(gid, courseId); // v32: длительность потока
     const pt = PRACTICE_TYPES.includes(practiceType) ? practiceType : 'media';
     const fd = Math.max(1, Math.min(parseInt(firstDay) || 1, daysCount));
     const ld = Math.max(fd, Math.min(parseInt(lastDay) || daysCount, daysCount));
@@ -1232,8 +1254,7 @@ router.patch('/activities/:id', async (req, res) => {
     const act = await queryOne('SELECT * FROM course_activities WHERE id = $1', [req.params.id]);
     if (!act) return res.status(404).json({ error: 'Активность не найдена' });
     if (!await isTrainer(req.userId, act.course_id)) return res.status(403).json({ error: 'Нет прав' });
-    const days = await queryOne('SELECT days_count FROM courses WHERE id = $1', [act.course_id]);
-    const daysCount = days?.days_count || 30;
+    const daysCount = await streamDays(act.group_id, act.course_id); // v32: длительность потока
 
     const { label, iconNum, practiceType, descriptionHtml, firstDay, lastDay, durationMin, intervalDays, sortOrder, excludedDays, extraDays, libraryPracticeId,
             taskBound, taskRequired, taskReview, taskReminder } = req.body || {};
@@ -1849,8 +1870,13 @@ router.post('/courses/:id/groups', async (req, res) => {
     if (!course) return res.status(404).json({ error: 'Курс не найден' });
     if (course.owner_id !== req.userId) return res.status(403).json({ error: 'Только владелец курса создаёт группы' });
 
-    const { name, avatarIcon, avatarCustom, progressionMode, boundToCalendar, startDate, accessDaysAfter, dayStartHour, tzOffsetMin, trainerId, curatorId } = req.body || {};
+    const { name, avatarIcon, avatarCustom, progressionMode, boundToCalendar, startDate, accessDaysAfter, dayStartHour, tzOffsetMin, trainerId, curatorId, daysCount } = req.body || {};
     if (!name || !String(name).trim()) return res.status(400).json({ error: 'Название группы обязательно' });
+    // v32: своя длительность потока (необязательно; пусто — как у курса).
+    const groupDays = daysCount === undefined || daysCount === null || daysCount === '' ? null : parseInt(daysCount);
+    if (groupDays !== null && !(Number.isFinite(groupDays) && groupDays >= 1 && groupDays <= 365)) {
+      return res.status(400).json({ error: 'Длительность — от 1 до 365 дней' });
+    }
 
     // sort_order = max + 1
     const last = await queryOne('SELECT COALESCE(MAX(sort_order), -1) AS m FROM course_groups WHERE course_id = $1', [req.params.id]);
@@ -1863,8 +1889,8 @@ router.post('/courses/:id/groups', async (req, res) => {
       INSERT INTO course_groups (
         course_id, name, avatar_icon, avatar_custom,
         progression_mode, bound_to_calendar, start_date, access_days_after,
-        day_start_hour, tz_offset_min, trainer_id, curator_id, sort_order
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *
+        day_start_hour, tz_offset_min, trainer_id, curator_id, sort_order, days_count
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *
     `, [
       req.params.id, String(name).trim(), avatarIcon || 'health/1', avatarCustom || null,
       mode,
@@ -1873,7 +1899,7 @@ router.post('/courses/:id/groups', async (req, res) => {
       accessDaysAfter === undefined ? course.access_days_after : accessDaysAfter,
       dayStartHour ?? null,
       tzOffsetMin ?? null,
-      trainer, curatorId || null, sortOrder,
+      trainer, curatorId || null, sortOrder, groupDays,
     ]);
 
     // v30-2b: клонируем контент из шаблона (is_default группы курса) в новую
@@ -1951,9 +1977,17 @@ router.patch('/groups/:id', async (req, res) => {
     const g = await isGroupStaff(req.userId, req.params.id);
     if (!g) return res.status(403).json({ error: 'Нет прав' });
 
-    const { name, avatarIcon, avatarCustom, progressionMode, boundToCalendar, startDate, accessDaysAfter, dayStartHour, tzOffsetMin, trainerId, curatorId, sortOrder } = req.body || {};
+    const { name, avatarIcon, avatarCustom, progressionMode, boundToCalendar, startDate, accessDaysAfter, dayStartHour, tzOffsetMin, trainerId, curatorId, sortOrder, daysCount } = req.body || {};
     const sets = []; const params = []; let i = 1;
     if (typeof name === 'string' && name.trim()) { sets.push(`name=$${i++}`); params.push(name.trim()); }
+    // v32: своя длительность потока; пусто/null — как у курса.
+    if (daysCount !== undefined) {
+      const n = daysCount === null || daysCount === '' ? null : parseInt(daysCount);
+      if (n !== null && !(Number.isFinite(n) && n >= 1 && n <= 365)) {
+        return res.status(400).json({ error: 'Длительность — от 1 до 365 дней' });
+      }
+      sets.push(`days_count=$${i++}`); params.push(n);
+    }
     if (avatarIcon !== undefined) { sets.push(`avatar_icon=$${i++}`); params.push(avatarIcon || 'health/1'); }
     if (avatarCustom !== undefined) { sets.push(`avatar_custom=$${i++}`); params.push(avatarCustom || null); }
     if (progressionMode !== undefined && ['daily','free','self_paced'].includes(progressionMode)) {
@@ -1975,8 +2009,8 @@ router.patch('/groups/:id', async (req, res) => {
     if (startDate !== undefined) {
       await shiftScheduledCalls(req.params.id, before?.start_date, startDate || null);
     }
-    // Включили привязку / поставили дату — у потока появляются звонки.
-    const callsChanged = (typeof boundToCalendar === 'boolean' || startDate !== undefined)
+    // Включили привязку / поставили дату / сменили длительность — звонки потока под новое расписание.
+    const callsChanged = (typeof boundToCalendar === 'boolean' || startDate !== undefined || daysCount !== undefined)
       ? await syncCallsSafe(() => syncGroupCalls(req.params.id, { actorId: req.userId }), `group ${req.params.id}`)
       : false;
     res.json({ ok: true, callsChanged });
@@ -2305,8 +2339,7 @@ router.post('/courses/:courseId/activities/from-library', async (req, res) => {
     } else {
       gid = await getDefaultGroup(courseId);
     }
-    const days = await queryOne('SELECT days_count FROM courses WHERE id = $1', [courseId]);
-    const daysCount = days?.days_count || 30;
+    const daysCount = await streamDays(gid, courseId); // v32: длительность потока
     const clampDay = (d) => Math.max(1, Math.min(parseInt(d) || 1, daysCount));
     const clampDays = (arr) => (arr || []).map(d => parseInt(d)).filter(d => d >= 1 && d <= daysCount);
 
@@ -2410,6 +2443,9 @@ router.get('/trainer/students/:courseId', async (req, res) => {
               -- бессрочно, к курсу не откатываемся.
               CASE WHEN c.groups_enabled THEN g.access_days_after
                    ELSE c.access_days_after END AS stream_access_days_after,
+              -- v32: длительность потока ученика.
+              CASE WHEN c.groups_enabled AND g.days_count IS NOT NULL THEN g.days_count
+                   ELSE c.days_count END AS stream_days_count,
               (SELECT COUNT(*) FROM course_day_closures WHERE user_id=u.id AND group_id=ce.group_id) AS closed_days
        FROM course_enrollments ce
        JOIN users u ON u.id = ce.user_id
@@ -2436,6 +2472,7 @@ router.get('/trainer/students/:courseId', async (req, res) => {
               COALESCE(g.bound_to_calendar, false) AS effective_bound,
               g.start_date AS effective_start_date,
               g.access_days_after AS stream_access_days_after,
+              COALESCE(g.days_count, c.days_count) AS stream_days_count,
               (SELECT COUNT(*) FROM course_day_closures WHERE user_id = u.id AND group_id = g.id) AS closed_days
          FROM courses c
          JOIN users u ON u.id = c.owner_id
@@ -2789,11 +2826,10 @@ router.patch('/media/:id/duration', async (req, res) => {
 // the surface narrow.
 router.patch('/media/:id', async (req, res) => {
   try {
-    const v = await queryOne('SELECT course_id FROM activity_media WHERE id = $1', [req.params.id]);
+    const v = await queryOne('SELECT course_id, group_id FROM activity_media WHERE id = $1', [req.params.id]);
     if (!v) return res.status(404).json({ error: 'Not found' });
     if (!await isTrainer(req.userId, v.course_id)) return res.status(403).json({ error: 'Нет прав' });
-    const course = await queryOne('SELECT days_count FROM courses WHERE id = $1', [v.course_id]);
-    const daysCount = course?.days_count || 30;
+    const daysCount = await streamDays(v.group_id, v.course_id); // v32: длительность потока
 
     const { firstDay, lastDay, intervalDays, excludedDays, extraDays, mediaType, textContent, descriptionHtml, durationSec } = req.body || {};
     const sets = []; const params = []; let i = 1;

@@ -39,7 +39,10 @@ export function accessWindow({ mode, startDate, daysCount, closedDates, accessDa
 // кураторы курса не ограничиваются.
 export async function getStudentAccess(userId, courseId) {
   const r = await queryOne(
-    `SELECT c.owner_id, c.days_count, ce.role, ce.group_id, ce.joined_at,
+    `SELECT c.owner_id, ce.role, ce.group_id, ce.joined_at,
+            -- v32: длительность потока — своя у группы (если задана) или курса.
+            CASE WHEN c.groups_enabled AND g.days_count IS NOT NULL THEN g.days_count
+                 ELSE c.days_count END AS days_count,
             COALESCE(ce.progression_mode_override,
                      CASE WHEN c.groups_enabled THEN g.progression_mode END,
                      c.progression_mode, 'daily') AS mode,

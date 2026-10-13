@@ -179,6 +179,8 @@ CREATE TABLE IF NOT EXISTS course_groups (
   bound_to_calendar BOOLEAN NOT NULL DEFAULT FALSE,
   start_date DATE,
   access_days_after INTEGER CHECK (access_days_after IS NULL OR access_days_after >= 0),
+  -- v32: своя длительность потока; NULL — как у курса (только при groups_enabled).
+  days_count INTEGER CHECK (days_count IS NULL OR (days_count >= 1 AND days_count <= 365)),
   day_start_hour INTEGER CHECK (day_start_hour IS NULL OR (day_start_hour BETWEEN 0 AND 23)),
   tz_offset_min INTEGER,
   trainer_id UUID REFERENCES users(id) ON DELETE SET NULL,

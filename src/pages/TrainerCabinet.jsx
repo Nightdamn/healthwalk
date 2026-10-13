@@ -281,14 +281,17 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
   const isActOnDayForStudent = (a, d, student) =>
     isActivityScheduled(a, d, effectiveStartDate(student));
 
+  // v32: длительность потока ученика (своя у группы или курса).
+  const daysFor = (student) => parseInt(student?.stream_days_count) || daysCount;
   const getStudentStats = (student) => {
     // v25: для progressive-режимов currentDay = closed_days + 1 (первый не-closed).
     const effectiveMode = student.effective_mode || 'daily';
     const isProgressive = effectiveMode === 'free' || effectiveMode === 'self_paced';
     const startDate = effectiveStartDate(student);
-    const dailyCurrentDay = startDate ? getCourseDay(startDate, null, 0, daysCount) : 1;
+    const sDays = daysFor(student);
+    const dailyCurrentDay = startDate ? getCourseDay(startDate, null, 0, sDays) : 1;
     const studentCurrentDay = isProgressive
-      ? Math.min(daysCount, Math.max(1, parseInt(student.closed_days) + 1 || 1))
+      ? Math.min(sDays, Math.max(1, parseInt(student.closed_days) + 1 || 1))
       : dailyCurrentDay;
     const elapsedDays = Math.max(0, studentCurrentDay - 1);
     const prog = allProgress[student.user_id] || {};
@@ -301,7 +304,7 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
       if (dayActs.length === 0) continue;
       if (dayActs.every(a => prog[d]?.[a.id]?.completed)) completedDays++;
     }
-    return { elapsedDays, studentCurrentDay, completedDays, totalDays: daysCount };
+    return { elapsedDays, studentCurrentDay, completedDays, totalDays: sDays };
   };
 
   const avatarSrc = course?.avatar_custom || (course?.avatar_icon ? getIconPath(course.avatar_icon) : null);
@@ -572,7 +575,7 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
                       courseId={courseId}
                       progress={allProgress[st.user_id] || {}}
                       activities={activitiesFor(st)}
-                      daysCount={daysCount}
+                      daysCount={daysFor(st)}
                       studentCurrentDay={stats.studentCurrentDay}
                       studentStartDate={effectiveStartDate(st)}
                       exclusions={allExclusions[st.user_id] || {}}
@@ -721,7 +724,7 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
                           </div>
                           <StudentDayInput
                             currentDay={stats.studentCurrentDay}
-                            maxDay={daysCount}
+                            maxDay={daysFor(st)}
                             disabled={isBusy}
                             onApply={(d) => handleChangeDay(st.enrollment_id, d)}
                           />

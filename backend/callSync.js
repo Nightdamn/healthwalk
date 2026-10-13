@@ -83,7 +83,9 @@ export function syncGroupCalls(groupId, opts = {}) {
 async function syncGroupCallsNow(groupId, { actorId = null, dryRun = false } = {}) {
   const result = { groupId, created: [], deleted: [], skipped: null };
   const g = await queryOne(
-    `SELECT g.id, g.course_id, c.owner_id, c.days_count,
+    `SELECT g.id, g.course_id, c.owner_id,
+            CASE WHEN c.groups_enabled AND g.days_count IS NOT NULL THEN g.days_count
+                 ELSE c.days_count END AS days_count,
             CASE WHEN c.groups_enabled THEN g.bound_to_calendar ELSE c.bound_to_calendar END AS bound,
             CASE WHEN c.groups_enabled THEN g.start_date ELSE c.start_date END AS start_date
        FROM course_groups g JOIN courses c ON c.id = g.course_id
