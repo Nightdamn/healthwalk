@@ -120,6 +120,17 @@ export async function getUserRole(userId) {
   }
 }
 
+// Роль + флаг бета-тестера (v33): бета-тестер видит фичи, открытые на время
+// доработки только админу.
+export async function getRoleInfo() {
+  try {
+    const data = await apiGet('/api/role');
+    return { role: data.role || 'student', betaTester: !!data.betaTester };
+  } catch {
+    return { role: 'student', betaTester: false };
+  }
+}
+
 export async function assignRole(adminId, targetEmail, newRole) {
   try {
     return await apiPost('/api/role/assign', { email: targetEmail, role: newRole });
@@ -745,6 +756,23 @@ export async function getMyTaskSubmissions(courseId, groupId) {
 // Создать/обновить черновик ответа. { courseId, groupId, activityId, day, answerText? }
 export async function saveTaskDraft(body) {
   try { return await apiPut('/api/tasks/draft', body); }
+  catch (err) { return { error: err.message }; }
+}
+
+// Тренер: ответы учеников на задания (status: 'submitted' — ждут проверки, 'all' — все).
+export async function getTaskReviews(courseId, status = 'submitted') {
+  try {
+    const r = await apiGet(`/api/tasks/review/${courseId}?status=${status}`);
+    return Array.isArray(r) ? r : [];
+  } catch (err) {
+    console.error('[DB] Task reviews:', err);
+    return [];
+  }
+}
+
+// Тренер: «Зачесть» (approve) или «Вернуть на доработку» (return, нужен комментарий).
+export async function reviewTask(submissionId, decision, comment) {
+  try { return await apiPost(`/api/tasks/${submissionId}/review`, { decision, comment }); }
   catch (err) { return { error: err.message }; }
 }
 

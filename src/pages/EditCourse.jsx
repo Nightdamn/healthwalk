@@ -98,9 +98,9 @@ const PRACTICE_TYPE_OPTIONS = [
   { value: 'theory', label: 'Теория' },
   { value: 'call', label: 'Онлайн с мастером' },
 ];
-// v31: «Задание». Пока экраны ученика и тренера в работе — выбрать тип может
-// только администратор платформы (allowTask); у уже созданного задания тип
-// виден всем.
+// v31: «Задание». Пока фича доводится — выбрать тип может администратор
+// платформы или бета-тестер (allowTask, users.beta_tester); у уже созданного
+// задания тип виден всем.
 const TASK_TYPE_OPTION = { value: 'task', label: 'Задание' };
 
 // Флажок в стиле «Сохранить в Банк практик»: квадрат 20px, зелёный с галочкой.
@@ -265,7 +265,7 @@ function emptyActivity(daysCount) {
   return { dbId: null, label: '', iconNum: 'health/1', practiceType: 'media', descriptionHtml: '', firstDay: 1, lastDay: daysCount, durationMin: 10, intervalDays: 1, excludedDays: [], extraDays: [], _key: Date.now() + Math.random() };
 }
 
-export default function EditCoursePage({ courseId, userRole, onBack, onSaved, onDeleted, tzOffsetMin, onOpenLibrary }) {
+export default function EditCoursePage({ courseId, userRole, betaTester = false, onBack, onSaved, onDeleted, tzOffsetMin, onOpenLibrary }) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [daysCount, setDaysCount] = useState(30);
@@ -1342,7 +1342,7 @@ export default function EditCoursePage({ courseId, userRole, onBack, onSaved, on
             tzOffsetMin={tzOffsetMin}
             boundToCalendar={streamBound}
             courseStartDate={streamStartDate}
-            allowTask={userRole === 'admin'}
+            allowTask={userRole === 'admin' || betaTester}
             collapsed={!expandedKeys.has(a._key)}
             onToggleCollapsed={() => toggleCollapsed(a._key)}
             isDragging={dragKey === a._key}

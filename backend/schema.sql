@@ -26,6 +26,8 @@ CREATE TABLE IF NOT EXISTS users (
   password_reset_code TEXT,
   password_reset_expires TIMESTAMPTZ,
   consent_pd_at TIMESTAMPTZ,
+  -- v33: бета-тестер — видит фичи, открытые на время доработки только админу.
+  beta_tester BOOLEAN NOT NULL DEFAULT false,
   -- v28: блокировка тренера. Заблокированный пользователь остаётся в БД
   -- (данные учеников зависят от него), но его курсы скрываются от витрины
   -- и от новых записей.

@@ -21,7 +21,9 @@ import {
   trainerToggleCompletion,
   getCourseExclusions, getCourseCustomActivities,
   getConversation, sendMessage, markMessagesRead, getUnreadByConversation,
+  getTaskReviews, reviewTask, taskFileUrl,
 } from '../lib/db';
+import { Video, FileText, Check, CornerUpLeft } from 'lucide-react';
 import { getGroups, moveEnrollmentToGroup, setEnrollmentAccessOverride, updateGroup } from '../lib/api';
 
 const GREEN = '#27ae60';
@@ -424,6 +426,10 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
           </div>
         )}
 
+        {/* v31: ответы учеников на задания — проверка тренером */}
+        <TaskReviewSection courseId={courseId}
+          onChanged={async () => setAllProgress(await getCourseAllStudentsProgress(courseId))} />
+
         {/* Students list */}
         <div style={{ fontSize: 14, fontWeight: 600, color: '#888', marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 }}>
           Участники ({students.length})
@@ -821,6 +827,7 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
                 <GroupSection
                   key={g.id}
                   group={g}
+                  courseDays={daysCount}
                   studentsInGroup={list}
                   collapsed={groupCollapsedIds ? groupCollapsedIds.has(g.id) : false}
                   onToggleCollapsed={() => setGroupCollapsedIds(prev => {
@@ -1642,7 +1649,7 @@ function TrainerChat({ courseId, trainerId, studentId, studentName, onClose, onR
    + список учеников группы. Кнопка «Изменить» доступна только owner курса
    и назначенному тренеру/куратору группы (бэк это дублирует через isGroupStaff). */
 function GroupSection({
-  group, studentsInGroup, collapsed, onToggleCollapsed,
+  group, courseDays = 30, studentsInGroup, collapsed, onToggleCollapsed,
   canEdit, isEditing, onStartEdit, onCloseEdit, onPickIcon,
   onSave, renderStudent,
 }) {
@@ -1703,6 +1710,7 @@ function GroupSection({
           {isEditing && (
             <GroupInlineEditor
               group={group}
+              courseDays={courseDays}
               onPickIcon={onPickIcon}
               onSave={onSave}
               onClose={onCloseEdit}
@@ -1727,9 +1735,11 @@ function GroupSection({
    привязка к дате (для daily), окно доступа к материалам. Создание/удаление
    группы делает владелец в редакторе курса — здесь нет. Аватар кликабельный,
    IconPicker поднимает родитель (groupPickerId в TrainerCabinet). */
-function GroupInlineEditor({ group, onPickIcon, onSave, onClose }) {
+function GroupInlineEditor({ group, courseDays = 30, onPickIcon, onSave, onClose }) {
   const [name, setName] = useState(group.name || '');
   const [mode, setMode] = useState(group.progression_mode || 'daily');
+  // v32: своя длительность потока; пусто — как у курса.
+  const [days, setDays] = useState(group.days_count ?? '');
   const [boundCal, setBoundCal] = useState(!!group.bound_to_calendar);
   const [startDate, setStartDate] = useState(group.start_date ? String(group.start_date).slice(0, 10) : '');
   const [accessDays, setAccessDays] = useState(group.access_days_after ?? '');
@@ -1800,6 +1810,19 @@ function GroupInlineEditor({ group, onPickIcon, onSave, onClose }) {
       )}
 
       <div style={{ marginBottom: 8 }}>
+        <label style={{ fontSize: 11, color: '#666', display: 'block' }}>Длительность курса, дней (пусто = как у курса, {courseDays})</label>
+        <input type="number" min={1} max={365} placeholder={String(courseDays)} value={days}
+          onChange={e => setDays(e.target.value)}
+          onBlur={() => {
+            const v = days === '' ? null : Math.max(1, Math.min(parseInt(days) || 1, 365));
+            if (v !== null && String(v) !== String(days)) setDays(v);
+            if (v !== (group.days_count ?? null)) save({ daysCount: v });
+          }}
+          style={{ width: 160, padding: '6px 8px', borderRadius: 8, fontSize: 13,
+            border: '1px solid rgba(0,0,0,0.1)', background: '#fff' }} />
+      </div>
+
+      <div style={{ marginBottom: 8 }}>
         <label style={{ fontSize: 11, color: '#666', display: 'block' }}>Доступ к материалам после окончания, дней (пусто = бессрочно)</label>
         <input type="number" min={0} placeholder="бессрочно" value={accessDays}
           onChange={e => setAccessDays(e.target.value)}
@@ -1818,6 +1841,178 @@ function GroupInlineEditor({ group, onPickIcon, onSave, onClose }) {
         {savedMark && <span style={{ fontSize: 11, color: '#27ae60' }}>сохранено</span>}
         {busy && <span style={{ fontSize: 11, color: '#888' }}>сохраняем…</span>}
       </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+// v31: проверка ответов на задания
+// ═══════════════════════════════════════════════════════════
+// Ответы учеников групп, которые проверяет этот тренер (создатель курса — все
+// группы, тренер группы — свою). «На проверке» — отправленные и ещё не
+// проверенные; «Все» — с зачтёнными и возвращёнными. Нет ни одного ответа —
+// раздел не показываем.
+const REVIEW_STATUS = {
+  submitted: { label: 'На проверке', color: BLUE },
+  approved: { label: 'Зачтено', color: GREEN },
+  returned: { label: 'На доработке', color: ORANGE },
+};
+const pad2 = (n) => String(n).padStart(2, '0');
+const fmtWhen = (iso) => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return `${pad2(d.getDate())}.${pad2(d.getMonth() + 1)} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+};
+const fmtBytes = (b) => b >= 1024 * 1024 ? `${(b / 1024 / 1024).toFixed(1)} МБ` : `${Math.max(1, Math.round(b / 1024))} КБ`;
+
+function TaskReviewSection({ courseId, onChanged }) {
+  const [tab, setTab] = useState('submitted');
+  const [pending, setPending] = useState([]);
+  const [all, setAll] = useState([]);
+  const [openId, setOpenId] = useState(null);
+  const [returnFor, setReturnFor] = useState(null); // id ответа, для которого пишем комментарий
+  const [comment, setComment] = useState('');
+  const [busyId, setBusyId] = useState(null);
+  const [error, setError] = useState('');
+
+  const load = useCallback(async () => {
+    const [p, a] = await Promise.all([getTaskReviews(courseId, 'submitted'), getTaskReviews(courseId, 'all')]);
+    setPending(p); setAll(a);
+  }, [courseId]);
+  useEffect(() => { load(); }, [load]);
+
+  if (!all.length) return null;
+  const list = tab === 'submitted' ? pending : all;
+
+  const decide = async (sub, decision) => {
+    setError('');
+    if (decision === 'return' && !comment.trim()) { setError('Напишите ученику, что доработать.'); return; }
+    setBusyId(sub.id);
+    try {
+      const r = await reviewTask(sub.id, decision, decision === 'return' ? comment.trim() : '');
+      if (r?.error) { setError(r.error); return; }
+      setReturnFor(null); setComment(''); setOpenId(null);
+      await load();
+      onChanged?.();
+    } finally { setBusyId(null); }
+  };
+
+  const pill = (active) => ({
+    padding: '7px 12px', borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+    border: `1.5px solid ${active ? '#1a1a2e' : 'rgba(0,0,0,0.08)'}`,
+    background: active ? '#1a1a2e' : 'rgba(255,255,255,0.7)', color: active ? '#fff' : '#555',
+  });
+  const btn = { flex: 1, padding: '10px 0', borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 };
+
+  return (
+    <div style={{ ...glass, borderRadius: 16, padding: 16, marginBottom: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+          Ответы на задания
+        </div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button type="button" style={pill(tab === 'submitted')} onClick={() => setTab('submitted')}>
+            На проверке ({pending.length})
+          </button>
+          <button type="button" style={pill(tab === 'all')} onClick={() => setTab('all')}>Все</button>
+        </div>
+      </div>
+
+      {list.length === 0 ? (
+        <div style={{ fontSize: 13, color: '#aaa', textAlign: 'center', padding: '12px 0' }}>Все ответы проверены</div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {list.map(sub => {
+            const st = REVIEW_STATUS[sub.status] || REVIEW_STATUS.submitted;
+            const open = openId === sub.id;
+            return (
+              <div key={sub.id} style={{ borderRadius: 12, border: '1px solid rgba(0,0,0,0.06)', background: 'rgba(255,255,255,0.7)' }}>
+                <button type="button" onClick={() => { setOpenId(open ? null : sub.id); setReturnFor(null); setError(''); }}
+                  style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', border: 'none', background: 'transparent', cursor: 'pointer', textAlign: 'left' }}>
+                  <img src={getIconPath(sub.task.iconNum || 'health/1')} alt="" style={{ width: 32, height: 32, objectFit: 'contain', flexShrink: 0 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: '#1a1a2e', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sub.student.name}</div>
+                    <div style={{ fontSize: 12, color: '#999', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {sub.task.label} · день {sub.day}{sub.groupName ? ` · ${sub.groupName}` : ''} · {fmtWhen(sub.submittedAt)}
+                    </div>
+                  </div>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: st.color, background: `${st.color}14`, padding: '3px 8px', borderRadius: 7, flexShrink: 0 }}>{st.label}</span>
+                </button>
+
+                {open && (
+                  <div style={{ padding: '0 12px 12px' }}>
+                    <div style={{ fontSize: 14, color: sub.answerText ? '#1a1a2e' : '#aaa', lineHeight: 1.5, whiteSpace: 'pre-wrap', padding: '10px 12px', borderRadius: 10, background: 'rgba(0,0,0,0.03)' }}>
+                      {sub.answerText || 'Без текста'}
+                    </div>
+
+                    {sub.files.length > 0 && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
+                        {sub.files.map(f => (
+                          <div key={f.id}>
+                            {f.kind === 'image' && (
+                              <a href={taskFileUrl(f.id)} target="_blank" rel="noreferrer">
+                                <img src={taskFileUrl(f.id)} alt={f.originalName} style={{ maxWidth: '100%', maxHeight: 260, borderRadius: 10, display: 'block' }} />
+                              </a>
+                            )}
+                            {f.kind === 'video' && (
+                              <video src={taskFileUrl(f.id)} controls preload="metadata" style={{ width: '100%', maxHeight: 300, borderRadius: 10, background: '#000' }} />
+                            )}
+                            <a href={taskFileUrl(f.id, { download: true })} target="_blank" rel="noreferrer"
+                              style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4, fontSize: 13, color: '#1a1a2e', textDecoration: 'none' }}>
+                              {f.kind === 'video' ? <Video size={15} color={GREEN} /> : <FileText size={15} color={GREEN} />}
+                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.originalName}</span>
+                              <span style={{ color: '#aaa', flexShrink: 0 }}>{fmtBytes(f.sizeBytes)}</span>
+                            </a>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {sub.reviewComment && sub.status !== 'submitted' && (
+                      <div style={{ fontSize: 13, color: '#555', marginTop: 8 }}>
+                        Комментарий: <span style={{ color: '#1a1a2e' }}>{sub.reviewComment}</span>
+                      </div>
+                    )}
+
+                    {sub.status === 'submitted' && returnFor === sub.id && (
+                      <div style={{ marginTop: 10 }}>
+                        <textarea value={comment} onChange={e => setComment(e.target.value)} rows={3}
+                          placeholder="Что доработать — ученик увидит этот комментарий"
+                          style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 10, border: '1.5px solid rgba(0,0,0,0.08)', fontSize: 14, fontFamily: 'inherit', resize: 'vertical' }} />
+                        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                          <button type="button" disabled={busyId === sub.id} onClick={() => decide(sub, 'return')}
+                            style={{ ...btn, border: `1.5px solid ${ORANGE}40`, background: `${ORANGE}10`, color: ORANGE }}>
+                            Вернуть на доработку
+                          </button>
+                          <button type="button" onClick={() => { setReturnFor(null); setComment(''); setError(''); }}
+                            style={{ ...btn, border: '1px solid rgba(0,0,0,0.08)', background: '#fff', color: '#555' }}>
+                            Отмена
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    {sub.status === 'submitted' && returnFor !== sub.id && (
+                      <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                        <button type="button" disabled={busyId === sub.id} onClick={() => decide(sub, 'approve')}
+                          style={{ ...btn, border: 'none', background: GREEN, color: '#fff' }}>
+                          <Check size={15} /> Зачесть
+                        </button>
+                        <button type="button" onClick={() => { setReturnFor(sub.id); setComment(''); setError(''); }}
+                          style={{ ...btn, border: `1.5px solid ${ORANGE}40`, background: `${ORANGE}08`, color: ORANGE }}>
+                          <CornerUpLeft size={15} /> На доработку
+                        </button>
+                      </div>
+                    )}
+                    {error && (
+                      <div style={{ fontSize: 13, color: RED, marginTop: 8 }}>{error}</div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

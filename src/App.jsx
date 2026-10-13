@@ -26,7 +26,7 @@ import { DAY_START_HOUR, getCourseDayInfo, isCourseFinished } from './data/const
 import { isAuthenticated, getMe, signOut as authSignOut, checkOAuthCallback, setToken } from './lib/api';
 import {
   loadUserSettings, saveUserSettings,
-  checkAndApplyPendingRole, getUserRole, assignRole as dbAssignRole,
+  checkAndApplyPendingRole, assignRole as dbAssignRole,
   getAvailableItems, saveActiveContext,
   loadCourseProgress, saveCourseActivityProgress, getCourseItemAsGroup,
   loadTrackerProgress, saveTrackerActivityProgress,
@@ -34,7 +34,7 @@ import {
   getUnreadCount,
   getActivityMedia, getMediaForDay, getMediaSignedUrl, updateMediaDuration,
   getActivityCalls, getCallToken,
-  getMyTaskSubmissions,
+  getMyTaskSubmissions, getRoleInfo,
 } from './lib/db';
 
 // День и статус курса/трекера. Единая логика для загрузки, переключения
@@ -86,6 +86,8 @@ export default function App() {
   const [session, setSession] = useState(null);
   const [user, setUser] = useState(null);
   const [userRole, setUserRole] = useState('student');
+  // v33: бета-тестер — видит фичи, открытые на время доработки только админу.
+  const [betaTester, setBetaTester] = useState(false);
 
   // Settings
   const [courseStartDate, setCourseStartDate] = useState(null);
@@ -220,13 +222,15 @@ export default function App() {
 
     (async () => {
       try {
-        const [settings, items, role, unread] = await Promise.all([
+        const [settings, items, role, unread, roleInfo] = await Promise.all([
           loadUserSettings(user.id),
           getAvailableItems(user.id),
           checkAndApplyPendingRole(user.id, user.email),
           getUnreadCount(),
+          getRoleInfo(),
         ]);
         setUserRole(role);
+        setBetaTester(roleInfo.betaTester);
         setAvailableItems(items);
         setUnreadCount(unread);
 
@@ -478,7 +482,7 @@ export default function App() {
   };
   const handleLogout = () => {
     authSignOut();
-    setSession(null); setUser(null); setUserRole('student');
+    setSession(null); setUser(null); setUserRole('student'); setBetaTester(false);
     setProgress({}); setRawProgress({}); setElapsedTime({});
     setCourseStartDate(null); setActiveItem(null); setAvailableItems([]);
     dataLoadedRef.current = false; setScreen('login');
@@ -662,8 +666,9 @@ export default function App() {
 
   const refreshRole = async () => {
     if (!user?.id) return;
-    const role = await getUserRole(user.id);
-    setUserRole(role);
+    const info = await getRoleInfo();
+    setUserRole(info.role);
+    setBetaTester(info.betaTester);
   };
 
   const handleCourseCreated = async (course) => {
@@ -823,7 +828,7 @@ export default function App() {
     case 'assign_role': return <AssignRolePage onBack={goMain} onAssign={handleAssignRole} />;
     case 'my_courses': return <MyCoursesPage user={user} userRole={userRole} onBack={goMain} onNavigate={setScreen} onEditCourse={handleEditCourse} onTrainerCabinet={handleTrainerCabinet} onRefresh={refreshItems} availableItems={availableItems} />;
     case 'create_course': return <CreateCoursePage user={user} onBack={() => setScreen('my_courses')} onCreated={handleCourseCreated} />;
-    case 'edit_course': return <EditCoursePage key={`edit-${editCourseId}-${editCourseKey}`} courseId={editCourseId} userRole={userRole} onBack={handleEditCourseBack} onSaved={handleCourseSaved} onDeleted={handleCourseDeleted} tzOffsetMin={tzOffsetMin} onOpenLibrary={() => handleOpenLibraryForCourse(editCourseId)} />;
+    case 'edit_course': return <EditCoursePage key={`edit-${editCourseId}-${editCourseKey}`} courseId={editCourseId} userRole={userRole} betaTester={betaTester} onBack={handleEditCourseBack} onSaved={handleCourseSaved} onDeleted={handleCourseDeleted} tzOffsetMin={tzOffsetMin} onOpenLibrary={() => handleOpenLibraryForCourse(editCourseId)} />;
     case 'library': return <LibraryPage onBack={handleLibraryBack} pickerCourseId={libraryPickerCourseId} onPickerDone={handleLibraryPickerDone} />;
     case 'admin': return <AdminPanel onBack={goMain} />;
     case 'store': return <CourseStorePage onBack={goMain}

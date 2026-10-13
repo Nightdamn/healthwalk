@@ -693,6 +693,101 @@ router.post('/tasks/:id/submit', async (req, res) => {
   } catch (err) { console.error('[Tasks] submit:', err); res.status(500).json({ error: err.message }); }
 });
 
+// ── Проверка ответов тренером (v31, шаг 4) ──
+// Группы, ответы которых пользователь проверяет. Правило Димы: «создатель курса
+// может всё и везде, назначенный в группу тренер — только в своей группе»:
+// владелец — все группы; тренер/куратор — группа своей записи в курс и группы,
+// где он trainer_id/curator_id. Ученику — ничего.
+async function taskReviewGroupIds(userId, courseId) {
+  const c = await queryOne('SELECT owner_id FROM courses WHERE id = $1', [courseId]);
+  if (!c) return [];
+  if (c.owner_id === userId) {
+    return (await query('SELECT id FROM course_groups WHERE course_id = $1', [courseId])).map(r => r.id);
+  }
+  const ids = new Set((await query(
+    'SELECT id FROM course_groups WHERE course_id = $1 AND (trainer_id = $2 OR curator_id = $2)',
+    [courseId, userId]
+  )).map(r => r.id));
+  const enr = await queryOne(
+    'SELECT role, group_id FROM course_enrollments WHERE course_id = $1 AND user_id = $2', [courseId, userId]);
+  if (enr && ['trainer', 'curator'].includes(enr.role) && enr.group_id) ids.add(enr.group_id);
+  return [...ids];
+}
+
+// GET /tasks/review/:courseId?status=submitted|all — ответы учеников для
+// проверки (без черновиков и своих). submitted — ждут проверки.
+router.get('/tasks/review/:courseId', async (req, res) => {
+  try {
+    const courseId = req.params.courseId;
+    if (!/^[0-9a-f-]{36}$/i.test(courseId)) return res.status(404).json({ error: 'Курс не найден' });
+    const groupIds = await taskReviewGroupIds(req.userId, courseId);
+    if (!groupIds.length) return res.status(403).json({ error: 'Нет прав' });
+    const onlyPending = req.query.status !== 'all';
+    const rows = await query(
+      `SELECT s.*, u.email, u.display_name, a.label, a.task_review, a.icon_num, a.description_html,
+              g.name AS group_name,
+              COALESCE(json_agg(json_build_object(
+                'id', f.id, 'kind', f.kind, 'originalName', f.original_name,
+                'mime', f.mime, 'sizeBytes', f.size_bytes) ORDER BY f.created_at)
+              FILTER (WHERE f.id IS NOT NULL), '[]') AS files
+         FROM task_submissions s
+         JOIN users u ON u.id = s.user_id
+         JOIN course_activities a ON a.id = s.activity_id
+         JOIN course_groups g ON g.id = s.group_id
+         LEFT JOIN task_submission_files f ON f.submission_id = s.id
+        WHERE s.course_id = $1 AND s.group_id = ANY($2::uuid[]) AND s.user_id <> $3
+          AND ${onlyPending ? "s.status = 'submitted'" : "s.status <> 'draft'"}
+        GROUP BY s.id, u.id, a.id, g.id
+        ORDER BY s.submitted_at DESC NULLS LAST`,
+      [courseId, groupIds, req.userId]
+    );
+    res.json(rows.map(s => ({
+      ...mapTaskSub(s),
+      student: { id: s.user_id, email: s.email, name: s.display_name || s.email },
+      task: { label: s.label, review: !!s.task_review, iconNum: s.icon_num, descriptionHtml: s.description_html || null },
+      groupName: s.group_name,
+    })));
+  } catch (err) { console.error('[Tasks] review list:', err); res.status(500).json({ error: err.message }); }
+});
+
+// POST /tasks/:id/review { decision: 'approve' | 'return', comment } —
+// «Зачесть» или «Вернуть на доработку» (комментарий обязателен). Возврат снимает
+// зачёт практики дня; закрытый день не открывается — задание уходит ученику в
+// «Невыполненные».
+router.post('/tasks/:id/review', async (req, res) => {
+  try {
+    if (!/^[0-9a-f-]{36}$/i.test(req.params.id)) return res.status(404).json({ error: 'Ответ не найден' });
+    const sub = await queryOne('SELECT * FROM task_submissions WHERE id = $1', [req.params.id]);
+    if (!sub) return res.status(404).json({ error: 'Ответ не найден' });
+    const groupIds = await taskReviewGroupIds(req.userId, sub.course_id);
+    if (!groupIds.includes(sub.group_id)) return res.status(403).json({ error: 'Нет прав на эту группу' });
+    if (sub.status === 'draft') return res.status(409).json({ error: 'Ответ ещё не отправлен' });
+    const { decision } = req.body || {};
+    const comment = typeof req.body?.comment === 'string' ? req.body.comment.trim().slice(0, 5000) : '';
+    if (!['approve', 'return'].includes(decision)) return res.status(400).json({ error: 'Неизвестное решение' });
+    if (decision === 'return' && !comment) {
+      return res.status(400).json({ error: 'Напишите ученику, что доработать.' });
+    }
+    await query(
+      `UPDATE task_submissions
+          SET status = $1, review_comment = $2, reviewed_by = $3, reviewed_at = NOW(), updated_at = NOW()
+        WHERE id = $4`,
+      [decision === 'approve' ? 'approved' : 'returned', comment || null, req.userId, sub.id]
+    );
+    const act = await queryOne('SELECT duration_min FROM course_activities WHERE id = $1', [sub.activity_id]);
+    await query(
+      `INSERT INTO course_progress (user_id, course_id, activity_id, day, elapsed_seconds, completed, group_id, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+       ON CONFLICT (user_id, group_id, activity_id, day)
+       DO UPDATE SET completed = $6, updated_at = NOW()`,
+      [sub.user_id, sub.course_id, sub.activity_id, sub.day,
+       decision === 'approve' ? (act?.duration_min || 10) * 60 : 0, decision === 'approve', sub.group_id]
+    );
+    if (decision === 'approve') await maybeAutoCloseDay(sub.user_id, sub.course_id, sub.day, sub.group_id);
+    res.json({ data: await loadTaskSub(sub.id) });
+  } catch (err) { console.error('[Tasks] review:', err); res.status(500).json({ error: err.message }); }
+});
+
 // POST /courses/:id/close-day — «Завершить день» в self_paced.
 // Разрешено только для currentDay (первый не-closed) и если есть хоть какой-то прогресс.
 router.post('/courses/:id/close-day', async (req, res) => {
@@ -881,9 +976,13 @@ router.post('/progress/tracker', async (req, res) => {
 
 router.get('/role', async (req, res) => {
   try {
-    const r = await queryOne('SELECT role FROM user_roles WHERE user_id = $1', [req.userId]);
-    res.json({ role: r?.role || 'student' });
-  } catch (err) { res.json({ role: 'student' }); }
+    const r = await queryOne(
+      `SELECT r.role, u.beta_tester FROM users u LEFT JOIN user_roles r ON r.user_id = u.id WHERE u.id = $1`,
+      [req.userId]
+    );
+    // betaTester (v33) — видит фичи, открытые на время доработки только админу.
+    res.json({ role: r?.role || 'student', betaTester: !!r?.beta_tester });
+  } catch (err) { res.json({ role: 'student', betaTester: false }); }
 });
 
 router.post('/role/assign', async (req, res) => {
