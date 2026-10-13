@@ -257,7 +257,7 @@ router.get('/geo', (req, res) => {
 router.get('/me', requireAuth, async (req, res) => {
   try {
     const user = await queryOne(
-      `SELECT id, email, display_name, avatar_url, email_verified, password_hash, provider
+      `SELECT id, email, display_name, avatar_url, email_verified, password_hash, provider, avatar_set_by_user
          FROM users WHERE id = $1`, [req.userId]);
     if (!user) return res.status(404).json({ error: 'User not found' });
     res.json({
@@ -265,8 +265,46 @@ router.get('/me', requireAuth, async (req, res) => {
       emailVerified: !!user.email_verified,
       hasPassword: !!user.password_hash,
       provider: user.provider,
+      avatarCustom: !!user.avatar_set_by_user,
     });
   } catch (err) { console.error('[Auth] Me:', err); res.status(500).json({ error: 'Error' }); }
+});
+
+// ── PATCH /api/auth/me ── имя и аватар в профиле (v34).
+// body: { name?: string, avatar?: dataURL | null }. Аватар — картинка, уже
+// уменьшенная на клиенте (processAvatarFile, до 300 px) как data URL;
+// null — убрать своё фото (снова подтянется из Google при входе, если есть).
+const AVATAR_DATA_URL = /^data:image\/(png|jpeg|webp|svg\+xml);base64,[A-Za-z0-9+/=]+$/;
+router.patch('/me', requireAuth, async (req, res) => {
+  try {
+    const { name, avatar } = req.body || {};
+    const sets = []; const params = []; let i = 1;
+    if (name !== undefined) {
+      const n = String(name || '').replace(/\s+/g, ' ').trim();
+      if (!n) return res.status(400).json({ error: 'Имя не может быть пустым' });
+      if (n.length > 80) return res.status(400).json({ error: 'Имя — не длиннее 80 символов' });
+      sets.push(`display_name=$${i++}`, 'name_set_by_user=TRUE'); params.push(n);
+    }
+    if (avatar !== undefined) {
+      if (avatar === null) {
+        sets.push('avatar_url=NULL', 'avatar_set_by_user=FALSE');
+      } else {
+        if (typeof avatar !== 'string' || !AVATAR_DATA_URL.test(avatar)) {
+          return res.status(400).json({ error: 'Фото — PNG, JPG или SVG' });
+        }
+        if (avatar.length > 1.5 * 1024 * 1024) return res.status(400).json({ error: 'Фото слишком большое' });
+        sets.push(`avatar_url=$${i++}`, 'avatar_set_by_user=TRUE'); params.push(avatar);
+      }
+    }
+    if (!sets.length) return res.status(400).json({ error: 'Нечего менять' });
+    params.push(req.userId);
+    const user = await queryOne(
+      `UPDATE users SET ${sets.join(', ')}, updated_at=NOW() WHERE id=$${i}
+       RETURNING id, email, display_name, avatar_url, avatar_set_by_user`,
+      params
+    );
+    res.json({ id: user.id, email: user.email, name: user.display_name, avatar: user.avatar_url, avatarCustom: !!user.avatar_set_by_user });
+  } catch (err) { console.error('[Auth] Update me:', err); res.status(500).json({ error: 'Не удалось сохранить' }); }
 });
 
 // ─── Google OAuth (без изменений — оставляем для не-RU) ───────────────────
@@ -361,9 +399,12 @@ router.get('/google/callback', async (req, res) => {
         [profile.email.toLowerCase(), profile.name || profile.email.split('@')[0], profile.picture || null, profile.id]
       );
     } else {
+      // v34: имя/фото, заданные в профиле самим пользователем, Google не трогает.
       await query(
-        `UPDATE users SET display_name=COALESCE($1,display_name), avatar_url=COALESCE($2,avatar_url),
-                          provider_id=COALESCE($3,provider_id), email_verified=TRUE, updated_at=NOW()
+        `UPDATE users SET
+            display_name = CASE WHEN name_set_by_user THEN display_name ELSE COALESCE($1, display_name) END,
+            avatar_url   = CASE WHEN avatar_set_by_user THEN avatar_url ELSE COALESCE($2, avatar_url) END,
+            provider_id=COALESCE($3,provider_id), email_verified=TRUE, updated_at=NOW()
           WHERE id=$4`,
         [profile.name, profile.picture, profile.id, user.id]);
     }

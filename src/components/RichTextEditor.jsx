@@ -359,10 +359,15 @@ export default function RichTextEditor({ content, onChange, placeholder = 'На�
       maxHeight: '70vh',
     }}>
       <Toolbar editor={editor} />
-      <div style={{ position: 'relative', flex: 1, minHeight: 0 }}>
+      {/* Прокрутка: вся цепочка — флекс-колонка с minHeight: 0. Раньше у
+          области текста было height: 100% от родителя без заданной высоты
+          (у контейнера только maxHeight) — браузер считал её «по содержимому»,
+          она росла под весь текст, а контейнер (overflow: hidden) обрезал
+          низ: длинный текст нельзя было прокрутить вниз. */}
+      <div style={{ position: 'relative', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
         <div ref={scrollRef} style={{
           padding: '12px 14px', minHeight: 120,
-          overflowY: 'auto', height: '100%',
+          overflowY: 'auto', flex: 1,
           // iOS momentum scroll
           WebkitOverflowScrolling: 'touch',
           // Hide native scrollbar — we draw our own.

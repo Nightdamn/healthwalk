@@ -819,6 +819,7 @@ export default function App() {
     case 'details': return <DetailsPage progress={progress} currentDay={currentDay} elapsedTime={elapsedTime} getElapsedForDay={getElapsedForDay} onBack={goMain} activeItem={activeItem} exclusions={exclusions} customActivities={customActivities} />;
     case 'profile': return (
       <ProfilePage user={user} currentDay={currentDay} progress={progress}
+        onUserUpdated={(u) => setUser(prev => prev ? { ...prev, name: u.name || prev.name, avatar: u.avatar ?? null } : prev)}
         tzOffsetMin={tzOffsetMin} dayStartHour={dayStartHour}
         onSetTimezone={handleSetTimezone} onSetDayStartHour={handleSetDayStartHour}
         onBack={goMain} onLogout={handleLogout} activeItem={activeItem} />

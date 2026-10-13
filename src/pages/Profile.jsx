@@ -3,7 +3,10 @@ import React, { useState, useEffect } from 'react';
 import Layout from '../components/Layout';
 import { glass } from '../styles/shared';
 import { isNativeApp, checkForUpdate, startUpdate, APP_VERSION } from '../lib/updater';
-import { changePassword, resendVerification, verifyEmail, getMe } from '../lib/api';
+import { changePassword, resendVerification, verifyEmail, getMe, updateMe } from '../lib/api';
+import { processAvatarFile } from '../components/AvatarPicker';
+import Dropdown from '../components/Dropdown';
+import { Camera, Pencil, Check, X } from 'lucide-react';
 
 const TIMEZONES = [
   { label: "UTC−12 Бейкер", offset: -720 },
@@ -36,16 +39,99 @@ const TIMEZONES = [
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 const fmtH = (h) => `${String(h).padStart(2, "0")}:00`;
 
-const selectStyle = {
-  width: "100%", padding: "12px 14px",
-  border: "1.5px solid rgba(0,0,0,0.06)", borderRadius: 12,
-  fontSize: 14, background: "rgba(255,255,255,0.6)",
-  color: "#1a1a2e", cursor: "pointer",
-  appearance: "auto", boxSizing: "border-box",
-  fontFamily: "inherit",
-};
+// v34: аватар и имя — меняются прямо в карточке профиля. Своё фото уменьшается
+// в браузере до 300 px (processAvatarFile) и сохраняется; «Убрать фото» —
+// снова фото из Google (если вход через Google) или первая буква имени.
+function ProfileIdentity({ user, onUserUpdated }) {
+  const [avatarCustom, setAvatarCustom] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(user?.name || '');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const fileRef = React.useRef(null);
 
-export default function ProfilePage({ user, currentDay, progress, tzOffsetMin, dayStartHour, onSetTimezone, onSetDayStartHour, onBack, onLogout, activeItem }) {
+  useEffect(() => { getMe().then(me => { if (me) setAvatarCustom(!!me.avatarCustom); }); }, []);
+  useEffect(() => { if (!editing) setName(user?.name || ''); }, [user?.name, editing]);
+
+  const save = async (fields) => {
+    setBusy(true); setErr('');
+    try {
+      const r = await updateMe(fields);
+      if (r?.error) { setErr(r.error); return false; }
+      setAvatarCustom(!!r.avatarCustom);
+      onUserUpdated?.(r);
+      return true;
+    } finally { setBusy(false); }
+  };
+
+  const onPickFile = (file) => {
+    setErr('');
+    processAvatarFile(file, (dataUrl) => { save({ avatar: dataUrl }); }, (msg) => setErr(msg));
+  };
+
+  const saveName = async () => {
+    const n = name.replace(/\s+/g, ' ').trim();
+    if (!n) { setErr('Имя не может быть пустым'); return; }
+    if (n === user?.name) { setEditing(false); return; }
+    if (await save({ name: n })) setEditing(false);
+  };
+
+  const iconBtn = {
+    width: 30, height: 30, borderRadius: 10, border: '1px solid rgba(0,0,0,0.08)', background: '#fff',
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#27ae60', flexShrink: 0,
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: 4 }}>
+      <button type="button" onClick={() => fileRef.current?.click()} disabled={busy}
+        aria-label="Сменить фото" title="Сменить фото"
+        style={{ position: 'relative', width: 88, height: 88, padding: 0, border: 'none', background: 'none', cursor: busy ? 'wait' : 'pointer', marginBottom: 8 }}>
+        {user?.avatar ? (
+          <img src={user.avatar} alt="" referrerPolicy="no-referrer"
+            style={{ width: 88, height: 88, borderRadius: '50%', objectFit: 'cover', display: 'block', border: '3px solid rgba(255,255,255,0.8)', boxShadow: '0 4px 12px rgba(0,0,0,0.08)', opacity: busy ? 0.6 : 1 }} />
+        ) : (
+          <div style={{ width: 88, height: 88, borderRadius: '50%', background: 'linear-gradient(135deg, #e8ecf1, #d0d8e3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 34, fontWeight: 700, color: '#1a1a2e' }}>
+            {user?.name?.charAt(0)}
+          </div>
+        )}
+        <span style={{ position: 'absolute', right: -2, bottom: -2, width: 30, height: 30, borderRadius: '50%', background: '#27ae60', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid #fff' }}>
+          <Camera size={15} />
+        </span>
+      </button>
+      <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" style={{ display: 'none' }}
+        onChange={e => { onPickFile(e.target.files?.[0]); e.target.value = ''; }} />
+      {avatarCustom && (
+        <button type="button" onClick={() => save({ avatar: null })} disabled={busy}
+          style={{ border: 'none', background: 'none', color: '#999', fontSize: 12, cursor: 'pointer', marginBottom: 8, padding: 2 }}>
+          Убрать фото
+        </button>
+      )}
+
+      {editing ? (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', maxWidth: 320, marginBottom: 4 }}>
+          <input value={name} onChange={e => { setName(e.target.value); setErr(''); }} autoFocus maxLength={80}
+            onKeyDown={e => { if (e.key === 'Enter') saveName(); if (e.key === 'Escape') { setEditing(false); setErr(''); } }}
+            aria-label="Имя"
+            style={{ flex: 1, minWidth: 0, padding: '9px 12px', borderRadius: 12, border: '1.5px solid rgba(0,0,0,0.1)', fontSize: 16, fontWeight: 600, color: '#1a1a2e', textAlign: 'center', background: '#fff' }} />
+          <button type="button" onClick={saveName} disabled={busy} aria-label="Сохранить имя" style={iconBtn}><Check size={16} /></button>
+          <button type="button" onClick={() => { setEditing(false); setErr(''); }} aria-label="Отменить" style={{ ...iconBtn, color: '#999' }}><X size={16} /></button>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+          <div style={{ fontSize: 20, fontWeight: 700, color: '#1a1a2e' }}>{user?.name}</div>
+          <button type="button" onClick={() => setEditing(true)} aria-label="Изменить имя" title="Изменить имя"
+            style={{ ...iconBtn, width: 28, height: 28, color: '#999' }}>
+            <Pencil size={14} />
+          </button>
+        </div>
+      )}
+      <div style={{ fontSize: 14, color: '#888' }}>{user?.email}</div>
+      {err && <div style={{ fontSize: 13, color: '#c0392b', marginTop: 8, textAlign: 'center' }}>{err}</div>}
+    </div>
+  );
+}
+
+export default function ProfilePage({ user, currentDay, progress, tzOffsetMin, dayStartHour, onSetTimezone, onSetDayStartHour, onBack, onLogout, activeItem, onUserUpdated }) {
   const [loggingOut, setLoggingOut] = useState(false);
   const [updateInfo, setUpdateInfo] = useState(null); // { available, version, apkUrl, releaseNotes, error }
   const [updateChecking, setUpdateChecking] = useState(false);
@@ -87,17 +173,8 @@ export default function ProfilePage({ user, currentDay, progress, tzOffsetMin, d
 
         {/* User card */}
         <div style={{ ...glass, borderRadius: 20, padding: 28 }}>
-          {user?.avatar ? (
-            <img src={user.avatar} alt={user.name} referrerPolicy="no-referrer"
-              style={{ width: 72, height: 72, borderRadius: "50%", objectFit: "cover", display: "block", margin: "0 auto 16px", border: "3px solid rgba(255,255,255,0.8)", boxShadow: "0 4px 12px rgba(0,0,0,0.08)" }} />
-          ) : (
-            <div style={{ width: 72, height: 72, borderRadius: "50%", background: "linear-gradient(135deg, #e8ecf1, #d0d8e3)", margin: "0 auto 16px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28, fontWeight: 700, color: "#1a1a2e" }}>
-              {user?.name?.charAt(0)}
-            </div>
-          )}
+          <ProfileIdentity user={user} onUserUpdated={onUserUpdated} />
           <div style={{ textAlign: "center" }}>
-            <div style={{ fontSize: 20, fontWeight: 700, color: "#1a1a2e", marginBottom: 4 }}>{user?.name}</div>
-            <div style={{ fontSize: 14, color: "#888" }}>{user?.email}</div>
             <div style={{ marginTop: 20, padding: 14, background: "rgba(0,0,0,0.02)", borderRadius: 12, fontSize: 14, color: "#555" }}>
               День {currentDay} из {daysTotal} • Завершено: {completedDays}
             </div>
@@ -118,15 +195,9 @@ export default function ProfilePage({ user, currentDay, progress, tzOffsetMin, d
             <div style={{ fontSize: 13, fontWeight: 600, color: "#555", marginBottom: 6 }}>
               День начинается в
             </div>
-            <select
-              value={dayStartHour}
-              onChange={(e) => onSetDayStartHour(Number(e.target.value))}
-              style={selectStyle}
-            >
-              {HOURS.map((h) => (
-                <option key={h} value={h}>{fmtH(h)}</option>
-              ))}
-            </select>
+            <Dropdown value={dayStartHour} fullWidth fontSize={14}
+              onChange={(v) => onSetDayStartHour(Number(v))}
+              options={HOURS.map((h) => ({ value: h, label: fmtH(h) }))} />
           </div>
 
           {/* Summary */}
@@ -144,15 +215,9 @@ export default function ProfilePage({ user, currentDay, progress, tzOffsetMin, d
           <div style={{ fontSize: 14, fontWeight: 600, color: "#1a1a2e", marginBottom: 10 }}>
             Часовой пояс
           </div>
-          <select
-            value={tzOffsetMin}
-            onChange={(e) => onSetTimezone(Number(e.target.value))}
-            style={selectStyle}
-          >
-            {TIMEZONES.map((tz) => (
-              <option key={tz.offset} value={tz.offset}>{tz.label}</option>
-            ))}
-          </select>
+          <Dropdown value={tzOffsetMin} fullWidth fontSize={14}
+            onChange={(v) => onSetTimezone(Number(v))}
+            options={TIMEZONES.map((tz) => ({ value: tz.offset, label: tz.label }))} />
         </div>
 
         {/* ─── Обновление приложения ─── */}

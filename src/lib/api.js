@@ -157,6 +157,12 @@ export function signInWithGoogle() {
   window.location.href = `${API_BASE}/api/auth/google`;
 }
 
+// Имя и аватар в профиле (v34). fields: { name?, avatar?: dataURL | null }.
+export async function updateMe(fields) {
+  try { return await apiPatch('/api/auth/me', fields); }
+  catch (err) { return { error: err.message }; }
+}
+
 export async function getMe() {
   if (!isAuthenticated()) return null;
   try {

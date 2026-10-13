@@ -26,7 +26,7 @@ export default function AvatarPicker({ src, onPick, onUpload, fileInputRef, onFi
         </button>
 
         <button onClick={onUpload}
-          title="Загрузить из галереи (SVG / PNG / JPG, до 1 МБ)"
+          title="Загрузить из галереи (PNG / JPG, SVG до 1 МБ)"
           aria-label="Загрузить картинку с устройства"
           style={miniBtn}>
           {/* up arrow */}
@@ -76,11 +76,12 @@ const miniBtn = {
 // a data URL ready to drop into <img src> / DB; calls onError with a Russian
 // string on rejection.
 //   - Accepts SVG, PNG, JPG (file MIME or extension fallback).
-//   - Rejects > 1 MB.
-//   - SVG: passed through as data URL untouched (vector, no size cap needed).
+//   - SVG: passed through as data URL untouched — rejected > 1 MB.
 //   - PNG/JPG: drawn to a Canvas at max 300×300 (preserving aspect) before
-//     encoding. Final blob ends up well under the 1 MB cap.
+//     encoding, so the source may be a full phone photo (up to 20 MB) —
+//     the result is a few dozen KB.
 const MAX_BYTES = 1024 * 1024;
+const MAX_RASTER_BYTES = 20 * 1024 * 1024;
 const MAX_DIM = 300;
 const ALLOWED = ['image/svg+xml', 'image/png', 'image/jpeg', 'image/jpg'];
 
@@ -95,8 +96,9 @@ export function processAvatarFile(file, onResult, onError) {
     onError('Поддерживаются SVG, PNG, JPG');
     return;
   }
-  if (file.size > MAX_BYTES) {
-    onError(`Файл слишком большой: ${(file.size / 1024 / 1024).toFixed(1)} МБ (лимит 1 МБ)`);
+  const limit = isSvg ? MAX_BYTES : MAX_RASTER_BYTES;
+  if (file.size > limit) {
+    onError(`Файл слишком большой: ${(file.size / 1024 / 1024).toFixed(1)} МБ (лимит ${isSvg ? 1 : 20} МБ)`);
     return;
   }
 

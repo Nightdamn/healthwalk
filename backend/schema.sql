@@ -28,6 +28,9 @@ CREATE TABLE IF NOT EXISTS users (
   consent_pd_at TIMESTAMPTZ,
   -- v33: бета-тестер — видит фичи, открытые на время доработки только админу.
   beta_tester BOOLEAN NOT NULL DEFAULT false,
+  -- v34: имя/аватар заданы в профиле — вход через Google их не перезаписывает.
+  name_set_by_user BOOLEAN NOT NULL DEFAULT false,
+  avatar_set_by_user BOOLEAN NOT NULL DEFAULT false,
   -- v28: блокировка тренера. Заблокированный пользователь остаётся в БД
   -- (данные учеников зависят от него), но его курсы скрываются от витрины
   -- и от новых записей.
