@@ -291,8 +291,10 @@ export default function EditCoursePage({ courseId, userRole, betaTester = false,
   // Открытый IconPicker для аватара группы (id группы) — отдельный от pickerTarget
   // (который для активностей курса).
   const [groupPickerId, setGroupPickerId] = useState(null);
-  // Раскрыта ли карточка «Шаблон новых групп» (только UI, на выбор группы не влияет).
-  const [templateOpen, setTemplateOpen] = useState(false);
+  // Курс, программа которого уже показана (дальше смена группы — без
+  // полноэкранной загрузки), и идёт ли подгрузка программы другой группы.
+  const loadedCourseRef = useRef(null);
+  const [switching, setSwitching] = useState(false);
   // v30: какую группу редактируем (её контент). null до первой loadGroups —
   // тогда бэк fallback на is_default. После — держим id выбранной группы,
   // селектор над блоком «Активности» позволяет переключаться.
@@ -392,9 +394,14 @@ export default function EditCoursePage({ courseId, userRole, betaTester = false,
   // Load (or re-load) course data from the server.
   // v30: контент читается per-group. selectedGroupId сидит в deps, значит
   // смена группы триггерит перезагрузку активностей/медиа/звонков.
+  // Полноэкранная загрузка — только первая; при смене группы страница
+  // остаётся на месте, блок «Активности» притушен до ответа (switching).
   const loadCourse = useCallback(async ({ withSpinner = true } = {}) => {
     if (!courseId) return;
-    if (withSpinner) setLoading(true);
+    if (withSpinner) {
+      if (loadedCourseRef.current === courseId) setSwitching(true);
+      else setLoading(true);
+    }
     const [course, vids, callsData] = await Promise.all([
       loadCourseForEdit(courseId, selectedGroupId),
       getActivityMedia(courseId, selectedGroupId),
@@ -402,7 +409,7 @@ export default function EditCoursePage({ courseId, userRole, betaTester = false,
     ]);
     // Пока грузилось, выбрали другую группу — ответ устарел, не применяем.
     if (selectedGroupRef.current !== selectedGroupId) return;
-    if (!course) { setError('Не удалось загрузить курс'); setLoading(false); return; }
+    if (!course) { setError('Не удалось загрузить курс'); setLoading(false); setSwitching(false); return; }
 
     setTitle(course.title || '');
     setDescription(course.description || '');
@@ -489,7 +496,8 @@ export default function EditCoursePage({ courseId, userRole, betaTester = false,
         };
       });
     setActivities(acts);
-    if (withSpinner) setLoading(false);
+    loadedCourseRef.current = courseId;
+    if (withSpinner) { setLoading(false); setSwitching(false); }
   }, [courseId, selectedGroupId]);
 
   useEffect(() => { loadCourse(); }, [loadCourse]);
@@ -1223,9 +1231,9 @@ export default function EditCoursePage({ courseId, userRole, betaTester = false,
               </div>
             </div>
 
-            {/* Шаблон новых групп. Карточка просто раскрывается — выбранную в
-                «Программа для группы» группу не меняет (смена перегружала
-                программу ниже). Программу шаблона выбирают в селекторе. */}
+            {/* Шаблон новых групп. Карточка раскрыта ровно тогда, когда шаблон
+                выбран в «Программа для группы»: раскрыли — ниже программа
+                шаблона, свернули — вернулись к последней созданной группе. */}
             {templateGroup && (
               <div style={{ ...glass, borderRadius: 16, padding: 14, marginBottom: 16 }}>
                 <div style={{ fontSize: 14, fontWeight: 600, color: '#1a1a2e' }}>Редактирование шаблона</div>
@@ -1234,8 +1242,10 @@ export default function EditCoursePage({ courseId, userRole, betaTester = false,
                 </div>
                 <GroupCard key={templateGroup.id} group={templateGroup} template
                   courseDays={parseInt(daysCount) || 30}
-                  collapsed={!templateOpen}
-                  onToggleCollapsed={() => setTemplateOpen(v => !v)}
+                  collapsed={selectedGroupId !== templateGroup.id}
+                  onToggleCollapsed={() => setSelectedGroupId(
+                    selectedGroupId === templateGroup.id ? latestGroupId(groups) : templateGroup.id
+                  )}
                   onSave={saveGroup(templateGroup)} />
               </div>
             )}
@@ -1351,6 +1361,12 @@ export default function EditCoursePage({ courseId, userRole, betaTester = false,
           );
         })()}
 
+        {/* Пока грузится программа другой группы — притушено и не кликается,
+            чтобы правка не ушла в практику прежней группы. */}
+        <div aria-busy={switching} style={{
+          opacity: switching ? 0.45 : 1, pointerEvents: switching ? 'none' : undefined,
+          transition: 'opacity 0.15s',
+        }}>
         {activities.map((a, idx) => (
           <ActivityCard key={a._key} activity={a} index={idx} maxDay={streamDays}
             onUpdate={(f, v) => updateActivity(idx, f, v)}
@@ -1401,6 +1417,7 @@ export default function EditCoursePage({ courseId, userRole, betaTester = false,
               color: GREEN, fontSize: 15, fontWeight: 600, cursor: 'pointer',
             }}>+ Банк практик</button>
           )}
+        </div>
         </div>
 
         {/* Delete course */}
@@ -2158,8 +2175,8 @@ function GroupCard({ group, courseDays = 30, onSave, onApplyDefaults, onDelete, 
 
       {template && (
         <div style={{ fontSize: 12, color: '#888', marginBottom: 10, lineHeight: 1.45 }}>
-          Эти настройки новая группа получит при создании. Программу шаблона редактируйте
-          в «Активностях»: выберите «Шаблон новых групп» в «Программа для группы».
+          Эти настройки новая группа получит при создании. Ниже, в «Активностях», —
+          программа шаблона, пока эта карточка раскрыта.
         </div>
       )}
 
