@@ -62,6 +62,8 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
   const [groupPickerId, setGroupPickerId] = useState(null);
   // Режим редактирования настроек группы (id группы) — inline mini-editor
   const [groupEditId, setGroupEditId] = useState(null);
+  // Ученик, у которого раскрыта строка «Индивидуальные настройки» (enrollment_id).
+  const [settingsOpenId, setSettingsOpenId] = useState(null);
 
   // Invite state
   const [showInvite, setShowInvite] = useState(false);
@@ -448,6 +450,8 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
             const stats = getStudentStats(st);
             const pct = stats.totalDays > 0 ? Math.round((stats.elapsedDays / stats.totalDays) * 100) : 0;
             const isExpanded = expandedId === st.enrollment_id;
+            // Перевод в другую группу ждёт подтверждения — настройки держим раскрытыми.
+            const settingsOpen = settingsOpenId === st.enrollment_id || pendingMove?.enrollmentId === st.enrollment_id;
             const isBusy = actionId === st.enrollment_id;
             const isSelf = st.user_id === user.id;
             const isOwner = st.is_owner;
@@ -642,10 +646,42 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
                       }}
                     />
 
+                    {/* Индивидуальные настройки ученика (группа, режим зачёта дня,
+                        текущий день, доступ к материалам) — свёрнуты в одну строку;
+                        справа — краткая сводка, что настроено. */}
+                    {!isOwner && st.role === 'student' && (() => {
+                      const groupName = course?.groups_enabled ? (groups.find(g => g.id === st.group_id)?.name || '') : '';
+                      const summary = [
+                        groupName,
+                        st.progression_mode_override ? `свой режим: ${courseMode(st.progression_mode_override).toLowerCase()}` : '',
+                        st.access_days_after_override != null ? 'свой доступ' : '',
+                      ].filter(Boolean).join(' · ');
+                      return (
+                        <button type="button"
+                          onClick={() => setSettingsOpenId(settingsOpen ? null : st.enrollment_id)}
+                          aria-expanded={settingsOpen}
+                          style={{
+                            width: '100%', marginTop: 12, padding: '10px 12px', borderRadius: 10,
+                            border: '1px solid rgba(0,0,0,0.06)', background: 'rgba(0,0,0,0.02)',
+                            display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', textAlign: 'left',
+                          }}>
+                          <svg width={14} height={14} viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0, color: '#888' }}>
+                            <path d={settingsOpen ? 'M6 9L12 15L18 9' : 'M9 6L15 12L9 18'} stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                          <span style={{ fontSize: 13, fontWeight: 600, color: '#1a1a2e', flexShrink: 0 }}>Индивидуальные настройки</span>
+                          {summary && (
+                            <span style={{ fontSize: 12, color: '#999', marginLeft: 'auto', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {summary}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })()}
+
                     {/* v29/v30-3: селектор группы. При выборе новой группы
                         сначала спрашиваем — сохранить прогресс ученика или
                         начать программу заново. */}
-                    {course?.groups_enabled && !isOwner && st.role === 'student' && (() => {
+                    {settingsOpen && course?.groups_enabled && !isOwner && st.role === 'student' && (() => {
                       const isPending = pendingMove?.enrollmentId === st.enrollment_id;
                       const displayValue = isPending ? pendingMove.newGroupId : (st.group_id || '');
                       const newGroupMeta = isPending ? groups.find(g => g.id === pendingMove.newGroupId) : null;
@@ -700,7 +736,7 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
                     })()}
 
                     {/* v25: селектор per-student Режима зачёта дня. NULL = «Как у курса». */}
-                    {!isOwner && st.role === 'student' && (
+                    {settingsOpen && !isOwner && st.role === 'student' && (
                       <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 10, background: 'rgba(0,0,0,0.02)' }}>
                         <div style={{ fontSize: 11, color: '#888', fontWeight: 600, marginBottom: 6, textTransform: 'uppercase' }}>
                           Режим зачёта дня
