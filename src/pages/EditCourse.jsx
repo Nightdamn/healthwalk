@@ -291,6 +291,8 @@ export default function EditCoursePage({ courseId, userRole, betaTester = false,
   // Открытый IconPicker для аватара группы (id группы) — отдельный от pickerTarget
   // (который для активностей курса).
   const [groupPickerId, setGroupPickerId] = useState(null);
+  // Раскрыта ли карточка «Шаблон новых групп» (только UI, на выбор группы не влияет).
+  const [templateOpen, setTemplateOpen] = useState(false);
   // v30: какую группу редактируем (её контент). null до первой loadGroups —
   // тогда бэк fallback на is_default. После — держим id выбранной группы,
   // селектор над блоком «Активности» позволяет переключаться.
@@ -1221,9 +1223,9 @@ export default function EditCoursePage({ courseId, userRole, betaTester = false,
               </div>
             </div>
 
-            {/* Шаблон новых групп. Карточка раскрыта ровно тогда, когда шаблон
-                выбран в «Программа для группы»: раскрыли — редактируем его
-                программу, свернули — вернулись к последней созданной группе. */}
+            {/* Шаблон новых групп. Карточка просто раскрывается — выбранную в
+                «Программа для группы» группу не меняет (смена перегружала
+                программу ниже). Программу шаблона выбирают в селекторе. */}
             {templateGroup && (
               <div style={{ ...glass, borderRadius: 16, padding: 14, marginBottom: 16 }}>
                 <div style={{ fontSize: 14, fontWeight: 600, color: '#1a1a2e' }}>Редактирование шаблона</div>
@@ -1232,10 +1234,8 @@ export default function EditCoursePage({ courseId, userRole, betaTester = false,
                 </div>
                 <GroupCard key={templateGroup.id} group={templateGroup} template
                   courseDays={parseInt(daysCount) || 30}
-                  collapsed={selectedGroupId !== templateGroup.id}
-                  onToggleCollapsed={() => setSelectedGroupId(
-                    selectedGroupId === templateGroup.id ? latestGroupId(groups) : templateGroup.id
-                  )}
+                  collapsed={!templateOpen}
+                  onToggleCollapsed={() => setTemplateOpen(v => !v)}
                   onSave={saveGroup(templateGroup)} />
               </div>
             )}
@@ -2058,6 +2058,40 @@ function GroupCard({ group, courseDays = 30, onSave, onApplyDefaults, onDelete, 
     return many;
   };
 
+  // Шапка шаблона одинакова в свёрнутом и раскрытом виде (значок + заголовок)
+  // и кликабельна целиком — так очевидно, как свернуть карточку обратно.
+  const templateHeader = template && (
+    <div role="button" tabIndex={0} onClick={onToggleCollapsed}
+      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggleCollapsed?.(); } }}
+      aria-label={collapsed ? 'Развернуть' : 'Свернуть'}
+      style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', userSelect: 'none' }}>
+      <svg width={16} height={16} viewBox="0 0 24 24" fill="none" style={{ color: '#888', flexShrink: 0, margin: '0 5px' }}>
+        <path d={chevronPath} stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+      <div style={{
+        width: 36, height: 36, borderRadius: 9, flexShrink: 0,
+        background: '#fafafa', border: '1px solid rgba(0,0,0,0.06)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}>
+        <LayoutTemplate size={20} color={GREEN} strokeWidth={2} />
+      </div>
+      <div style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 600, color: '#1a1a2e' }}>
+        Шаблон новых групп
+      </div>
+    </div>
+  );
+
+  if (collapsed && template) {
+    return (
+      <div style={{
+        borderRadius: 12, border: '1px solid rgba(0,0,0,0.08)',
+        background: 'rgba(255,255,255,0.6)', padding: '10px 12px',
+      }}>
+        {templateHeader}
+      </div>
+    );
+  }
+
   if (collapsed) {
     return (
       <div style={{
@@ -2081,18 +2115,14 @@ function GroupCard({ group, courseDays = 30, onSave, onApplyDefaults, onDelete, 
           background: '#fafafa', border: '1px solid rgba(0,0,0,0.06)',
           display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 4,
         }}>
-          {template
-            ? <LayoutTemplate size={20} color={GREEN} strokeWidth={2} />
-            : <img src={getIconPath(avatarId)} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />}
+          <img src={getIconPath(avatarId)} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
         </div>
         <div style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 600, color: '#1a1a2e', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {template ? 'Шаблон новых групп' : (group.name || <span style={{ color: '#ccc', fontWeight: 400 }}>Без названия</span>)}
+          {group.name || <span style={{ color: '#ccc', fontWeight: 400 }}>Без названия</span>}
         </div>
-        {!template && (
-          <div style={{ fontSize: 12, color: '#888', flexShrink: 0 }}>
-            {membersCount} {plural(membersCount, 'ученик', 'ученика', 'учеников')}
-          </div>
-        )}
+        <div style={{ fontSize: 12, color: '#888', flexShrink: 0 }}>
+          {membersCount} {plural(membersCount, 'ученик', 'ученика', 'учеников')}
+        </div>
       </div>
     );
   }
@@ -2102,6 +2132,9 @@ function GroupCard({ group, courseDays = 30, onSave, onApplyDefaults, onDelete, 
       borderRadius: 12, border: '1px solid rgba(0,0,0,0.08)',
       background: 'rgba(255,255,255,0.6)', padding: 12,
     }}>
+      {template ? (
+        <div style={{ marginBottom: 10 }}>{templateHeader}</div>
+      ) : (
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, gap: 8 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
           <button type="button" onClick={onToggleCollapsed}
@@ -2115,19 +2148,18 @@ function GroupCard({ group, courseDays = 30, onSave, onApplyDefaults, onDelete, 
               <path d={chevronPath} stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </button>
-          <span style={{ fontSize: 13, fontWeight: 700, color: '#aaa' }}>{template ? 'Шаблон новых групп' : 'Группа'}</span>
+          <span style={{ fontSize: 13, fontWeight: 700, color: '#aaa' }}>Группа</span>
         </div>
-        {!template && (
-          <div style={{ fontSize: 11, color: '#888', flexShrink: 0 }}>
-            {membersCount} {plural(membersCount, 'ученик', 'ученика', 'учеников')}
-          </div>
-        )}
+        <div style={{ fontSize: 11, color: '#888', flexShrink: 0 }}>
+          {membersCount} {plural(membersCount, 'ученик', 'ученика', 'учеников')}
+        </div>
       </div>
+      )}
 
       {template && (
         <div style={{ fontSize: 12, color: '#888', marginBottom: 10, lineHeight: 1.45 }}>
-          Настройки ниже новая группа получит при создании. Программа шаблона — в «Активностях»
-          ниже, пока эта карточка раскрыта.
+          Эти настройки новая группа получит при создании. Программу шаблона редактируйте
+          в «Активностях»: выберите «Шаблон новых групп» в «Программа для группы».
         </div>
       )}
 
