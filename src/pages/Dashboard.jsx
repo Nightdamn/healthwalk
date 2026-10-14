@@ -50,11 +50,12 @@ function DayCircle({ day, timePct, allDone, practicePct, isPast, isCurrent, isFu
   let arcPct = 0;
   if (isFuture) arcPct = 0;
   else if (progressive) {
-    // free / self_paced — arc пропорционален прогрессу практик (0-100%).
-    // Полностью зелёный когда день закрыт (allDone).
-    if (allDone) arcPct = 100;
-    else arcPct = Math.max(0, Math.min(100, Math.round((practicePct || 0) * 100)));
+    // free / self_paced — по ободку ничего не ползёт: бледно-зелёная обводка,
+    // пока день не засчитан, полностью зелёная — когда засчитан (allDone).
+    // Прогресс практик показывает заливка внутри (fillH ниже).
+    arcPct = allDone ? 100 : 0;
   }
+  // daily — дуга времени дня на текущем дне, прошедшие — полностью.
   else if (allDone || isPast) arcPct = 100;
   else if (isCurrent) arcPct = Math.min(timePct, 100);
   const offset = CIRC - (arcPct / 100) * CIRC;
