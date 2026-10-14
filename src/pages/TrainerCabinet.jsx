@@ -118,12 +118,14 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
   useEffect(() => { loadData(); }, [loadData]);
 
   // Группы, в которые текущий пользователь может приглашать: создатель — во
-  // все, тренер/куратор — в свои (группа записи + где он назначен).
+  // все, тренер/куратор — в свои (группа записи + где он назначен). Шаблон
+  // новых групп (is_default) — не поток, приглашать в него некого.
   const inviteGroups = (() => {
     if (!course?.groups_enabled) return [];
-    if (course.owner_id === user.id) return groups;
+    const streams = groups.filter(g => !g.is_default);
+    if (course.owner_id === user.id) return streams;
     const myGroup = students.find(s => s.user_id === user.id)?.group_id;
-    return groups.filter(g => g.id === myGroup || g.trainer_id === user.id || g.curator_id === user.id);
+    return streams.filter(g => g.id === myGroup || g.trainer_id === user.id || g.curator_id === user.id);
   })();
   const needInviteGroup = inviteGroups.length > 0 && invRole === 'student';
 
@@ -702,7 +704,9 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
                               }
                               setPendingMove({ enrollmentId: st.enrollment_id, newGroupId: newGroupId || null });
                             }}
-                            options={groups.map(g => ({ value: g.id, label: g.name }))}
+                            options={groups
+                              .filter(g => !g.is_default || g.id === st.group_id)
+                              .map(g => ({ value: g.id, label: g.name }))}
                           />
                           {isPending && (
                             <div style={{ marginTop: 10, padding: 10, borderRadius: 8, background: '#fff', border: '1px solid rgba(230,126,34,0.35)' }}>
@@ -858,6 +862,10 @@ export default function TrainerCabinetPage({ courseId, user, onBack, onRefreshRo
             const nodes = [];
             for (const g of groups) {
               const list = byGroup.get(g.id) || [];
+              // Шаблон новых групп — не поток: прячем, если в нём только
+              // создатель (он и так виден в каждой группе виртуальной строкой).
+              // Застрявших в шаблоне учеников/тренеров показываем, чтобы не потерять.
+              if (g.is_default && !list.some(st => !st.is_owner)) continue;
               const canEdit = isCourseOwner || g.trainer_id === user.id || g.curator_id === user.id;
               nodes.push(
                 <GroupSection
