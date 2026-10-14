@@ -778,12 +778,8 @@ export default function Dashboard({
                       </button>
                     );
                   }
-                  // free: только подсказка
-                  return (
-                    <div style={{ marginTop: 12, padding: '10px 14px', fontSize: 12, color: '#888', textAlign: 'center', background: 'rgba(0,0,0,0.03)', borderRadius: 12 }}>
-                      Заверши все практики, чтобы открыть следующий день
-                    </div>
-                  );
+                  // free: без подсказки «Заверши все практики…» — убрана по просьбе Димы (2026-10-14).
+                  return null;
                 })()}
                 {/* self_paced: «Пройти день заново» для закрытого past-дня с partial progress */}
                 {isSelfPaced && closureSet.has(activeDay) && !isToday && (() => {
