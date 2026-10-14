@@ -1977,10 +1977,22 @@ router.post('/courses/:id/groups', async (req, res) => {
       return res.status(400).json({ error: 'Длительность — от 1 до 365 дней' });
     }
 
+    // Шаблон новых групп (is_default): его программа клонируется ниже, а его
+    // настройки (режим, длительность, привязка, доступ) — значения по умолчанию
+    // для новой группы. Дату старта шаблона не наследуем: у каждого потока
+    // своя. Нет шаблона — как раньше, настройки курса.
+    const template = await queryOne(
+      `SELECT id, progression_mode, bound_to_calendar, access_days_after, days_count,
+              day_start_hour, tz_offset_min
+         FROM course_groups WHERE course_id = $1 AND is_default LIMIT 1`,
+      [req.params.id]
+    );
+    const defaults = template || course;
+
     // sort_order = max + 1
     const last = await queryOne('SELECT COALESCE(MAX(sort_order), -1) AS m FROM course_groups WHERE course_id = $1', [req.params.id]);
     const sortOrder = parseInt(last?.m ?? -1) + 1;
-    const mode = ['daily','free','self_paced'].includes(progressionMode) ? progressionMode : (course.progression_mode || 'daily');
+    const mode = ['daily','free','self_paced'].includes(progressionMode) ? progressionMode : (defaults.progression_mode || 'daily');
     // trainer_id default = владелец курса
     const trainer = trainerId || course.owner_id;
 
@@ -1993,22 +2005,19 @@ router.post('/courses/:id/groups', async (req, res) => {
     `, [
       req.params.id, String(name).trim(), avatarIcon || 'health/1', avatarCustom || null,
       mode,
-      typeof boundToCalendar === 'boolean' ? boundToCalendar : (course.bound_to_calendar || false),
-      startDate || course.start_date || null,
-      accessDaysAfter === undefined ? course.access_days_after : accessDaysAfter,
-      dayStartHour ?? null,
-      tzOffsetMin ?? null,
-      trainer, curatorId || null, sortOrder, groupDays,
+      typeof boundToCalendar === 'boolean' ? boundToCalendar : (defaults.bound_to_calendar || false),
+      startDate || (template ? null : course.start_date) || null,
+      accessDaysAfter === undefined ? (defaults.access_days_after ?? null) : accessDaysAfter,
+      dayStartHour ?? defaults.day_start_hour ?? null,
+      tzOffsetMin ?? defaults.tz_offset_min ?? null,
+      trainer, curatorId || null, sortOrder,
+      groupDays ?? defaults.days_count ?? null,
     ]);
 
     // v30-2b: клонируем контент из шаблона (is_default группы курса) в новую
     // группу. activity_id (slug) сохраняется — так переход ученика с
     // preserveProgress найдёт соответствия по slug. activity_calls НЕ
     // клонируем: это индивидуальное расписание, тренер планирует своё.
-    const template = await queryOne(
-      'SELECT id FROM course_groups WHERE course_id = $1 AND is_default LIMIT 1',
-      [req.params.id]
-    );
     if (template && template.id !== row.id) {
       const srcActs = await query(
         'SELECT * FROM course_activities WHERE group_id = $1 ORDER BY sort_order',

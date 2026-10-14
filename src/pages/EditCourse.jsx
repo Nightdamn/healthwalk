@@ -19,6 +19,7 @@ import { createAutoSaver } from '../lib/autoSave';
 import MediaSection, { extractYoutubeId } from '../components/MediaSection';
 import RichTextEditor from '../components/RichTextEditor';
 import Dropdown from '../components/Dropdown';
+import { LayoutTemplate } from 'lucide-react';
 import { saveActivityToLibrary, refreshLibraryFromActivity,
   storeSubmitCourse, storeWithdrawCourse,
   getGroups, createGroup, updateGroup, deleteGroup, applyGroupDefaults } from '../lib/api';
@@ -504,12 +505,12 @@ export default function EditCoursePage({ courseId, userRole, betaTester = false,
       // если хочет редактировать. Новые группы (созданные из UI) в set
       // не попадают → остаются развёрнутыми.
       setGroupCollapsedIds(prev => prev === null ? new Set(list.map(g => g.id)) : prev);
-      // v30: инициализируем selectedGroupId — is_default если такая есть,
-      // иначе первая группа. Селектор над «Активностями» переключает контекст.
+      // v30: инициализируем selectedGroupId — последняя созданная группа
+      // (обычно её и настраивают), шаблон — только если групп ещё нет.
+      // Селектор над «Активностями» и карточка шаблона переключают контекст.
       setSelectedGroupId(prev => {
         if (prev && list.some(g => g.id === prev)) return prev; // текущий валиден
-        const def = list.find(g => g.is_default);
-        return def?.id || list[0]?.id || null;
+        return latestGroupId(list);
       });
     } finally { setGroupsLoading(false); }
   }, [courseId]);
@@ -1157,12 +1158,29 @@ export default function EditCoursePage({ courseId, userRole, betaTester = false,
             )}
           </div>
 
-          {groupsEnabled && (
+          {groupsEnabled && (() => {
+            // Шаблон (is_default) живёт в своём разделе ниже, в списке — только потоки.
+            const streamGroups = groups.filter(g => !g.is_default);
+            const templateGroup = groups.find(g => g.is_default);
+            const saveGroup = (g) => async (fields) => {
+              refreshCallsIfChanged(await updateGroup(g.id, fields));
+              await loadGroups();
+              // v32: поток стал короче — обрезаем расписания его практик, если
+              // эта группа сейчас открыта в редакторе (другие обрежутся при открытии).
+              if (fields.daysCount !== undefined && g.id === selectedGroupId) {
+                commitDaysCount(fields.daysCount ?? (parseInt(daysCount) || 30));
+              }
+            };
+            return (<>
             <div style={{ ...glass, borderRadius: 16, padding: 14, marginBottom: 16 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
                 <div style={{ fontSize: 14, fontWeight: 600, color: '#1a1a2e' }}>Группы курса</div>
                 <button onClick={async () => {
-                  const res = await createGroup(courseId, { name: `Группа ${groups.length + 1}`, progressionMode });
+                  // Настройки и программу новая группа берёт из шаблона (сервер).
+                  const taken = new Set(groups.map(g => g.name));
+                  let n = streamGroups.length + 1;
+                  while (taken.has(`Группа ${n}`)) n++;
+                  const res = await createGroup(courseId, { name: `Группа ${n}` });
                   if (res?.error) { setError(res.error); return; }
                   await loadGroups();
                   // v30: переключаем контекст редактирования на новосозданную
@@ -1173,12 +1191,12 @@ export default function EditCoursePage({ courseId, userRole, betaTester = false,
                   background: '#fff', color: GREEN, fontSize: 13, fontWeight: 600, cursor: 'pointer',
                 }}>+ Создать группу</button>
               </div>
-              {groupsLoading && <div style={{ fontSize: 12, color: '#888' }}>Загрузка…</div>}
-              {!groupsLoading && groups.length === 0 && (
+              {groupsLoading && groups.length === 0 && <div style={{ fontSize: 12, color: '#888' }}>Загрузка…</div>}
+              {!groupsLoading && streamGroups.length === 0 && (
                 <div style={{ fontSize: 12, color: '#888', fontStyle: 'italic' }}>Пока нет групп. Нажмите «Создать группу».</div>
               )}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {groups.map(g => (
+                {streamGroups.map(g => (
                   <GroupCard key={g.id} group={g} courseDays={parseInt(daysCount) || 30}
                     collapsed={groupCollapsedIds ? groupCollapsedIds.has(g.id) : false}
                     onToggleCollapsed={() => setGroupCollapsedIds(prev => {
@@ -1187,15 +1205,7 @@ export default function EditCoursePage({ courseId, userRole, betaTester = false,
                       return next;
                     })}
                     onPickIcon={() => setGroupPickerId(g.id)}
-                    onSave={async (fields) => {
-                      refreshCallsIfChanged(await updateGroup(g.id, fields));
-                      await loadGroups();
-                      // v32: поток стал короче — обрезаем расписания его практик, если
-                      // эта группа сейчас открыта в редакторе (другие обрежутся при открытии).
-                      if (fields.daysCount !== undefined && g.id === selectedGroupId) {
-                        commitDaysCount(fields.daysCount ?? (parseInt(daysCount) || 30));
-                      }
-                    }}
+                    onSave={saveGroup(g)}
                     onApplyDefaults={async () => { await applyGroupDefaults(g.id); }}
                     onDelete={async () => {
                       await deleteGroup(g.id);
@@ -1210,7 +1220,27 @@ export default function EditCoursePage({ courseId, userRole, betaTester = false,
                 ))}
               </div>
             </div>
-          )}
+
+            {/* Шаблон новых групп. Карточка раскрыта ровно тогда, когда шаблон
+                выбран в «Программа для группы»: раскрыли — редактируем его
+                программу, свернули — вернулись к последней созданной группе. */}
+            {templateGroup && (
+              <div style={{ ...glass, borderRadius: 16, padding: 14, marginBottom: 16 }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: '#1a1a2e' }}>Редактирование шаблона</div>
+                <div style={{ fontSize: 12, color: '#888', marginTop: 2, marginBottom: 10 }}>
+                  По этому шаблону будут создаваться все новые группы.
+                </div>
+                <GroupCard key={templateGroup.id} group={templateGroup} template
+                  courseDays={parseInt(daysCount) || 30}
+                  collapsed={selectedGroupId !== templateGroup.id}
+                  onToggleCollapsed={() => setSelectedGroupId(
+                    selectedGroupId === templateGroup.id ? latestGroupId(groups) : templateGroup.id
+                  )}
+                  onSave={saveGroup(templateGroup)} />
+              </div>
+            )}
+            </>);
+          })()}
 
           {/* Календарная привязка — доступна для всех режимов.
               В daily — определяет, с какой даты пойдут дни ученика.
@@ -1286,19 +1316,20 @@ export default function EditCoursePage({ courseId, userRole, betaTester = false,
 
         {/* v30: селектор группы — только когда groups_enabled и есть ≥1 группа.
              Правки активностей ниже применяются к выбранной группе.
-             is_default выводим первой с меткой «Общая (шаблон)», остальные — по алфавиту. */}
+             is_default выводим первой как «Шаблон новых групп», остальные — по алфавиту.
+             По умолчанию выбрана последняя созданная группа (latestGroupId). */}
         {groupsEnabled && groups.length > 0 && (() => {
           const sortedGroups = [...groups].sort((a, b) => {
             if (a.is_default !== b.is_default) return a.is_default ? -1 : 1;
-            return (a.name || '').localeCompare(b.name || '', 'ru');
+            return (a.name || '').localeCompare(b.name || '', 'ru', { numeric: true });
           });
           const opts = sortedGroups.map(g => ({
             value: g.id,
-            label: g.is_default && !/шаблон/i.test(g.name) ? `${g.name} (шаблон)` : g.name,
+            label: g.is_default ? 'Шаблон новых групп' : g.name,
           }));
           const current = selectedGroupId && groups.some(g => g.id === selectedGroupId)
             ? selectedGroupId
-            : sortedGroups[0]?.id;
+            : latestGroupId(groups);
           const isTemplate = groups.find(g => g.id === current)?.is_default;
           return (
             <div style={{
@@ -1980,7 +2011,17 @@ function ActivityCard({ activity, index, maxDay, onUpdate, onToggleDay, onRemove
 // v29: редактор одной группы.
 // Все поля с debounce-save (аналогично carе editor). apply-defaults сбрасывает
 // enrollment-override'ы, чтобы новое значение действительно применилось.
-function GroupCard({ group, courseDays = 30, onSave, onApplyDefaults, onDelete, collapsed = false, onToggleCollapsed, onPickIcon }) {
+// Последняя созданная группа курса (не шаблон); нет групп — шаблон.
+function latestGroupId(list) {
+  const streams = list.filter(g => !g.is_default);
+  if (streams.length === 0) return list.find(g => g.is_default)?.id || null;
+  return streams.reduce((a, b) => (String(b.created_at || '') > String(a.created_at || '') ? b : a)).id;
+}
+
+// template — карточка шаблона новых групп (is_default): без названия/значка,
+// учеников, даты старта и кнопок «Применить»/«Удалить» — только настройки,
+// которые новая группа возьмёт при создании.
+function GroupCard({ group, courseDays = 30, onSave, onApplyDefaults, onDelete, collapsed = false, onToggleCollapsed, onPickIcon, template = false }) {
   const [name, setName] = useState(group.name || '');
   const [mode, setMode] = useState(group.progression_mode || 'daily');
   // v32: своя длительность потока; пусто — как у курса (courseDays).
@@ -2040,14 +2081,18 @@ function GroupCard({ group, courseDays = 30, onSave, onApplyDefaults, onDelete, 
           background: '#fafafa', border: '1px solid rgba(0,0,0,0.06)',
           display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 4,
         }}>
-          <img src={getIconPath(avatarId)} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+          {template
+            ? <LayoutTemplate size={20} color={GREEN} strokeWidth={2} />
+            : <img src={getIconPath(avatarId)} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />}
         </div>
         <div style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 600, color: '#1a1a2e', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {group.name || <span style={{ color: '#ccc', fontWeight: 400 }}>Без названия</span>}
+          {template ? 'Шаблон новых групп' : (group.name || <span style={{ color: '#ccc', fontWeight: 400 }}>Без названия</span>)}
         </div>
-        <div style={{ fontSize: 12, color: '#888', flexShrink: 0 }}>
-          {membersCount} {plural(membersCount, 'ученик', 'ученика', 'учеников')}
-        </div>
+        {!template && (
+          <div style={{ fontSize: 12, color: '#888', flexShrink: 0 }}>
+            {membersCount} {plural(membersCount, 'ученик', 'ученика', 'учеников')}
+          </div>
+        )}
       </div>
     );
   }
@@ -2070,13 +2115,23 @@ function GroupCard({ group, courseDays = 30, onSave, onApplyDefaults, onDelete, 
               <path d={chevronPath} stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </button>
-          <span style={{ fontSize: 13, fontWeight: 700, color: '#aaa' }}>Группа</span>
+          <span style={{ fontSize: 13, fontWeight: 700, color: '#aaa' }}>{template ? 'Шаблон новых групп' : 'Группа'}</span>
         </div>
-        <div style={{ fontSize: 11, color: '#888', flexShrink: 0 }}>
-          {membersCount} {plural(membersCount, 'ученик', 'ученика', 'учеников')}
-        </div>
+        {!template && (
+          <div style={{ fontSize: 11, color: '#888', flexShrink: 0 }}>
+            {membersCount} {plural(membersCount, 'ученик', 'ученика', 'учеников')}
+          </div>
+        )}
       </div>
 
+      {template && (
+        <div style={{ fontSize: 12, color: '#888', marginBottom: 10, lineHeight: 1.45 }}>
+          Настройки ниже новая группа получит при создании. Программа шаблона — в «Активностях»
+          ниже, пока эта карточка раскрыта.
+        </div>
+      )}
+
+      {!template && (
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10 }}>
         <button onClick={onPickIcon} style={{
           width: 44, height: 44, borderRadius: 11, flexShrink: 0,
@@ -2093,6 +2148,7 @@ function GroupCard({ group, courseDays = 30, onSave, onApplyDefaults, onDelete, 
             border: '1px solid rgba(0,0,0,0.1)', background: '#fff',
           }} />
       </div>
+      )}
 
       <div style={{ marginBottom: 10 }}>
         <label style={{ fontSize: 11, color: '#666', marginBottom: 4, display: 'block' }}>Режим зачёта</label>
@@ -2125,7 +2181,7 @@ function GroupCard({ group, courseDays = 30, onSave, onApplyDefaults, onDelete, 
           onChange={e => { setBoundCal(e.target.checked); saveField({ boundToCalendar: e.target.checked }); }} />
         Привязать к дате
       </label>
-      {boundCal && (
+      {boundCal && !template && (
         <div style={{ marginBottom: 8 }}>
           <label style={{ fontSize: 11, color: '#666', display: 'block' }}>Дата старта</label>
           <input type="date" value={startDate}
@@ -2133,6 +2189,11 @@ function GroupCard({ group, courseDays = 30, onSave, onApplyDefaults, onDelete, 
             onBlur={() => saveField({ startDate: startDate || null })}
             style={{ width: 200, padding: '6px 8px', borderRadius: 8, fontSize: 13,
               border: '1px solid rgba(0,0,0,0.1)', background: '#fff' }} />
+        </div>
+      )}
+      {boundCal && template && (
+        <div style={{ fontSize: 11, color: '#888', marginBottom: 8, marginTop: -4 }}>
+          Дата старта — у каждой новой группы своя, задаётся в её карточке.
         </div>
       )}
 
@@ -2146,6 +2207,8 @@ function GroupCard({ group, courseDays = 30, onSave, onApplyDefaults, onDelete, 
             border: '1px solid rgba(0,0,0,0.1)', background: '#fff' }} />
       </div>
 
+      {template && savedMark && <span style={{ fontSize: 11, color: GREEN }}>сохранено</span>}
+      {!template && (
       <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
         <button onClick={async () => { setBusy(true); try { await onApplyDefaults(); } finally { setBusy(false); } }}
           disabled={busy}
@@ -2181,6 +2244,7 @@ function GroupCard({ group, courseDays = 30, onSave, onApplyDefaults, onDelete, 
         )}
         {savedMark && <span style={{ fontSize: 11, color: GREEN, alignSelf: 'center' }}>сохранено</span>}
       </div>
+      )}
     </div>
   );
 }
